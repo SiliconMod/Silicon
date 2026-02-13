@@ -15,7 +15,7 @@ main: "easierMindustry.EasierMindustry"
 description: "一个添加了个人想法的模组"
 
 #the mod version
-version: a0.2.8
+version: a0.2.9
 
 #the minimum game build required to run this mod
 minGameVersion: 154.3
