@@ -45,4 +45,4 @@ plugins {
 }
 
 rootProject.name = "AMindustryJavaMod"
-//include(":app")
+include(":app")

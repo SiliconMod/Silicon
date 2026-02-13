@@ -5,8 +5,8 @@ version '1.0'
 sourceSets.main.java.srcDirs = ["src"]
 
 //repositories{
-//    maven{ url 'https://www.jitpack.io' }
 //    maven { url "https://raw.githubusercontent.com/Zelaux/MindustryRepo/master/repository" }
+//    maven{ url 'https://www.jitpack.io' }
 //
 //    maven { setUrl("https://maven.aliyun.com/repository/central") }
 //    maven { setUrl("https://maven.aliyun.com/repository/jcenter") }
@@ -16,7 +16,6 @@ sourceSets.main.java.srcDirs = ["src"]
 //    maven { setUrl("https://maven.aliyun.com/nexus/content/groups/public/") }
 //    maven { setUrl("https://maven.aliyun.com/nexus/content/repositories/jcenter") }
 //    maven { setUrl("https://maven.pkg.jetbrains.space/public/p/compose/dev") }
-//    maven { setUrl("https://mirrors.aliyun.com/gradle/distributions") }
 //    gradlePluginPortal()
 //    google()
 //    mavenCentral()
@@ -30,9 +29,9 @@ java{
 
 ext{
     //the build number that this mod is made for
-    mindustryVersion = 'v155.2'
-    arcVersion = 'v155.2'
-    jabelVersion = "1.0.1"
+    mindustryVersion = 'v154.3'
+    arcVersion = 'v154.3'
+    jabelVersion = "93fde537c7"
     //windows sucks
     isWindows = System.getProperty("os.name").toLowerCase().contains("windows")
     sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
@@ -52,7 +51,7 @@ dependencies{
     compileOnly "com.github.Anuken.MindustryJitpack:core:$mindustryVersion"
     compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
 
-    annotationProcessor "com.github.bsideup:jabel:$jabelVersion"
+    annotationProcessor "com.github.Anuken:jabel:$jabelVersion"
 }
 
 //force arc version
@@ -80,13 +79,13 @@ tasks.register('jarAndroid') {
         def d8 = isWindows ? "d8.bat" : "d8"
 
         //dex and desugar files - this requires d8 in your PATH
-        "$d8 $dependencies --min-api 14 --output ${project.base.archivesName}Android.jar ${project.base.archivesName}Desktop.jar"
-                .execute(null, new File("$layout.buildDirectory/libs")).waitForProcessOutput(System.out, System.err)
+        "$d8 $dependencies --min-api 14 --output ${project.archivesBaseName}Android.jar ${project.archivesBaseName}Desktop.jar"
+                .execute(null, new File("$buildDir/libs")).waitForProcessOutput(System.out, System.err)
     }
 }
 
 jar{
-    archiveFileName = "${base.archivesName.get()}Desktop.jar"
+    archiveFileName = "${base.archivesBaseName}Desktop.jar"
 
     from{
         configurations.runtimeClasspath.collect{ it.isDirectory() ? it : zipTree(it) }
@@ -104,14 +103,14 @@ jar{
 tasks.register('deploy', Jar) {
     dependsOn jarAndroid
     dependsOn jar
-    archiveFileName = "${base.archivesName.get()}.jar"
+    archiveFileName = "${base.archivesBaseName}.jar"
 
-    from { [zipTree("$layout.buildDirectory/libs/${project.base.archivesName}Desktop.jar"), zipTree("$layout.buildDirectory/libs/${project.base.archivesName}Android.jar")] }
+    from { [zipTree("$buildDir/libs/${project.archivesBaseName}Desktop.jar"), zipTree("$buildDir/libs/${project.archivesBaseName}Android.jar")] }
 
     doLast {
         delete {
-            delete "$layout.buildDirectory/libs/${project.base.archivesName}Desktop.jar"
-            delete "$layout.buildDirectory/libs/${project.base.archivesName}Android.jar"
+            delete "$buildDir/libs/${project.archivesBaseName}Desktop.jar"
+            delete "$buildDir/libs/${project.archivesBaseName}Android.jar"
         }
     }
 }
