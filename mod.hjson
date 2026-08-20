@@ -12,7 +12,8 @@ main: "silicon.Silicon"
 
 #the mod description as seen in the mod dialog
 #在游戏内显示的模组描述
-description: "一个添加了个人想法的模组"
+description: "一个添加了个人创意的 Mindustry 模组，提供多种实用方块与便捷功能。\n\n[accent]方块与物品[]\n- 矿物转换器：按地图矿点稀有度，将可开采矿物相互转化\n- 物品传输中枢：零缓冲物流网络，按需拉取、盈余自动推送至核心\n- 电力保护器：电网崩溃时锁定保护，并逐步偿还消耗的电力\n- 利滚利发电机：按已存电力的 1%/秒复合产出电力\n- 发电泵、两用交叉器、开关、电力源等\n\n[accent]功能[]\n- 方块搜索：建造菜单内跨全分类搜索方块，支持中文拼音模糊匹配与历史记录\n- 多人暂停：多人游戏中申请暂停，支持管理员/白名单授权\n\nA personal Mindustry mod adding practical blocks and features."
+
 
 #the mod version
 version: a0.8.6.1
