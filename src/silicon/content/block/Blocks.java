@@ -7,6 +7,7 @@ import mindustry.type.ItemStack;
 import mindustry.world.Block;
 import mindustry.world.meta.BuildVisibility;
 import silicon.world.blocks.defense.Switch;
+import silicon.world.blocks.distribution.ItemTransferHub;
 import silicon.world.blocks.distribution.Junction;
 import silicon.world.blocks.power.GeneratorPump;
 import silicon.world.blocks.power.PowerProtector;
@@ -18,7 +19,7 @@ import static mindustry.type.ItemStack.with;
 
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction,
-            rollGenerator, powerProtector, powerSource, mineConverter, theSwitch;
+            rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -50,7 +51,6 @@ public class Blocks {
                             Items.silicon, 16, Items.thorium, 16, Items.plastanium, 10));
             alwaysUnlocked = true;
             size = 1;
-//            health = 800;
             powerStoredProductionPercentage = 0.001f;
             powerChangedProductionPercentage = 0.005f;
         }};
@@ -85,6 +85,13 @@ public class Blocks {
             alwaysUnlocked = true;
             update = true;
             solid = true;
+        }};
+        itemTransferHub = new ItemTransferHub("item-transfer-hub") {{
+            requirements(Category.distribution, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 80, Items.lead, 40, Items.metaglass, 20,
+                            Items.graphite, 30, Items.silicon, 25, Items.titanium, 15));
+            alwaysUnlocked = true;
+            size = 3;
         }};
     }
 }

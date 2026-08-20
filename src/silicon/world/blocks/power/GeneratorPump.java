@@ -10,6 +10,8 @@ import arc.util.Nullable;
 import arc.util.Scaling;
 import arc.util.Strings;
 import arc.util.Time;
+import arc.util.io.Reads;
+import arc.util.io.Writes;
 import mindustry.content.Fx;
 import mindustry.core.UI;
 import mindustry.entities.Effect;
@@ -64,6 +66,8 @@ public class GeneratorPump extends LiquidBlock {
     public @Nullable ConsumeItemFilter filterItem;
     /** Optional liquid consumption filter */
     public @Nullable ConsumeLiquidFilter filterLiquid;
+    /** Cached liquid booster consumer */
+    public @Nullable ConsumeLiquid boosterLiquid;
 
     public GeneratorPump(String name) {
         super(name);
@@ -83,6 +87,9 @@ public class GeneratorPump extends LiquidBlock {
     public void init() {
         filterItem = findConsumer(c -> c instanceof ConsumeItemFilter);
         filterLiquid = findConsumer(c -> c instanceof ConsumeLiquidFilter);
+        if (findConsumer(f -> f instanceof ConsumeLiquid cl && cl.booster) instanceof ConsumeLiquid cl) {
+            boosterLiquid = cl;
+        }
 
         if (canPumpLiquids != null) {
             outputsLiquid = true;
@@ -115,16 +122,12 @@ public class GeneratorPump extends LiquidBlock {
                     () -> Pal.powerBar,
                     () -> entity.productionEfficiency)
             );
-
-//            addBar("liquidoutput", new Bar(Core.bundle.format("bar.liquid-output",),Pal.li));
         }
     }
 
     @Override
     public void setStats() {
         super.setStats();
-
-//        stats.add(Stat.basePowerGeneration, powerProduction * 60.0f, StatUnit.powerSecond);
         stats.add(Stat.powerUse, powerConsumption * 60f, StatUnit.powerSecond);
         if (hasItems) {
             stats.add(Stat.productionTime, consumeTime / 60f, StatUnit.seconds);
@@ -233,14 +236,6 @@ public class GeneratorPump extends LiquidBlock {
                 generateEffect.at(x + Mathf.range(generateEffectRange), y + Mathf.range(generateEffectRange));
             }
 
-            //take in items periodically
-//            if (hasItems && valid && generateTime <= 0f) {
-//                consume();
-//                consumeEffect.at(x + Mathf.range(generateEffectRange), y + Mathf.range(generateEffectRange));
-//                generateTime = 1f;
-//            }
-
-            //Pump
             if (valid && liquidDrop != null) {
                 float maxPump = Math.min(liquidCapacity - liquids.get(liquidDrop), amount * pumpAmount * edelta());
                 liquids.add(liquidDrop, maxPump);
@@ -248,7 +243,7 @@ public class GeneratorPump extends LiquidBlock {
                 //does nothing for most pumps, as those do not require items.
                 if((consTimer += delta()) >= consumeTime){
                     consume();
-                    consTimer %= 1f;
+                    consTimer %= consumeTime;
                 }
 
                 warmup = Mathf.approachDelta(warmup, maxPump > 0.001f ? 1f : 0f, warmupSpeed);
@@ -258,14 +253,10 @@ public class GeneratorPump extends LiquidBlock {
 
             totalProgress += warmup * Time.delta;
 
-            if (findConsumer(f -> f instanceof ConsumeLiquid) instanceof ConsumeLiquid consumeLiquid
-                    && consumeLiquid.booster
-                    && liquids.get(consumeLiquid.liquid) > consumeLiquid.amount) {
+            if (boosterLiquid != null
+                    && liquids.get(boosterLiquid.liquid) > boosterLiquid.amount) {
                 dumpLiquid(liquids.current());
             }
-
-            //generation time always goes down, but only at the end so consumeTriggerValid doesn't assume fake items
-//            generateTime -= delta() / itemDuration;
         }
 
         @Override
@@ -348,6 +339,31 @@ public class GeneratorPump extends LiquidBlock {
         @Override
         public byte version() {
             return 1;
+        }
+
+        @Override
+        public void write(Writes write) {
+            super.write(write);
+            write.f(warmup);
+            write.f(efficiencyMultiplier);
+            write.f(productionEfficiency);
+            write.f(consTimer);
+            write.f(totalProgress);
+            write.s(liquidDrop == null ? -1 : liquidDrop.id);
+            write.f(amount);
+        }
+
+        @Override
+        public void read(Reads read, byte revision) {
+            super.read(read, revision);
+            warmup = read.f();
+            efficiencyMultiplier = read.f();
+            productionEfficiency = read.f();
+            consTimer = read.f();
+            totalProgress = read.f();
+            short liquidId = read.s();
+            liquidDrop = liquidId >= 0 ? content.liquids().get(liquidId) : null;
+            amount = read.f();
         }
     }
 }

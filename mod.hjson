@@ -15,7 +15,7 @@ main: "silicon.Silicon"
 description: "一个添加了个人想法的模组"
 
 #the mod version
-version: a0.8.0
+version: a0.8.6.0
 
 #the minimum game build required to run this mod
 minGameVersion: 155.4

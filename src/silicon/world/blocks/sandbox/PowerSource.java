@@ -42,7 +42,7 @@ public class PowerSource extends mindustry.world.blocks.sandbox.PowerSource {
                 }
             }
             // Return power production based on enabled state
-            return enabled ? powerProduction / i / 60 : 0f;
+            return enabled && i > 0 ? powerProduction / i / 60 : 0f;
         }
     }
 }

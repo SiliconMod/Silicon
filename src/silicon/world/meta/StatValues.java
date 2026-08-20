@@ -31,7 +31,7 @@ public class StatValues extends mindustry.world.meta.StatValues {
     public static Table displayItemsScaled(Item item, float amount, boolean showName, String spacing) {
         Table t = new Table();
         t.add(stack(item.uiIcon, amount, item, !showName, spacing));
-        if (showName) t.add(item.localizedName).padLeft(4 + amount > 99 ? 4 : 0);
+        if (showName) t.add(item.localizedName).padLeft(4 + (amount > 99 ? 4 : 0));
         return t;
     }
 

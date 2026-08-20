@@ -31,7 +31,7 @@ public class FrameBlock extends Block {
         @Override
         public void draw() {
             super.draw();
-//            Log.info(Strings.fixed(Time.time, 2));
+            if (frame <= 0) return;
             int idx = ((int) (Time.time * frameTime / 60f)) % frame;
             Draw.rect(frames[idx], x, y);
         }

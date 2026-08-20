@@ -21,7 +21,9 @@ public class Switch extends Block {
         configurable = false;
         rotate = true;
         group = BlockGroup.projectors;
-        config(Boolean.class, (building, enabled) -> building.front().enabled = !enabled);
+        config(Boolean.class, (building, enabled) -> {
+            if (building.front() != null) building.front().enabled = !enabled;
+        });
     }
 
     @Override
@@ -36,7 +38,6 @@ public class Switch extends Block {
         @Override
         public void drawSelect() {
             super.drawSelect();
-//            Draw.color(front().enabled ? Color.green : Color.red, 255);
             if (front() == null || (front() instanceof SwitchBuild)) return;
             Drawf.selected(front(), SiliconTmp.c1.set(front().enabled ? Color.green : Color.red).a(Mathf.absin(4f, 1f)));
 
@@ -44,6 +45,7 @@ public class Switch extends Block {
 
         @Override
         public void updateTile() {
+            super.updateTile();
             if (front() != null && front().enabled != fE) front().enabled = fE;
         }
 
@@ -75,9 +77,9 @@ public class Switch extends Block {
             fE = read.bool();
         }
 
-//        @Override
-//        public Boolean config() {
-//            return front().enabled;
-//        }
+        @Override
+        public Boolean config() {
+            return front() != null && front().enabled;
+        }
     }
 }

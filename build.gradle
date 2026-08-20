@@ -50,6 +50,12 @@ ext{
     mindustryVersion = "v159.7"
     isWindows = System.getProperty("os.name").toLowerCase().contains("windows")
     sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+
+    // Parse mod version from mod.hjson for artifact naming
+    def hjsonText = file("mod.hjson").text
+    def versionLine = hjsonText.readLines().find { it.trim().startsWith("version:") }
+    modVersion = versionLine ? versionLine.split(":", 2)[1].trim() : "unknown"
+    gameVersion = mindustryVersion
 }
 
 dependencies{
@@ -68,13 +74,20 @@ tasks.register('jarAndroid') {
         if (!platformRoot) throw new GradleException("No android.jar found. Ensure that you have an Android platform installed.")
 
         //collect dependencies needed for desugaring
-        def dependencies = (configurations.compileClasspath.asList() + configurations.runtimeClasspath.asList() + [new File(platformRoot, "android.jar")]).collect { "--classpath $it.path" }.join(" ")
+        def classpathDeps = (configurations.compileClasspath.asList() + configurations.runtimeClasspath.asList()).collect { "--classpath $it.path" }.join(" ")
+        def androidLib = "--lib ${new File(platformRoot, "android.jar").path}"
 
-        def d8 = isWindows ? "d8.bat" : "d8"
+        def d8File = new File("$sdkRoot/build-tools/34.0.0/${isWindows ? 'd8.bat' : 'd8'}")
+        if (!d8File.exists()) throw new GradleException("d8 not found at ${d8File.path}. Ensure build-tools 34.0.0 is installed.")
+        def d8 = d8File.path
 
-        //dex and desugar files - this requires d8 in your PATH
-        "$d8 $dependencies --min-api 14 --output ${projectName}Android.jar ${projectName}Desktop.jar"
-                .execute(null, new File("build/libs")).waitForProcessOutput(System.out, System.err)
+        def process =         "$d8 $classpathDeps $androidLib --min-api 21 --output ${projectName}Android.jar ${projectName}Desktop.jar"
+                .execute(null, new File("build/libs"))
+        process.consumeProcessOutput(System.out, System.err)
+        process.waitFor()
+        if (process.exitValue() != 0) {
+            throw new GradleException("d8 dexing failed with exit code ${process.exitValue()}")
+        }
     }
 }
 
@@ -98,7 +111,8 @@ tasks.register('deploy', Jar) {
     def projectName = project.name
     dependsOn jarAndroid
     dependsOn jar
-    archiveFileName = "${projectName}.jar"
+    archiveFileName = "${projectName}-${modVersion}-${gameVersion}.jar"
+    destinationDirectory = file("build/libs")
 
     from { [zipTree("build/libs/${projectName}Desktop.jar"), zipTree("build/libs/${projectName}Android.jar")] }
 
