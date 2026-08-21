@@ -29,7 +29,7 @@ import static mindustry.Vars.content;
 /**
  * 万向交叉器 (Universal Junction)
  * <p>
- * 1x1 物品交叉器：可为四个输入方向分别配置各输出方向的优先级 (0~100)，
+ * 1x1 物品交叉器：可为四个输入方向分别配置各输出方向的优先级 (0~4)，
  * 数值越大越优先输出，0 表示不输出；同优先级的方向轮流输出实现均分。
  * 方向满载时短暂等待重试，连续堵塞才降级到次高优先级，且降级后持续生效、
  * 恢复时自动切回。传输速率 50 物品/秒。
@@ -94,7 +94,7 @@ public class UniversalJunction extends Block {
     }
 
     public class UniversalJunctionBuild extends Building {
-        /** 优先级矩阵 [输入方向][输出方向]，0~100；0 = 不输出 */
+        /** 优先级矩阵 [输入方向][输出方向]，0~4；0 = 不输出 */
         public final int[][] weights = new int[4][4];
         /** 四方向物品缓冲（下标为标准方位：0=上 1=右 2=下 3=左） */
         public final DirectionalItemBuffer buffer = new DirectionalItemBuffer(capacity);
@@ -109,9 +109,9 @@ public class UniversalJunction extends Block {
 
         private static final int timerMove = 0;
 
-        /** 默认所有方向优先级 25 */
+        /** 默认所有方向优先级 2 */
         {
-            setAll(25);
+            setAll(2);
         }
 
         @Override
@@ -283,7 +283,7 @@ public class UniversalJunction extends Block {
             try {
                 for (int i = 0; i < 4; i++) {
                     for (int j = 0; j < 4; j++) {
-                        weights[i][j] = Mathf.clamp(Integer.parseInt(parts[i * 4 + j].trim()), 0, 100);
+                        weights[i][j] = Mathf.clamp(Integer.parseInt(parts[i * 4 + j].trim()), 0, 4);
                     }
                 }
             } catch (NumberFormatException e) {
@@ -323,7 +323,7 @@ public class UniversalJunction extends Block {
                     final int out = d;
                     outTable.table(row -> {
                         row.add(dirNames[out] + " →").width(56f);
-                        Slider sl = new Slider(0f, 100f, 5f, false);
+                        Slider sl = new Slider(0f, 4f, 1f, false);
                         sl.setValue(weights[in][out]);
                         Label val = new Label(String.valueOf((int) sl.getValue()));
                         sl.changed(() -> {
@@ -361,7 +361,7 @@ public class UniversalJunction extends Block {
             // 快捷按钮
             t.table(quick -> {
                 quick.button(Core.bundle.get("universaljunction.even"), () -> {
-                    setAll(25);
+                    setAll(2);
                     rebuild.run();
                     configure(weightsString());
                 }).size(150f, 42f).pad(5f);
