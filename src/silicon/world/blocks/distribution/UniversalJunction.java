@@ -374,16 +374,17 @@ public class UniversalJunction extends Block {
             // 高度 40px 容纳 Mindustry 滑块（knob 大），左缘 16px 留给 knob 防向左溢出
             WidgetGroup group = new WidgetGroup();
             group.setSize(220f, 40f);
-            // 折叠文字层（常态可见）
+            // 折叠文字层（常态可见，垂直居中）
             Label textL = new Label("▾ " + foldText(data, out));
             textL.setBounds(0f, 0f, 220f, 40f);
-            textL.setAlignment(Align.left);
+            textL.setAlignment(Align.center);
             textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
             textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
-            // 滑块层（常态透明占位，布局恒定）
+            // 滑块层（常态透明占位，布局恒定；滑块 growX 填满剩余空间，垂直居中）
             Table sg = new Table();
             sg.setBounds(0f, 0f, 220f, 40f);
             sg.marginLeft(16f); // knob 空间
+            sg.marginRight(10f);
             Slider sl = new Slider(0f, 4f, 1f, false);
             sl.setValue(data[out]);
             Label val = new Label(String.valueOf((int) sl.getValue()));
@@ -393,7 +394,7 @@ public class UniversalJunction extends Block {
                 val.setText(String.valueOf(v));
                 onChanged.accept(v);
             });
-            sg.add(sl).width(150f).padRight(6f);
+            sg.add(sl).growX().padRight(6f);
             sg.add(val).width(30f);
             sg.setColor(1f, 1f, 1f, force ? 1f : 0f);
 
@@ -658,11 +659,27 @@ public class UniversalJunction extends Block {
                 overrideTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(4f).row();
                 final boolean[] tapOpen = new boolean[4];
                 final boolean[] hoverOpen = new boolean[4];
+                final Table[] rows = new Table[4];
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
+                    rows[out] = row;
                     renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
                         weights[in][out] = v;
+                        // 值组可能变化：刷新其他行的折叠文字（当前行保持滑块不重建）
+                        for (int k = 0; k < 4; k++) {
+                            if (k == out) continue;
+                            final int kk = k;
+                            renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
+                                weights[in][kk] = x;
+                                noteR.run();
+                                table.invalidateHierarchy();
+                                markConfigDirty();
+                            });
+                        }
+                        // 覆盖状态可能变化：刷新全局区"已单独配置"提示
+                        noteR.run();
+                        table.invalidateHierarchy();
                         markConfigDirty(); // 节流发送
                     });
                     overrideTable.add(row).padBottom(2f).row();
