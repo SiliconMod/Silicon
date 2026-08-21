@@ -96,10 +96,10 @@ public class UniversalJunction extends Block {
     @Override
     public void load() {
         super.load();
-        // TODO: 占位贴图——复用原版交叉器贴图，后续绘制专属贴图并补充物品流向动画
-        TextureRegion j = Core.atlas.find("junction");
-        region = j;
-        generatedIcons = new TextureRegion[]{j};
+        // 自带贴图：assets/sprites/blocks/distribution/universal-junction.png
+        // （四向箭头 + 中心青色智能中枢；TODO: 后续补充物品流向动画）
+        region = Core.atlas.find(name);
+        generatedIcons = new TextureRegion[]{region};
     }
 
     @Override
