@@ -729,12 +729,14 @@ public class UniversalJunction extends Block {
                 globalTable.clearChildren();
                 final boolean[] gtap = new boolean[4];
                 final boolean[] ghover = new boolean[4];
+                final Table[] grows = new Table[4];
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
                     // hover/exited 监听仅注册一次
                     row.hovered(() -> ghover[out] = true);
                     row.exited(() -> ghover[out] = false);
+                    grows[out] = row;
                     renderRow(row, defaultRow, out, gtap, ghover, v -> {
                         // 修改前记录未覆盖的输入方向（基于旧全局值，避免修改瞬间误判为已覆盖）
                         boolean[] follow = new boolean[4];
@@ -743,6 +745,23 @@ public class UniversalJunction extends Block {
                         // 仅未覆盖方向跟随；被覆盖方向保持不变
                         for (int in = 0; in < 4; in++) {
                             if (follow[in]) weights[in][out] = v;
+                        }
+                        // 刷新全局区其他行的折叠文字（同值组可能变化；当前行保持滑块不重建）
+                        for (int k = 0; k < 4; k++) {
+                            if (k == out) continue;
+                            final int kk = k;
+                            renderRow(grows[kk], defaultRow, kk, gtap, ghover, x -> {
+                                boolean[] f2 = new boolean[4];
+                                for (int in = 0; in < 4; in++) f2[in] = !isOverride(in);
+                                defaultRow[kk] = x;
+                                for (int in = 0; in < 4; in++) {
+                                    if (f2[in]) weights[in][kk] = x;
+                                }
+                                r[1].run();
+                                noteR.run();
+                                table.invalidateHierarchy();
+                                markConfigDirty();
+                            });
                         }
                         // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
                         r[1].run();
