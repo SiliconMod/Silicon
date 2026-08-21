@@ -372,6 +372,10 @@ public class UniversalJunction extends Block {
             boolean force = isUnique(data, out) || isRepresentative(data, out); // 始终显示滑块
             boolean show = force || tapOpen[out] || hoverOpen[out];
 
+            // 数值列（先创建引用，最后 add 到行尾；滑块拖动时更新文本）
+            Label val = new Label(String.valueOf(data[out]));
+            val.setAlignment(Align.center);
+
             // 三列布局：标签 / 内容（文字↔滑块交替）/ 数值 —— Table 布局天然对齐
             Label dirL = new Label(dirName(out) + " →");
             dirL.setAlignment(Align.right);
@@ -389,17 +393,17 @@ public class UniversalJunction extends Block {
             if (show) {
                 Slider sl = new Slider(0f, 4f, 1f, false);
                 sl.setValue(data[out]);
-                sl.setColor(1f, 1f, 1f, 0f); // 淡入起点
                 sl.changed(() -> {
                     int v = (int) sl.getValue();
                     data[out] = v;
+                    val.setText(String.valueOf(v));
                     onChanged.accept(v);
                 });
                 content.add(sl).growX().padLeft(12f).padRight(12f);
             } else {
                 Label textL = new Label("▾ " + foldText(data, out));
                 textL.setAlignment(Align.left);
-                textL.setColor(1f, 1f, 1f, 0f); // 淡入起点
+                textL.setColor(Color.white);
                 textL.clicked(() -> {
                     tapOpen[out] = !tapOpen[out];
                     renderRow(row, data, out, tapOpen, hoverOpen, onChanged);
@@ -407,20 +411,7 @@ public class UniversalJunction extends Block {
                 content.add(textL).growX().padLeft(12f);
             }
 
-            // 数值列（折叠时透明，展开时显示）
-            Label val = new Label(String.valueOf(data[out]));
-            val.setAlignment(Align.center);
-            val.setColor(1f, 1f, 1f, show ? 1f : 0f);
             row.add(val).width(32f).height(40f);
-
-            // 淡入淡出：每帧 alpha 向目标值 lerp
-            row.update(() -> {
-                float target = (force || tapOpen[out] || hoverOpen[out]) ? 1f : 0f;
-                for (Element e : content.getChildren()) {
-                    e.setColor(1f, 1f, 1f, Mathf.lerp(e.color.a, target, 0.25f));
-                }
-                val.setColor(1f, 1f, 1f, Mathf.lerp(val.color.a, target, 0.25f));
-            });
         }
 
         /**
@@ -658,7 +649,8 @@ public class UniversalJunction extends Block {
                         }, () -> {
                             selDir[0] = dir;
                             r[1].run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         }).size(72f, 36f).pad(3f).get();
                         btn.update(() -> btn.setChecked(selDir[0] == dir));
                     }
@@ -683,12 +675,14 @@ public class UniversalJunction extends Block {
                                 renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
                                     weights[in][kk] = x;
                                     noteR.run();
-                                    table.invalidateHierarchy();
+                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                                     markConfigDirty();
                                 });
                             }
                             noteR.run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                             markConfigDirty();
                         });
                     });
@@ -702,12 +696,14 @@ public class UniversalJunction extends Block {
                                 renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
                                     weights[in][kk] = x;
                                     noteR.run();
-                                    table.invalidateHierarchy();
+                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                                     markConfigDirty();
                                 });
                             }
                             noteR.run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                             markConfigDirty();
                         });
                     });
@@ -721,13 +717,15 @@ public class UniversalJunction extends Block {
                             renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
                                 weights[in][kk] = x;
                                 noteR.run();
-                                table.invalidateHierarchy();
+                                // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                                 markConfigDirty();
                             });
                         }
                         // 覆盖状态可能变化：刷新全局区"已单独配置"提示
                         noteR.run();
-                        table.invalidateHierarchy();
+                        // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         markConfigDirty(); // 节流发送
                     });
                     overrideTable.add(row).growX().padBottom(2f).row();
@@ -737,21 +735,24 @@ public class UniversalJunction extends Block {
                         setAllFor(selDir[0], 2);
                         r[1].run();
                         noteR.run();
-                        table.invalidateHierarchy();
+                        // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
                     quick.button(Core.bundle.get("universaljunction.clear"), () -> {
                         setAllFor(selDir[0], 0);
                         r[1].run();
                         noteR.run();
-                        table.invalidateHierarchy();
+                        // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
                     quick.button(Core.bundle.get("universaljunction.reset"), () -> {
                         resetToDefault(selDir[0]);
                         r[1].run();
                         noteR.run();
-                        table.invalidateHierarchy();
+                        // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
                 }).padTop(4f).row();
@@ -789,13 +790,15 @@ public class UniversalJunction extends Block {
                                     for (int in = 0; in < 4; in++) weights[in][kk] = x;
                                     r[1].run();
                                     noteR.run();
-                                    table.invalidateHierarchy();
+                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                                     markConfigDirty();
                                 });
                             }
                             r[1].run();
                             noteR.run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                             markConfigDirty();
                         });
                     });
@@ -812,13 +815,15 @@ public class UniversalJunction extends Block {
                                     for (int in = 0; in < 4; in++) weights[in][kk] = x;
                                     r[1].run();
                                     noteR.run();
-                                    table.invalidateHierarchy();
+                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                                     markConfigDirty();
                                 });
                             }
                             r[1].run();
                             noteR.run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                             markConfigDirty();
                         });
                     });
@@ -837,14 +842,16 @@ public class UniversalJunction extends Block {
                                 for (int in = 0; in < 4; in++) weights[in][kk] = x;
                                 r[1].run();
                                 noteR.run();
-                                table.invalidateHierarchy();
+                                // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                                 markConfigDirty();
                             });
                         }
                         // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
                         r[1].run();
                         noteR.run();
-                        table.invalidateHierarchy();
+                        // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         markConfigDirty();
                     });
                     globalTable.add(row).growX().padBottom(2f).row();
@@ -873,7 +880,8 @@ public class UniversalJunction extends Block {
                         t.button(Core.bundle.get("universaljunction.delete"), () -> {
                             deleteTemplate(name);
                             r[3].run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         }).size(56f, 28f).pad(2f);
                     }).padBottom(3f).row();
                 }
@@ -909,7 +917,8 @@ public class UniversalJunction extends Block {
                         if (!name.isEmpty()) {
                             saveTemplate(name, currentTemplate()); // 保存完整 4 方向权重矩阵
                             r[3].run();
-                            table.invalidateHierarchy();
+                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
+                        // 全局重排会打断拖动中的滑块
                         }
                     });
                 }).size(88f, 40f).padRight(6f);
