@@ -370,6 +370,19 @@ public class UniversalJunction extends Block {
             String clean = name.replace(":", "").replace(";", "").replace(",", "").trim();
             if (clean.isEmpty()) return;
             map.put(clean, row.clone());
+            saveTemplates(map);
+        }
+
+        /** 删除自定义模板 */
+        static void deleteTemplate(String name) {
+            java.util.Map<String, int[]> map = loadTemplates();
+            if (map.remove(name) != null) {
+                saveTemplates(map);
+            }
+        }
+
+        /** 持久化自定义模板表（存于游戏设置，跨存档保留） */
+        static void saveTemplates(java.util.Map<String, int[]> map) {
             StringBuilder sb = new StringBuilder();
             for (java.util.Map.Entry<String, int[]> e : map.entrySet()) {
                 if (sb.length() > 0) sb.append(';');
@@ -479,12 +492,14 @@ public class UniversalJunction extends Block {
 
             final int[] selDir = {0};
             final boolean[] expanded = {false};
+            final boolean[] manageOpen = {false};
             Table globalTable = new Table();
             Table overrideTable = new Table();
             Table templatesTable = new Table();
+            Table manageTable = new Table();
 
-            // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=模板 r3=全量）
-            final Runnable[] r = new Runnable[4];
+            // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=模板按钮 r3=全量 r4=管理区）
+            final Runnable[] r = new Runnable[5];
 
             // 重建模板按钮行
             r[2] = () -> {
@@ -588,31 +603,86 @@ public class UniversalJunction extends Block {
                 }
             };
 
+            // 重建模板管理区（展开时列出模板：使用/删除）
+            r[4] = () -> {
+                manageTable.clearChildren();
+                if (!manageOpen[0]) return;
+                manageTable.add(Core.bundle.get("universaljunction.customTemplates")).color(Pal.accent).padBottom(3f).row();
+                java.util.Map<String, int[]> custom = loadTemplates();
+                if (custom.isEmpty()) {
+                    manageTable.add(Core.bundle.get("universaljunction.noTemplates")).color(Color.gray).padBottom(3f).row();
+                }
+                for (java.util.Map.Entry<String, int[]> e : custom.entrySet()) {
+                    final String name = e.getKey();
+                    final int[] row = e.getValue();
+                    manageTable.table(t -> {
+                        t.add(name).width(110f).left();
+                        t.button(Core.bundle.get("universaljunction.use"), () -> {
+                            applyTemplate(row);
+                            r[3].run();
+                            flushConfig();
+                        }).size(56f, 28f).pad(2f);
+                        t.button(Core.bundle.get("universaljunction.delete"), () -> {
+                            deleteTemplate(name);
+                            r[4].run();
+                            r[2].run();
+                            table.invalidateHierarchy();
+                        }).size(56f, 28f).pad(2f);
+                    }).padBottom(3f).row();
+                }
+                manageTable.add(Core.bundle.get("universaljunction.builtinTemplates")).color(Pal.accent).padBottom(3f).padTop(4f).row();
+                for (int i = 0; i < builtinTemplateKeys.length; i++) {
+                    final String name = Core.bundle.get(builtinTemplateKeys[i]);
+                    final int[] row = builtinTemplateRows[i];
+                    manageTable.table(t -> {
+                        t.add(name).width(110f).left();
+                        t.button(Core.bundle.get("universaljunction.use"), () -> {
+                            applyTemplate(row);
+                            r[3].run();
+                            flushConfig();
+                        }).size(56f, 28f).pad(2f);
+                    }).padBottom(3f).row();
+                }
+            };
+
             // 全量重建
             r[3] = () -> {
                 r[0].run();
                 r[1].run();
                 r[2].run();
+                r[4].run();
                 table.invalidateHierarchy();
             };
 
-            // 模板行：横向滚动按钮（内置 + 自定义），右侧固定保存按钮
+            // 模板行：横向滚动按钮（内置 + 自定义）+ 保存 + 管理
             bg.table(top -> {
                 ScrollPane pane = new ScrollPane(templatesTable);
                 pane.setScrollingDisabled(false, true); // 仅水平滚动
                 pane.setFadeScrollBars(false);
-                top.add(pane).width(200f).height(40f).padRight(6f);
+                top.add(pane).width(176f).height(40f).padRight(6f);
                 top.button(Core.bundle.get("universaljunction.save"), () -> {
                     ui.showTextInput("", Core.bundle.get("universaljunction.saveTitle"), 12, "", text -> {
                         String name = text.trim();
                         if (!name.isEmpty()) {
                             saveTemplate(name, defaultRow);
                             r[2].run();
+                            r[4].run();
                             table.invalidateHierarchy();
                         }
                     });
-                }).size(60f, 40f);
+                }).size(56f, 40f).padRight(4f);
+                TextButton manage = new TextButton(Core.bundle.get("universaljunction.manage"), Styles.defaultt);
+                manage.update(() -> manage.setText(Core.bundle.get(manageOpen[0] ? "universaljunction.manageClose" : "universaljunction.manage")));
+                manage.clicked(() -> {
+                    manageOpen[0] = !manageOpen[0];
+                    r[4].run();
+                    table.invalidateHierarchy();
+                });
+                top.add(manage).size(56f, 40f);
             }).padBottom(8f).row();
+
+            // 模板管理区（折叠）
+            bg.add(manageTable).padBottom(8f).row();
 
             // 全局输出优先级
             bg.add(Core.bundle.get("universaljunction.global")).color(Pal.accent).padBottom(4f).row();
