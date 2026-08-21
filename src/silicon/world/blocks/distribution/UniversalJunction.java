@@ -369,46 +369,60 @@ public class UniversalJunction extends Block {
         void renderRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, java.util.function.IntConsumer onChanged) {
             row.clearChildren();
             boolean force = isUnique(data, out) || isRepresentative(data, out); // 始终显示滑块
-            row.add(dirName(out) + " →").width(50f);
 
-            // 内容区：文字与滑块手动重叠（WidgetGroup 绝对布局），交叉淡入淡出
-            // 高度 40px 容纳 Mindustry 滑块（knob 大），左缘 16px 留给 knob 防向左溢出
+            // 方向标签：右对齐，垂直居中于 40f 行内 → 其横向中线与拉条轨道中线重合
+            Label dirL = new Label(dirName(out) + " →");
+            dirL.setAlignment(Align.right);
+            dirL.setColor(Color.lightGray);
+            row.add(dirL).width(46f).height(40f).padRight(4f);
+
+            // 内容区：文字层与滑块层重叠、交叉淡入淡出；两侧各留 16f knob 空间，
+            // 文字层与拉条轨道严格同宽（200f），长度相等
             WidgetGroup group = new WidgetGroup();
-            group.setSize(220f, 40f);
-            // 折叠文字层（常态可见，垂直居中）
+            group.setSize(232f, 40f);
+
+            // 折叠文字层（常态可见，与拉条同宽，水平居中）
             Label textL = new Label("▾ " + foldText(data, out));
-            textL.setBounds(0f, 0f, 220f, 40f);
+            textL.setBounds(16f, 0f, 200f, 40f);
             textL.setAlignment(Align.center);
             textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
             textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
-            // 滑块层（常态透明占位，布局恒定；滑块 growX 填满剩余空间，垂直居中）
+
+            // 数值标签：叠加在右上角（不占拉条宽度，保证拉条与文字层等长）
+            Label val = new Label(String.valueOf(data[out]));
+            val.setAlignment(Align.center);
+            val.setBounds(232f - 48f, 0f, 48f, 16f);
+            val.setColor(1f, 1f, 1f, force ? 1f : 0f);
+
+            // 滑块层：左右对称 16f 边距容纳 knob（不溢出），轨道与文字层等长
             Table sg = new Table();
-            sg.setBounds(0f, 0f, 220f, 40f);
-            sg.marginLeft(16f); // knob 空间
-            sg.marginRight(10f);
+            sg.setBounds(0f, 0f, 232f, 40f);
+            sg.marginLeft(16f);
+            sg.marginRight(16f);
             Slider sl = new Slider(0f, 4f, 1f, false);
             sl.setValue(data[out]);
-            Label val = new Label(String.valueOf((int) sl.getValue()));
             sl.changed(() -> {
                 int v = (int) sl.getValue();
                 data[out] = v;
                 val.setText(String.valueOf(v));
                 onChanged.accept(v);
             });
-            sg.add(sl).growX().padRight(6f);
-            sg.add(val).width(30f);
+            sg.add(sl).grow();
             sg.setColor(1f, 1f, 1f, force ? 1f : 0f);
 
             group.addChild(textL);
             group.addChild(sg);
+            group.addChild(val);
             group.update(() -> {
                 boolean show = force || tapOpen[out] || hoverOpen[out];
                 textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, show ? 0f : 1f, 0.25f));
                 sg.setColor(1f, 1f, 1f, Mathf.lerp(sg.color.a, show ? 1f : 0f, 0.25f));
+                val.setColor(1f, 1f, 1f, Mathf.lerp(val.color.a, show ? 1f : 0f, 0.25f));
                 textL.touchable = show ? Touchable.disabled : Touchable.enabled;
                 sg.touchable = show ? Touchable.enabled : Touchable.disabled;
+                val.touchable = Touchable.disabled;
             });
-            row.add(group).size(220f, 40f);
+            row.add(group).size(232f, 40f);
         }
 
         /**
