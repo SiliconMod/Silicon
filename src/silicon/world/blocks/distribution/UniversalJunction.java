@@ -736,10 +736,13 @@ public class UniversalJunction extends Block {
                     row.hovered(() -> ghover[out] = true);
                     row.exited(() -> ghover[out] = false);
                     renderRow(row, defaultRow, out, gtap, ghover, v -> {
+                        // 修改前记录未覆盖的输入方向（基于旧全局值，避免修改瞬间误判为已覆盖）
+                        boolean[] follow = new boolean[4];
+                        for (int in = 0; in < 4; in++) follow[in] = !isOverride(in);
                         defaultRow[out] = v;
-                        // 仅应用到未单独覆盖的输入方向；被覆盖方向保持不变
+                        // 仅未覆盖方向跟随；被覆盖方向保持不变
                         for (int in = 0; in < 4; in++) {
-                            if (!isOverride(in)) weights[in][out] = v;
+                            if (follow[in]) weights[in][out] = v;
                         }
                         // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
                         r[1].run();
