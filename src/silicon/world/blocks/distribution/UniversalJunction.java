@@ -6,7 +6,6 @@ import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
 import arc.scene.ui.Button;
-import arc.scene.ui.Dialog;
 import arc.scene.ui.Label;
 import arc.scene.ui.Slider;
 import arc.scene.ui.layout.Table;
@@ -17,6 +16,7 @@ import arc.util.io.Writes;
 import mindustry.gen.BufferItem;
 import mindustry.gen.Building;
 import mindustry.gen.Icon;
+import mindustry.gen.Teamc;
 import mindustry.graphics.Pal;
 import mindustry.type.Item;
 import mindustry.world.Block;
@@ -48,10 +48,13 @@ public class UniversalJunction extends Block {
     /** 每个方向的缓冲容量 */
     public int capacity = 16;
 
-    /** 方向名称（标准方位：0=上 1=右 2=下 3=左） */
-    public static final String[] dirNames = {"上", "右", "下", "左"};
-    /** 方向图标 */
+    /** 方向图标（标准方位：0=上 1=右 2=下 3=左） */
     public static final TextureRegionDrawable[] dirIcons = {Icon.up, Icon.right, Icon.down, Icon.left};
+
+    /** 方向名称（从 bundle 读取，支持多语言：universaljunction.dir0~3） */
+    public static String dirName(int dir) {
+        return Core.bundle.get("universaljunction.dir" + dir);
+    }
 
     /** 角度编码（0=东 1=北 2=西 3=南，relativeTo 返回值）→ 标准方位（物品来源方向） */
     static int angleToSource(int angle) {
@@ -92,7 +95,7 @@ public class UniversalJunction extends Block {
     @Override
     public void load() {
         super.load();
-        // 复用原版交叉器的贴图
+        // TODO: 占位贴图——复用原版交叉器贴图，后续绘制专属贴图并补充物品流向动画
         TextureRegion j = Core.atlas.find("junction");
         region = j;
         generatedIcons = new TextureRegion[]{j};
@@ -101,7 +104,7 @@ public class UniversalJunction extends Block {
     @Override
     public void setStats() {
         super.setStats();
-        stats.add(Stat.speed, 60f / moveTime, StatUnit.itemsSecond);
+        stats.add(Stat.itemsMoved, 60f / moveTime, StatUnit.itemsSecond);
     }
 
     public class UniversalJunctionBuild extends Building {
@@ -137,7 +140,17 @@ public class UniversalJunction extends Block {
         public boolean acceptItem(Building source, Item item) {
             int rel = source.relativeTo(tile);
             if (rel == -1) return false;
-            return buffer.accepts(angleToSource(rel));
+            int srcDir = angleToSource(rel);
+            // 该输入方向的所有输出优先级均为 0（完全禁用）：拒绝接收，物品留在来源处
+            for (int d = 0; d < 4; d++) {
+                if (weights[srcDir][d] > 0) return buffer.accepts(srcDir);
+            }
+            return false;
+        }
+
+        @Override
+        public int acceptStack(Item item, int amount, Teamc source) {
+            return 0; // 不接收整叠物品，与原版 Junction 一致
         }
 
         @Override
@@ -175,6 +188,8 @@ public class UniversalJunction extends Block {
             if (out == -1) return; // 所有输出均阻塞，物品留在缓冲中等待
 
             Building dest = nearby(cardinalToAngle(out));
+            // 防御：pickOutput 已校验 dest 非空，此处仅防未来逻辑变更导致的 NPE
+            if (dest == null) return;
             dest.handleItem(this, item);
             System.arraycopy(buffer.buffers[input], 1, buffer.buffers[input], 0, buffer.indexes[input] - 1);
             buffer.indexes[input]--;
@@ -331,7 +346,13 @@ public class UniversalJunction extends Block {
                     }
                 }
             } catch (NumberFormatException e) {
-                // 忽略非法配置
+                return; // 非法配置，忽略
+            }
+            // 配置变更后重置路由瞬态状态，避免沿用旧配置的降级/轮询状态
+            for (int i = 0; i < 4; i++) {
+                activePriority[i] = 0;
+                blockCount[i] = 0;
+                roundRobin[i] = 0;
             }
         }
 
@@ -342,31 +363,20 @@ public class UniversalJunction extends Block {
 
         // ---------- 配置界面 ----------
 
+        /** 配置面板：点击方块后直接在面板内选择输入方向并设置各输出方向优先级（扁平化，无嵌套弹窗） */
         @Override
         public void buildConfiguration(Table table) {
-            table.button(b -> {
-                b.image(Icon.settings).padRight(6f);
-                b.add(Core.bundle.get("universaljunction.config"));
-            }, this::openConfigDialog).size(200f, 46f);
-        }
-
-        /** 打开方向优先级配置对话框 */
-        public void openConfigDialog() {
-            Dialog dialog = new Dialog(Core.bundle.get("universaljunction.title"));
-            // 固定尺寸并留足边距，避免按钮重叠
-            dialog.setSize(560f, 520f);
-
             final int[] selDir = {0};
             Table outTable = new Table();
 
             Runnable rebuild = () -> {
                 outTable.clearChildren();
                 int in = selDir[0];
-                outTable.add(Core.bundle.format("universaljunction.from", dirNames[in])).color(Pal.accent).padBottom(8f).row();
+                outTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(6f).row();
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     outTable.table(row -> {
-                        row.add(dirNames[out] + " →").width(56f);
+                        row.add(dirName(out) + " →").width(52f);
                         Slider sl = new Slider(0f, 4f, 1f, false);
                         sl.setValue(weights[in][out]);
                         Label val = new Label(String.valueOf((int) sl.getValue()));
@@ -375,51 +385,48 @@ public class UniversalJunction extends Block {
                             val.setText(String.valueOf(weights[in][out]));
                             markConfigDirty(); // 节流：拖动期间合并发送，松手后由 updateTile 兜底补发
                         });
-                        row.add(sl).width(260f).padRight(10f);
-                        row.add(val).width(44f);
-                    }).padBottom(8f).row();
+                        row.add(sl).width(180f).padRight(8f);
+                        row.add(val).width(36f);
+                    }).padBottom(6f).row();
                 }
-                // 内容变化后强制对话框重新布局，防止溢出到按钮栏
-                dialog.invalidateHierarchy();
+                table.invalidateHierarchy(); // 内容变化后强制重新布局
             };
 
-            Table t = dialog.cont;
-            t.margin(14f);
-            t.add(Core.bundle.get("universaljunction.hint")).color(Color.gray).padBottom(12f).row();
+            table.margin(8f);
+            table.add(Core.bundle.get("universaljunction.hint")).color(Color.gray).padBottom(8f).row();
 
             // 输入方向选择
-            t.table(inputs -> {
+            table.table(inputs -> {
                 for (int d = 0; d < 4; d++) {
                     final int dir = d;
                     Button btn = inputs.button(b -> {
-                        b.image(dirIcons[dir]).padRight(6f);
-                        b.add(dirNames[dir]);
+                        b.image(dirIcons[dir]).padRight(4f);
+                        b.add(dirName(dir));
                     }, () -> {
                         selDir[0] = dir;
                         rebuild.run();
-                    }).size(108f, 44f).pad(4f).get();
+                    }).size(76f, 40f).pad(3f).get();
                     btn.update(() -> btn.setChecked(selDir[0] == dir));
                 }
-            }).padBottom(10f).row();
+            }).padBottom(8f).row();
 
-            t.add(outTable).padTop(8f).padBottom(4f);
+            table.add(outTable).padTop(6f).padBottom(6f).row();
 
-            // 底部按钮栏：快捷操作作用于当前选中的输入方向，与完成按钮同一行
-            dialog.buttons.button(Core.bundle.get("universaljunction.even"), () -> {
-                setAllFor(selDir[0], 2);
-                rebuild.run();
-                flushConfig(); // 快捷操作立即发送
-            }).size(140f, 44f).pad(5f);
-            dialog.buttons.button(Core.bundle.get("universaljunction.clear"), () -> {
-                setAllFor(selDir[0], 0);
-                rebuild.run();
-                flushConfig();
-            }).size(140f, 44f).pad(5f);
-            dialog.buttons.button(Core.bundle.get("universaljunction.done"), dialog::hide)
-                .size(140f, 44f).pad(5f);
+            // 快捷按钮：作用于当前选中的输入方向
+            table.table(quick -> {
+                quick.button(Core.bundle.get("universaljunction.even"), () -> {
+                    setAllFor(selDir[0], 2);
+                    rebuild.run();
+                    flushConfig(); // 快捷操作立即发送
+                }).size(112f, 36f).pad(4f);
+                quick.button(Core.bundle.get("universaljunction.clear"), () -> {
+                    setAllFor(selDir[0], 0);
+                    rebuild.run();
+                    flushConfig();
+                }).size(112f, 36f).pad(4f);
+            });
 
-            rebuild.run(); // 初始即渲染完整内容，让对话框按完整高度布局
-            dialog.show();
+            rebuild.run(); // 初始即渲染完整内容
         }
 
         // ---------- 存档 ----------
