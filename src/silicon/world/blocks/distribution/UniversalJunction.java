@@ -5,6 +5,7 @@ import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
+import arc.scene.Element;
 import arc.scene.event.Touchable;
 import arc.scene.ui.Button;
 import arc.scene.ui.Label;
@@ -369,60 +370,57 @@ public class UniversalJunction extends Block {
         void renderRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, java.util.function.IntConsumer onChanged) {
             row.clearChildren();
             boolean force = isUnique(data, out) || isRepresentative(data, out); // 始终显示滑块
+            boolean show = force || tapOpen[out] || hoverOpen[out];
 
-            // 方向标签：右对齐，垂直居中于 40f 行内 → 其横向中线与拉条轨道中线重合
+            // 三列布局：标签 / 内容（文字↔滑块交替）/ 数值 —— Table 布局天然对齐
             Label dirL = new Label(dirName(out) + " →");
             dirL.setAlignment(Align.right);
             dirL.setColor(Color.lightGray);
+            // 点击标签可固定/取消固定展开（滑块态收起）
+            dirL.clicked(() -> {
+                tapOpen[out] = !tapOpen[out];
+                renderRow(row, data, out, tapOpen, hoverOpen, onChanged);
+            });
             row.add(dirL).width(46f).height(40f).padRight(4f);
 
-            // 内容区：growX 自适应宽度（由面板自然宽度决定），文字层与滑块轨道等长
-            WidgetGroup group = new WidgetGroup();
-            group.setSize(0f, 40f);
+            // 内容列：折叠时文字，展开时滑块（交替，无重叠）
+            Table content = new Table();
+            row.add(content).growX().height(40f);
+            if (show) {
+                Slider sl = new Slider(0f, 4f, 1f, false);
+                sl.setValue(data[out]);
+                sl.setColor(1f, 1f, 1f, 0f); // 淡入起点
+                sl.changed(() -> {
+                    int v = (int) sl.getValue();
+                    data[out] = v;
+                    onChanged.accept(v);
+                });
+                content.add(sl).growX().padLeft(12f).padRight(12f);
+            } else {
+                Label textL = new Label("▾ " + foldText(data, out));
+                textL.setAlignment(Align.left);
+                textL.setColor(1f, 1f, 1f, 0f); // 淡入起点
+                textL.clicked(() -> {
+                    tapOpen[out] = !tapOpen[out];
+                    renderRow(row, data, out, tapOpen, hoverOpen, onChanged);
+                });
+                content.add(textL).growX().padLeft(12f);
+            }
 
-            // 折叠文字层（常态可见，左对齐，与轨道等长）
-            Label textL = new Label("▾ " + foldText(data, out));
-            textL.setAlignment(Align.left);
-            textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
-            textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
-
-            // 数值标签：行级右侧独立列（不叠加轨道，避免重叠）
+            // 数值列（折叠时透明，展开时显示）
             Label val = new Label(String.valueOf(data[out]));
             val.setAlignment(Align.center);
-            val.setColor(1f, 1f, 1f, force ? 1f : 0f);
+            val.setColor(1f, 1f, 1f, show ? 1f : 0f);
+            row.add(val).width(32f).height(40f);
 
-            // 滑块层：左右 12f 边距容纳 knob（不溢出），轨道与文字层等长
-            Table sg = new Table();
-            sg.marginLeft(12f);
-            sg.marginRight(12f);
-            Slider sl = new Slider(0f, 4f, 1f, false);
-            sl.setValue(data[out]);
-            sl.changed(() -> {
-                int v = (int) sl.getValue();
-                data[out] = v;
-                val.setText(String.valueOf(v));
-                onChanged.accept(v);
+            // 淡入淡出：每帧 alpha 向目标值 lerp
+            row.update(() -> {
+                float target = (force || tapOpen[out] || hoverOpen[out]) ? 1f : 0f;
+                for (Element e : content.getChildren()) {
+                    e.setColor(1f, 1f, 1f, Mathf.lerp(e.color.a, target, 0.25f));
+                }
+                val.setColor(1f, 1f, 1f, Mathf.lerp(val.color.a, target, 0.25f));
             });
-            sg.add(sl).grow();
-            sg.setColor(1f, 1f, 1f, force ? 1f : 0f);
-
-            group.addChild(textL);
-            group.addChild(sg);
-            group.update(() -> {
-                // 每帧同步子元素 bounds 到组实际宽度（growX 自适应）
-                float w = group.getWidth();
-                textL.setBounds(12f, 0f, Math.max(w - 24f, 0f), 40f);
-                sg.setBounds(0f, 0f, Math.max(w, 0f), 40f);
-                boolean show = force || tapOpen[out] || hoverOpen[out];
-                textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, show ? 0f : 1f, 0.25f));
-                sg.setColor(1f, 1f, 1f, Mathf.lerp(sg.color.a, show ? 1f : 0f, 0.25f));
-                val.setColor(1f, 1f, 1f, Mathf.lerp(val.color.a, show ? 1f : 0f, 0.25f));
-                textL.touchable = show ? Touchable.disabled : Touchable.enabled;
-                sg.touchable = show ? Touchable.enabled : Touchable.disabled;
-                val.touchable = Touchable.disabled;
-            });
-            row.add(group).growX().height(40f);
-            row.add(val).width(32f);
         }
 
         /**
@@ -674,9 +672,45 @@ public class UniversalJunction extends Block {
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
-                    // hover/exited 监听仅注册一次（renderRow 刷新内容不重复注册）
-                    row.hovered(() -> hoverOpen[out] = true);
-                    row.exited(() -> hoverOpen[out] = false);
+                    // hover/exited 监听仅注册一次；hover 变化时重建该行（文字↔滑块切换）
+                    row.hovered(() -> {
+                        hoverOpen[out] = true;
+                        renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
+                            weights[in][out] = v;
+                            for (int k = 0; k < 4; k++) {
+                                if (k == out) continue;
+                                final int kk = k;
+                                renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
+                                    weights[in][kk] = x;
+                                    noteR.run();
+                                    table.invalidateHierarchy();
+                                    markConfigDirty();
+                                });
+                            }
+                            noteR.run();
+                            table.invalidateHierarchy();
+                            markConfigDirty();
+                        });
+                    });
+                    row.exited(() -> {
+                        hoverOpen[out] = false;
+                        renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
+                            weights[in][out] = v;
+                            for (int k = 0; k < 4; k++) {
+                                if (k == out) continue;
+                                final int kk = k;
+                                renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
+                                    weights[in][kk] = x;
+                                    noteR.run();
+                                    table.invalidateHierarchy();
+                                    markConfigDirty();
+                                });
+                            }
+                            noteR.run();
+                            table.invalidateHierarchy();
+                            markConfigDirty();
+                        });
+                    });
                     rows[out] = row;
                     renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
                         weights[in][out] = v;
@@ -741,9 +775,53 @@ public class UniversalJunction extends Block {
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
-                    // hover/exited 监听仅注册一次
-                    row.hovered(() -> ghover[out] = true);
-                    row.exited(() -> ghover[out] = false);
+                    // hover/exited 监听仅注册一次；hover 变化时重建该行（文字↔滑块切换）
+                    row.hovered(() -> {
+                        ghover[out] = true;
+                        renderRow(row, defaultRow, out, gtap, ghover, v -> {
+                            defaultRow[out] = v;
+                            for (int in = 0; in < 4; in++) weights[in][out] = v;
+                            for (int k = 0; k < 4; k++) {
+                                if (k == out) continue;
+                                final int kk = k;
+                                renderRow(grows[kk], defaultRow, kk, gtap, ghover, x -> {
+                                    defaultRow[kk] = x;
+                                    for (int in = 0; in < 4; in++) weights[in][kk] = x;
+                                    r[1].run();
+                                    noteR.run();
+                                    table.invalidateHierarchy();
+                                    markConfigDirty();
+                                });
+                            }
+                            r[1].run();
+                            noteR.run();
+                            table.invalidateHierarchy();
+                            markConfigDirty();
+                        });
+                    });
+                    row.exited(() -> {
+                        ghover[out] = false;
+                        renderRow(row, defaultRow, out, gtap, ghover, v -> {
+                            defaultRow[out] = v;
+                            for (int in = 0; in < 4; in++) weights[in][out] = v;
+                            for (int k = 0; k < 4; k++) {
+                                if (k == out) continue;
+                                final int kk = k;
+                                renderRow(grows[kk], defaultRow, kk, gtap, ghover, x -> {
+                                    defaultRow[kk] = x;
+                                    for (int in = 0; in < 4; in++) weights[in][kk] = x;
+                                    r[1].run();
+                                    noteR.run();
+                                    table.invalidateHierarchy();
+                                    markConfigDirty();
+                                });
+                            }
+                            r[1].run();
+                            noteR.run();
+                            table.invalidateHierarchy();
+                            markConfigDirty();
+                        });
+                    });
                     grows[out] = row;
                     renderRow(row, defaultRow, out, gtap, ghover, v -> {
                         defaultRow[out] = v;
