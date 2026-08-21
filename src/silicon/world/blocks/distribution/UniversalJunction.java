@@ -371,17 +371,19 @@ public class UniversalJunction extends Block {
             row.add(dirName(out) + " →").width(50f);
 
             // 内容区：文字与滑块手动重叠（WidgetGroup 绝对布局），交叉淡入淡出
+            // 高度 40px 容纳 Mindustry 滑块（knob 大），左缘 16px 留给 knob 防向左溢出
             WidgetGroup group = new WidgetGroup();
-            group.setSize(200f, 26f);
+            group.setSize(220f, 40f);
             // 折叠文字层（常态可见）
             Label textL = new Label("▾ " + foldText(data, out));
-            textL.setBounds(0f, 0f, 200f, 26f);
+            textL.setBounds(0f, 0f, 220f, 40f);
             textL.setAlignment(Align.left);
             textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
             textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
             // 滑块层（常态透明占位，布局恒定）
             Table sg = new Table();
-            sg.setBounds(0f, 0f, 200f, 26f);
+            sg.setBounds(0f, 0f, 220f, 40f);
+            sg.marginLeft(16f); // knob 空间
             Slider sl = new Slider(0f, 4f, 1f, false);
             sl.setValue(data[out]);
             Label val = new Label(String.valueOf((int) sl.getValue()));
@@ -404,7 +406,7 @@ public class UniversalJunction extends Block {
                 textL.touchable = show ? Touchable.disabled : Touchable.enabled;
                 sg.touchable = show ? Touchable.enabled : Touchable.disabled;
             });
-            row.add(group).size(200f, 26f);
+            row.add(group).size(220f, 40f);
 
             // 行容器 hover：临时展开；移出：淡出（渐变本身缓冲防抖）
             row.hovered(() -> hoverOpen[out] = true);
