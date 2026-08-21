@@ -7,7 +7,9 @@ import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
 import arc.scene.ui.Button;
 import arc.scene.ui.Label;
+import arc.scene.ui.ScrollPane;
 import arc.scene.ui.Slider;
+import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
 import arc.scene.style.TextureRegionDrawable;
 import arc.util.Time;
@@ -27,6 +29,7 @@ import mindustry.world.meta.Stat;
 import mindustry.world.meta.StatUnit;
 
 import static mindustry.Vars.content;
+import static mindustry.Vars.ui;
 
 /**
  * 万向交叉器 (Universal Junction)
@@ -111,6 +114,8 @@ public class UniversalJunction extends Block {
     public class UniversalJunctionBuild extends Building {
         /** 优先级矩阵 [输入方向][输出方向]，0~4；0 = 不输出 */
         public final int[][] weights = new int[4][4];
+        /** 全局默认输出优先级（应用到所有未单独覆盖的输入方向）；通过配置 String 尾部 4 值同步 */
+        public int[] defaultRow = {2, 2, 2, 2};
         /** 四方向物品缓冲（下标为标准方位：0=上 1=右 2=下 3=左） */
         public final DirectionalItemBuffer buffer = new DirectionalItemBuffer(capacity);
         /** 各输入方向的轮询指针（同优先级方向轮流输出，实现均分） */
@@ -307,7 +312,93 @@ public class UniversalJunction extends Block {
             for (int j = 0; j < 4; j++) weights[in][j] = v;
         }
 
-        /** 将优先级矩阵序列化为 16 个逗号分隔的整数 */
+        /** 该输入方向是否已单独配置（与全局默认行不同） */
+        boolean isOverride(int in) {
+            for (int j = 0; j < 4; j++) {
+                if (weights[in][j] != defaultRow[j]) return true;
+            }
+            return false;
+        }
+
+        /** 恢复指定输入方向为全局默认（取消覆盖） */
+        void resetToDefault(int in) {
+            System.arraycopy(defaultRow, 0, weights[in], 0, 4);
+        }
+
+        /** 应用模板：设置全局默认行，并同步所有未覆盖的输入方向 */
+        void applyTemplate(int[] row) {
+            System.arraycopy(row, 0, defaultRow, 0, 4);
+            for (int in = 0; in < 4; in++) {
+                if (!isOverride(in)) {
+                    System.arraycopy(row, 0, weights[in], 0, 4);
+                }
+            }
+        }
+
+        // ---------- 模板持久化（玩家全局偏好，存于游戏设置） ----------
+
+        static final String templatesKey = "silicon-uj-templates";
+        /** 内置模板：均分 / 全东 / 主东备西 / 南北直通（方向顺序 上右下左） */
+        static final String[] builtinTemplateKeys = {"universaljunction.tpl.even", "universaljunction.tpl.east", "universaljunction.tpl.eastwest", "universaljunction.tpl.ns"};
+        static final int[][] builtinTemplateRows = {{2, 2, 2, 2}, {0, 4, 0, 0}, {0, 4, 0, 2}, {4, 0, 4, 0}};
+
+        /** 读取自定义模板表（LinkedHashMap：名称 → 行） */
+        static java.util.Map<String, int[]> loadTemplates() {
+            java.util.Map<String, int[]> map = new java.util.LinkedHashMap<>();
+            String raw = (String) Core.settings.get(templatesKey, "");
+            if (raw.isEmpty()) return map;
+            for (String part : raw.split(";")) {
+                if (part.isEmpty()) continue;
+                String[] kv = part.split(":", 2);
+                if (kv.length != 2) continue;
+                String[] vals = kv[1].split(",");
+                if (vals.length != 4) continue;
+                try {
+                    int[] row = new int[4];
+                    for (int i = 0; i < 4; i++) row[i] = Mathf.clamp(Integer.parseInt(vals[i].trim()), 0, 4);
+                    map.put(kv[0], row);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            return map;
+        }
+
+        /** 保存自定义模板 */
+        static void saveTemplate(String name, int[] row) {
+            java.util.Map<String, int[]> map = loadTemplates();
+            // 过滤非法字符（分隔符）
+            String clean = name.replace(":", "").replace(";", "").replace(",", "").trim();
+            if (clean.isEmpty()) return;
+            map.put(clean, row.clone());
+            StringBuilder sb = new StringBuilder();
+            for (java.util.Map.Entry<String, int[]> e : map.entrySet()) {
+                if (sb.length() > 0) sb.append(';');
+                sb.append(e.getKey()).append(':');
+                for (int i = 0; i < 4; i++) {
+                    if (i > 0) sb.append(',');
+                    sb.append(e.getValue()[i]);
+                }
+            }
+            Core.settings.put(templatesKey, sb.toString());
+        }
+
+        /** 模板下拉选项：内置名 + 自定义名 */
+        static String[] templateNames() {
+            java.util.List<String> list = new java.util.ArrayList<>();
+            for (String key : builtinTemplateKeys) list.add(Core.bundle.get(key));
+            list.addAll(loadTemplates().keySet());
+            return list.toArray(new String[0]);
+        }
+
+        /** 按名称查模板行；内置优先 */
+        static int[] findTemplate(String name) {
+            for (int i = 0; i < builtinTemplateKeys.length; i++) {
+                if (Core.bundle.get(builtinTemplateKeys[i]).equals(name)) return builtinTemplateRows[i];
+            }
+            return loadTemplates().get(name);
+        }
+
+        /** 将优先级序列化为 20 个逗号分隔的整数（16 矩阵 + 4 全局默认行） */
         public String weightsString() {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < 4; i++) {
@@ -315,6 +406,9 @@ public class UniversalJunction extends Block {
                     if (i > 0 || j > 0) sb.append(',');
                     sb.append(weights[i][j]);
                 }
+            }
+            for (int j = 0; j < 4; j++) {
+                sb.append(',').append(defaultRow[j]);
             }
             return sb.toString();
         }
@@ -335,16 +429,23 @@ public class UniversalJunction extends Block {
             configure(weightsString());
         }
 
-        /** 解析配置字符串，非法时忽略 */
+        /** 解析配置字符串，非法时忽略；兼容旧版 16 值（无全局默认行）格式 */
         public void applyConfig(String str) {
             if (str == null) return;
             String[] parts = str.split(",");
-            if (parts.length != 16) return;
+            if (parts.length != 16 && parts.length != 20) return;
             try {
                 for (int i = 0; i < 4; i++) {
                     for (int j = 0; j < 4; j++) {
                         weights[i][j] = Mathf.clamp(Integer.parseInt(parts[i * 4 + j].trim()), 0, 4);
                     }
+                }
+                if (parts.length == 20) {
+                    for (int j = 0; j < 4; j++) {
+                        defaultRow[j] = Mathf.clamp(Integer.parseInt(parts[16 + j].trim()), 0, 4);
+                    }
+                } else {
+                    defaultRow = weights[0].clone(); // 旧格式：取第一行作全局默认
                 }
             } catch (NumberFormatException e) {
                 return; // 非法配置，忽略
@@ -364,73 +465,165 @@ public class UniversalJunction extends Block {
 
         // ---------- 配置界面 ----------
 
-        /** 配置面板：点击方块后直接在面板内选择输入方向并设置各输出方向优先级（扁平化，无嵌套弹窗） */
+        /** 配置面板：模板一键应用 + 全局输出优先级 + 按方向覆盖（折叠高级层） */
         @Override
         public void buildConfiguration(Table table) {
-            // 半透明深色背景，与游戏内原版浮层 UI 保持一致
             table.background(Styles.black6);
+            table.margin(10f);
 
             final int[] selDir = {0};
-            Table outTable = new Table();
+            final boolean[] expanded = {false};
+            Table globalTable = new Table();
+            Table overrideTable = new Table();
+            Table templatesTable = new Table();
 
-            Runnable rebuild = () -> {
-                outTable.clearChildren();
+            // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=模板 r3=全量）
+            final Runnable[] r = new Runnable[4];
+
+            // 重建模板按钮行
+            r[2] = () -> {
+                templatesTable.clearChildren();
+                for (String name : templateNames()) {
+                    templatesTable.button(b -> b.add(name), () -> {
+                        int[] row = findTemplate(name);
+                        if (row != null) {
+                            applyTemplate(row);
+                            r[3].run();
+                            flushConfig();
+                        }
+                    }).size(64f, 36f).pad(2f);
+                }
+            };
+
+            // 重建覆盖层（展开时显示方向选择 + 该方向滑块 + 快捷按钮）
+            r[1] = () -> {
+                overrideTable.clearChildren();
+                if (!expanded[0]) return;
+                overrideTable.table(inputs -> {
+                    for (int d = 0; d < 4; d++) {
+                        final int dir = d;
+                        Button btn = inputs.button(b -> {
+                            b.image(dirIcons[dir]).padRight(4f);
+                            b.add(dirName(dir));
+                        }, () -> {
+                            selDir[0] = dir;
+                            r[1].run();
+                            table.invalidateHierarchy();
+                        }).size(72f, 36f).pad(3f).get();
+                        btn.update(() -> btn.setChecked(selDir[0] == dir));
+                    }
+                }).padBottom(6f).row();
+
                 int in = selDir[0];
-                outTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(6f).row();
+                overrideTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(4f).row();
+                if (isOverride(in)) {
+                    overrideTable.add(Core.bundle.get("universaljunction.overrideHint")).color(Color.gray).padBottom(4f).row();
+                }
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
-                    outTable.table(row -> {
-                        row.add(dirName(out) + " →").width(52f);
+                    overrideTable.table(row -> {
+                        row.add(dirName(out) + " →").width(50f);
                         Slider sl = new Slider(0f, 4f, 1f, false);
                         sl.setValue(weights[in][out]);
                         Label val = new Label(String.valueOf((int) sl.getValue()));
                         sl.changed(() -> {
                             weights[in][out] = (int) sl.getValue();
                             val.setText(String.valueOf(weights[in][out]));
-                            markConfigDirty(); // 节流：拖动期间合并发送，松手后由 updateTile 兜底补发
+                            markConfigDirty(); // 节流发送
                         });
-                        row.add(sl).width(180f).padRight(8f);
-                        row.add(val).width(36f);
-                    }).padBottom(6f).row();
+                        row.add(sl).width(150f).padRight(6f);
+                        row.add(val).width(30f);
+                    }).padBottom(4f).row();
                 }
-                table.invalidateHierarchy(); // 内容变化后强制重新布局
+                overrideTable.table(quick -> {
+                    quick.button(Core.bundle.get("universaljunction.even"), () -> {
+                        setAllFor(selDir[0], 2);
+                        r[1].run();
+                        table.invalidateHierarchy();
+                        flushConfig();
+                    }).size(96f, 32f).pad(3f);
+                    quick.button(Core.bundle.get("universaljunction.clear"), () -> {
+                        setAllFor(selDir[0], 0);
+                        r[1].run();
+                        table.invalidateHierarchy();
+                        flushConfig();
+                    }).size(96f, 32f).pad(3f);
+                    quick.button(Core.bundle.get("universaljunction.reset"), () -> {
+                        resetToDefault(selDir[0]);
+                        r[1].run();
+                        table.invalidateHierarchy();
+                        flushConfig();
+                    }).size(96f, 32f).pad(3f);
+                }).padTop(4f);
             };
 
-            table.margin(12f);
-            table.add(Core.bundle.get("universaljunction.hint")).color(Color.gray).padBottom(8f).row();
-
-            // 输入方向选择
-            table.table(inputs -> {
+            // 重建全局层（全局默认行 4 个滑块）
+            r[0] = () -> {
+                globalTable.clearChildren();
                 for (int d = 0; d < 4; d++) {
-                    final int dir = d;
-                    Button btn = inputs.button(b -> {
-                        b.image(dirIcons[dir]).padRight(4f);
-                        b.add(dirName(dir));
-                    }, () -> {
-                        selDir[0] = dir;
-                        rebuild.run();
-                    }).size(76f, 40f).pad(3f).get();
-                    btn.update(() -> btn.setChecked(selDir[0] == dir));
+                    final int out = d;
+                    globalTable.table(row -> {
+                        row.add(dirName(out) + " →").width(50f);
+                        Slider sl = new Slider(0f, 4f, 1f, false);
+                        sl.setValue(defaultRow[out]);
+                        Label val = new Label(String.valueOf((int) sl.getValue()));
+                        sl.changed(() -> {
+                            defaultRow[out] = (int) sl.getValue();
+                            val.setText(String.valueOf(defaultRow[out]));
+                            // 应用到所有未单独覆盖的输入方向
+                            for (int in = 0; in < 4; in++) {
+                                if (!isOverride(in)) weights[in][out] = defaultRow[out];
+                            }
+                            markConfigDirty();
+                        });
+                        row.add(sl).width(150f).padRight(6f);
+                        row.add(val).width(30f);
+                    }).padBottom(4f).row();
                 }
+            };
+
+            // 全量重建
+            r[3] = () -> {
+                r[0].run();
+                r[1].run();
+                r[2].run();
+                table.invalidateHierarchy();
+            };
+
+            // 模板行：横向滚动按钮（内置 + 自定义），右侧固定保存按钮
+            table.table(top -> {
+                ScrollPane pane = new ScrollPane(templatesTable);
+                pane.setScrollingDisabled(false, true); // 仅水平滚动
+                pane.setFadeScrollBars(false);
+                top.add(pane).width(200f).height(40f).padRight(6f);
+                top.button(Core.bundle.get("universaljunction.save"), () -> {
+                    ui.showTextInput("", Core.bundle.get("universaljunction.saveTitle"), 12, "", text -> {
+                        String name = text.trim();
+                        if (!name.isEmpty()) {
+                            saveTemplate(name, defaultRow);
+                            r[2].run();
+                            table.invalidateHierarchy();
+                        }
+                    });
+                }).size(60f, 40f);
             }).padBottom(8f).row();
 
-            table.add(outTable).padTop(6f).padBottom(6f).row();
+            // 全局输出优先级
+            table.add(Core.bundle.get("universaljunction.global")).color(Pal.accent).padBottom(4f).row();
+            table.add(globalTable).padBottom(6f).row();
 
-            // 快捷按钮：作用于当前选中的输入方向
-            table.table(quick -> {
-                quick.button(Core.bundle.get("universaljunction.even"), () -> {
-                    setAllFor(selDir[0], 2);
-                    rebuild.run();
-                    flushConfig(); // 快捷操作立即发送
-                }).size(112f, 36f).pad(4f);
-                quick.button(Core.bundle.get("universaljunction.clear"), () -> {
-                    setAllFor(selDir[0], 0);
-                    rebuild.run();
-                    flushConfig();
-                }).size(112f, 36f).pad(4f);
+            // 按方向覆盖（折叠开关）
+            TextButton fold = new TextButton("", Styles.defaultt);
+            fold.update(() -> fold.setText(Core.bundle.get(expanded[0] ? "universaljunction.collapse" : "universaljunction.expand")));
+            fold.clicked(() -> {
+                expanded[0] = !expanded[0];
+                r[3].run();
             });
+            table.add(fold).size(220f, 34f).padTop(2f).row();
 
-            rebuild.run(); // 初始即渲染完整内容
+            table.add(overrideTable).padTop(4f);
+
+            r[3].run(); // 初始渲染
         }
 
         // ---------- 存档 ----------
@@ -441,6 +634,7 @@ public class UniversalJunction extends Block {
             for (int i = 0; i < 4; i++) {
                 for (int j = 0; j < 4; j++) write.s((short) weights[i][j]);
             }
+            for (int j = 0; j < 4; j++) write.s((short) defaultRow[j]); // v2 起
             buffer.write(write);
         }
 
@@ -450,12 +644,17 @@ public class UniversalJunction extends Block {
             for (int i = 0; i < 4; i++) {
                 for (int j = 0; j < 4; j++) weights[i][j] = read.s();
             }
+            if (revision >= 2) {
+                for (int j = 0; j < 4; j++) defaultRow[j] = read.s();
+            } else {
+                defaultRow = weights[0].clone(); // 旧存档：取第一行作全局默认
+            }
             buffer.read(read, revision == 0);
         }
 
         @Override
         public byte version() {
-            return 1;
+            return 2;
         }
 
         @Override
