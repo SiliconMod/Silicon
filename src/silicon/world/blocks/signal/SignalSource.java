@@ -80,7 +80,6 @@ public class SignalSource extends Block{
     @Override
     public void setStats(){
         super.setStats();
-        stats.add(Stat.signalLength, StatUnit.none);
     }
 
     @Override
