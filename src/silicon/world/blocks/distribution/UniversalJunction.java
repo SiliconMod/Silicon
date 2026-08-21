@@ -747,25 +747,17 @@ public class UniversalJunction extends Block {
                     row.exited(() -> ghover[out] = false);
                     grows[out] = row;
                     renderRow(row, defaultRow, out, gtap, ghover, v -> {
-                        // 修改前记录未覆盖的输入方向（基于旧全局值，避免修改瞬间误判为已覆盖）
-                        boolean[] follow = new boolean[4];
-                        for (int in = 0; in < 4; in++) follow[in] = !isOverride(in);
                         defaultRow[out] = v;
-                        // 仅未覆盖方向跟随；被覆盖方向保持不变
-                        for (int in = 0; in < 4; in++) {
-                            if (follow[in]) weights[in][out] = v;
-                        }
+                        // 无条件跟随：全局修改穿透所有输入方向的该输出维度（含被覆盖方向），
+                        // 覆盖方向的其他输出维度仍保持独立
+                        for (int in = 0; in < 4; in++) weights[in][out] = v;
                         // 刷新全局区其他行的折叠文字（同值组可能变化；当前行保持滑块不重建）
                         for (int k = 0; k < 4; k++) {
                             if (k == out) continue;
                             final int kk = k;
                             renderRow(grows[kk], defaultRow, kk, gtap, ghover, x -> {
-                                boolean[] f2 = new boolean[4];
-                                for (int in = 0; in < 4; in++) f2[in] = !isOverride(in);
                                 defaultRow[kk] = x;
-                                for (int in = 0; in < 4; in++) {
-                                    if (f2[in]) weights[in][kk] = x;
-                                }
+                                for (int in = 0; in < 4; in++) weights[in][kk] = x;
                                 r[1].run();
                                 noteR.run();
                                 table.invalidateHierarchy();
