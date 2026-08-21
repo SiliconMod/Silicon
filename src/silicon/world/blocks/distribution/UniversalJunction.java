@@ -525,9 +525,6 @@ public class UniversalJunction extends Block {
 
                 int in = selDir[0];
                 overrideTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(4f).row();
-                if (isOverride(in)) {
-                    overrideTable.add(Core.bundle.get("universaljunction.overrideHint")).color(Color.gray).padBottom(4f).row();
-                }
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     overrideTable.table(row -> {
@@ -566,9 +563,18 @@ public class UniversalJunction extends Block {
                 }).padTop(4f);
             };
 
-            // 重建全局层（全局默认行 4 个滑块）
+            // 重建全局层（全局默认行 4 个滑块；被单独配置的输入方向在全局区提示）
             r[0] = () -> {
                 globalTable.clearChildren();
+                // 覆盖提示：列出已单独配置的输入方向
+                StringBuilder sb = new StringBuilder();
+                for (int in = 0; in < 4; in++) {
+                    if (isOverride(in)) sb.append(dirName(in)).append("、");
+                }
+                if (sb.length() > 0) {
+                    sb.setLength(sb.length() - 1);
+                    globalTable.add(Core.bundle.format("universaljunction.overriddenDirs", sb.toString())).color(Pal.accent).padBottom(4f).row();
+                }
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     globalTable.table(row -> {
