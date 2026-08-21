@@ -366,7 +366,7 @@ public class UniversalJunction extends Block {
          * hover 或点击时文字与滑块交叉淡入淡出，布局恒定不抖动。
          * 注意：行的 hover/exited 监听由调用方在创建行时注册一次，本方法只刷新内容。
          */
-        void renderRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, java.util.function.IntConsumer onChanged, float rowW) {
+        void renderRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, java.util.function.IntConsumer onChanged) {
             row.clearChildren();
             boolean force = isUnique(data, out) || isRepresentative(data, out); // 始终显示滑块
 
@@ -376,27 +376,23 @@ public class UniversalJunction extends Block {
             dirL.setColor(Color.lightGray);
             row.add(dirL).width(46f).height(40f).padRight(4f);
 
-            // 内容区：与标题同宽的剩余部分（rowW-50），文字层与滑块轨道等长、居中
-            float contentW = rowW - 50f;
+            // 内容区：growX 自适应宽度（由面板自然宽度决定），文字层与滑块轨道等长
             WidgetGroup group = new WidgetGroup();
-            group.setSize(contentW, 40f);
+            group.setSize(0f, 40f);
 
             // 折叠文字层（常态可见，与拉条同宽，水平居中）
             Label textL = new Label("▾ " + foldText(data, out));
-            textL.setBounds(12f, 0f, contentW - 24f, 40f);
             textL.setAlignment(Align.center);
             textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
             textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
 
-            // 数值标签：叠加在右上角（不占拉条宽度，保证拉条与文字层等长）
+            // 数值标签：叠加在右上角（不占拉条宽度）
             Label val = new Label(String.valueOf(data[out]));
             val.setAlignment(Align.center);
-            val.setBounds(contentW - 44f, 0f, 40f, 16f);
             val.setColor(1f, 1f, 1f, force ? 1f : 0f);
 
             // 滑块层：左右 12f 边距容纳 knob（不溢出），轨道与文字层等长
             Table sg = new Table();
-            sg.setBounds(0f, 0f, contentW, 40f);
             sg.marginLeft(12f);
             sg.marginRight(12f);
             Slider sl = new Slider(0f, 4f, 1f, false);
@@ -414,6 +410,11 @@ public class UniversalJunction extends Block {
             group.addChild(sg);
             group.addChild(val);
             group.update(() -> {
+                // 每帧同步子元素 bounds 到组实际宽度（growX 自适应）
+                float w = group.getWidth();
+                textL.setBounds(12f, 0f, Math.max(w - 24f, 0f), 40f);
+                val.setBounds(Math.max(w - 44f, 0f), 0f, 40f, 16f);
+                sg.setBounds(0f, 0f, Math.max(w, 0f), 40f);
                 boolean show = force || tapOpen[out] || hoverOpen[out];
                 textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, show ? 0f : 1f, 0.25f));
                 sg.setColor(1f, 1f, 1f, Mathf.lerp(sg.color.a, show ? 1f : 0f, 0.25f));
@@ -422,7 +423,7 @@ public class UniversalJunction extends Block {
                 sg.touchable = show ? Touchable.enabled : Touchable.disabled;
                 val.touchable = Touchable.disabled;
             });
-            row.add(group).size(contentW, 40f);
+            row.add(group).growX().height(40f);
         }
 
         /**
@@ -623,11 +624,6 @@ public class UniversalJunction extends Block {
             bg.margin(10f);
             table.add(bg);
 
-            // 测量全局标题宽度：所有配置行与标题同宽、居中
-            Label titleL = new Label(Core.bundle.get("universaljunction.global"));
-            titleL.setColor(Pal.accent);
-            final float rowW = titleL.getPrefWidth();
-
             final int[] selDir = {0};
             final boolean[] expanded = {false};
             final boolean[] manageOpen = {false};
@@ -694,13 +690,13 @@ public class UniversalJunction extends Block {
                                 noteR.run();
                                 table.invalidateHierarchy();
                                 markConfigDirty();
-                            }, rowW);
+                            });
                         }
                         // 覆盖状态可能变化：刷新全局区"已单独配置"提示
                         noteR.run();
                         table.invalidateHierarchy();
                         markConfigDirty(); // 节流发送
-                    }, rowW);
+                    });
                     overrideTable.add(row).padBottom(2f).row();
                 }
                 overrideTable.table(quick -> {
@@ -750,7 +746,7 @@ public class UniversalJunction extends Block {
                         noteR.run();
                         table.invalidateHierarchy();
                         markConfigDirty();
-                    }, rowW);
+                    });
                     globalTable.add(row).padBottom(2f).row();
                 }
             };
@@ -830,10 +826,10 @@ public class UniversalJunction extends Block {
             // 模板管理区（折叠）
             bg.add(manageTable).padBottom(8f).row();
 
-            // 全局输出优先级：标题与配置行同宽（rowW）、居中
-            bg.add(titleL).width(rowW).padBottom(4f).row();
+            // 全局输出优先级：标题与配置行同宽（growX 自适应，背景随内容自然定宽）
+            bg.add(Core.bundle.get("universaljunction.global")).color(Pal.accent).growX().padBottom(4f).row();
             bg.add(noteTable).padBottom(2f).row();
-            bg.add(globalTable).width(rowW).padBottom(6f).row();
+            bg.add(globalTable).growX().padBottom(6f).row();
 
             // 按方向覆盖（折叠开关）
             TextButton fold = new TextButton("", Styles.defaultt);
@@ -844,7 +840,7 @@ public class UniversalJunction extends Block {
             });
             bg.add(fold).size(220f, 34f).padTop(2f).row();
 
-            bg.add(overrideTable).width(rowW).padTop(4f);
+            bg.add(overrideTable).growX().padTop(4f);
 
             r[2].run(); // 初始渲染
         }
