@@ -410,12 +410,20 @@ public class UniversalJunction extends Block {
 
             group.addChild(textL);
             group.addChild(sg);
+            final int[] lastVal = {data[out]};
             group.update(() -> {
                 // 每帧同步子元素 bounds 到组实际宽度（growX 自适应），并交叉淡入淡出
                 float w = Math.max(group.getWidth(), 0f);
                 textL.setBounds(12f, 0f, Math.max(w - 24f, 0f), 40f);
                 sg.setBounds(0f, 0f, w, 40f);
-                boolean s = force || tapOpen[out] || hoverOpen[out];
+                // 数据变化时更新折叠文字（调整滑块后实时刷新）
+                if (data[out] != lastVal[0]) {
+                    lastVal[0] = data[out];
+                    textL.setText("▾ " + foldText(data, out));
+                }
+                // 实时重算 force（值变化可能使该行成为唯一值/组代表）
+                boolean f = isUnique(data, out) || isRepresentative(data, out);
+                boolean s = f || tapOpen[out] || hoverOpen[out];
                 textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, s ? 0f : 1f, 0.25f));
                 sg.setColor(1f, 1f, 1f, Mathf.lerp(sg.color.a, s ? 1f : 0f, 0.25f));
                 val.setColor(1f, 1f, 1f, Mathf.lerp(val.color.a, s ? 1f : 0f, 0.25f));
