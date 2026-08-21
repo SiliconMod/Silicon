@@ -620,7 +620,7 @@ public class UniversalJunction extends Block {
             // （外层 table 由游戏配置面板容器固定尺寸，背景画在其上不会跟随内容增长）
             table.clearChildren();
             Table bg = new Table();
-            bg.background(Tex.inventory); // 原版物品栏面板样式：深色半透明 + 原版边框
+            bg.background(Tex.pane2); // 原版建造菜单（方块选单）同款面板边框
             bg.margin(10f);
             table.add(bg);
 
@@ -646,6 +646,7 @@ public class UniversalJunction extends Block {
                     sb.setLength(sb.length() - 1);
                     noteTable.add(Core.bundle.format("universaljunction.overriddenDirs", sb.toString())).color(Pal.accent).padBottom(4f).row();
                 }
+                noteTable.invalidateHierarchy(); // 局部刷新提示行
             };
 
             // 重建覆盖层（展开时显示方向选择 + 该方向滑块 + 快捷按钮）
@@ -737,6 +738,7 @@ public class UniversalJunction extends Block {
                     table.invalidateHierarchy();
                     flushConfig();
                 }).size(220f, 32f).padTop(4f);
+                overrideTable.invalidateHierarchy(); // 局部刷新覆盖层（不影响全局滑块拖动）
             };
 
             // 重建全局层（全局默认行 4 个滑块；覆盖提示行在 noteTable，由 noteR 单独刷新）
@@ -770,6 +772,7 @@ public class UniversalJunction extends Block {
                         // 全局重排会打断拖动中的滑块
                                 markConfigDirty();
                             });
+                            grows[kk].invalidateHierarchy(); // 局部刷新其他行（不影响拖动中的当前行）
                         }
                         // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
                         r[1].run();
