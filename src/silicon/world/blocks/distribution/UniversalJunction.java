@@ -395,6 +395,11 @@ public class UniversalJunction extends Block {
             Core.settings.put(templatesKey, sb.toString());
         }
 
+        /** 名称截断：超过 max 字符显示省略号（避免长模板名溢出面板） */
+        static String clip(String s, int max) {
+            return s.length() <= max ? s : s.substring(0, max) + "…";
+        }
+
         /** 模板下拉选项：内置名 + 自定义名 */
         static String[] templateNames() {
             java.util.List<String> list = new java.util.ArrayList<>();
@@ -501,18 +506,18 @@ public class UniversalJunction extends Block {
             // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=模板按钮 r3=全量 r4=管理区）
             final Runnable[] r = new Runnable[5];
 
-            // 重建模板按钮行
+            // 重建模板按钮行（按钮自适应宽度，长名称截断）
             r[2] = () -> {
                 templatesTable.clearChildren();
                 for (String name : templateNames()) {
-                    templatesTable.button(b -> b.add(name), () -> {
+                    templatesTable.button(b -> b.add(clip(name, 8)), () -> {
                         int[] row = findTemplate(name);
                         if (row != null) {
                             applyTemplate(row);
                             r[3].run();
                             flushConfig();
                         }
-                    }).size(64f, 36f).pad(2f);
+                    }).pad(2f);
                 }
             };
 
@@ -616,7 +621,7 @@ public class UniversalJunction extends Block {
                     final String name = e.getKey();
                     final int[] row = e.getValue();
                     manageTable.table(t -> {
-                        t.add(name).width(110f).left();
+                        t.add(clip(name, 10)).left().padRight(8f);
                         t.button(Core.bundle.get("universaljunction.use"), () -> {
                             applyTemplate(row);
                             r[3].run();
@@ -635,7 +640,7 @@ public class UniversalJunction extends Block {
                     final String name = Core.bundle.get(builtinTemplateKeys[i]);
                     final int[] row = builtinTemplateRows[i];
                     manageTable.table(t -> {
-                        t.add(name).width(110f).left();
+                        t.add(name).left().padRight(8f);
                         t.button(Core.bundle.get("universaljunction.use"), () -> {
                             applyTemplate(row);
                             r[3].run();
