@@ -309,8 +309,8 @@ public class UniversalJunction extends Block {
         /** 打开方向优先级配置对话框 */
         public void openConfigDialog() {
             Dialog dialog = new Dialog(Core.bundle.get("universaljunction.title"));
-            // 固定尺寸并留足边距，避免确认按钮与选项重叠
-            dialog.setSize(520f, 520f);
+            // 固定尺寸并留足边距，避免按钮重叠
+            dialog.setSize(560f, 520f);
 
             final int[] selDir = {0};
             Table outTable = new Table();
@@ -331,10 +331,12 @@ public class UniversalJunction extends Block {
                             val.setText(String.valueOf(weights[in][out]));
                             configure(weightsString());
                         });
-                        row.add(sl).width(240f).padRight(10f);
+                        row.add(sl).width(260f).padRight(10f);
                         row.add(val).width(44f);
                     }).padBottom(8f).row();
                 }
+                // 内容变化后强制对话框重新布局，防止溢出到按钮栏
+                dialog.invalidateHierarchy();
             };
 
             Table t = dialog.cont;
@@ -351,30 +353,28 @@ public class UniversalJunction extends Block {
                     }, () -> {
                         selDir[0] = dir;
                         rebuild.run();
-                    }).size(104f, 44f).pad(4f).get();
+                    }).size(108f, 44f).pad(4f).get();
                     btn.update(() -> btn.setChecked(selDir[0] == dir));
                 }
             }).padBottom(10f).row();
 
-            t.add(outTable).padTop(8f).row();
+            t.add(outTable).padTop(8f).padBottom(4f);
 
-            // 快捷按钮
-            t.table(quick -> {
-                quick.button(Core.bundle.get("universaljunction.even"), () -> {
-                    setAll(2);
-                    rebuild.run();
-                    configure(weightsString());
-                }).size(150f, 42f).pad(5f);
-                quick.button(Core.bundle.get("universaljunction.clear"), () -> {
-                    setAll(0);
-                    rebuild.run();
-                    configure(weightsString());
-                }).size(150f, 42f).pad(5f);
-            }).padTop(14f);
-
+            // 底部按钮栏：快捷操作与完成按钮同一行，避免重叠
+            dialog.buttons.button(Core.bundle.get("universaljunction.even"), () -> {
+                setAll(2);
+                rebuild.run();
+                configure(weightsString());
+            }).size(140f, 44f).pad(5f);
+            dialog.buttons.button(Core.bundle.get("universaljunction.clear"), () -> {
+                setAll(0);
+                rebuild.run();
+                configure(weightsString());
+            }).size(140f, 44f).pad(5f);
             dialog.buttons.button(Core.bundle.get("universaljunction.done"), dialog::hide)
-                .size(150f, 48f).padTop(10f).padBottom(8f);
+                .size(140f, 44f).pad(5f);
 
+            rebuild.run(); // 初始即渲染完整内容，让对话框按完整高度布局
             dialog.show();
         }
 
