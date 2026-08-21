@@ -508,6 +508,11 @@ public class ItemTransferHub extends Block {
         public void read(Reads read, byte revision) {
             super.read(read, revision);
             network.id = read.i();
+            // 兼容旧存档（<v1）：旧格式在 id 之后还有一个 network.version 字段，需跳过，
+            // 否则后续 linkCount 会错位读到 version 值，导致链接数据损坏
+            if (revision < 1) {
+                read.i();
+            }
             short linkCount = read.s();
             links.clear();
             for (int i = 0; i < linkCount; i++) {
@@ -515,6 +520,11 @@ public class ItemTransferHub extends Block {
                 links.add(pos);
             }
             rebuildData(this);
+        }
+
+        @Override
+        public byte version() {
+            return 1;
         }
     }
 }
