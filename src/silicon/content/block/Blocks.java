@@ -98,14 +98,16 @@ public class Blocks {
         }};
         dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
             requirements(Category.effect, BuildVisibility.shown,
-                    ItemStack.with(Items.surgeAlloy, 500));
+                    ItemStack.with(Items.surgeAlloy, 100, Items.phaseFabric, 500,
+                            Items.silicon, 1000, Items.titanium, 300));
             alwaysUnlocked = true;
             size = 3;
             health = 600;
         }};
         signalSource = new SignalSource("signal-source") {{
             requirements(Category.effect, BuildVisibility.shown,
-                    ItemStack.with(Items.surgeAlloy, 600));
+                    ItemStack.with(Items.surgeAlloy, 20, Itmes.phaseFabric, 300,
+                            Items.plastanium, 80, Items.silicon, 500));
             alwaysUnlocked = true;
             size = 2;
             health = 300;

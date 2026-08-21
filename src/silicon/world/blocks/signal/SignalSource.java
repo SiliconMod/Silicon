@@ -53,7 +53,7 @@ public class SignalSource extends Block{
         breakable = true;
         // A signal source needs power to emit its signal.
         hasPower = true;
-        consumePower(60f / 60f);
+        consumePower(320f / 60f);
         // clicking the block opens a small info UI, like a vanilla bridge's configure dialog
         configurable = true;
         config(String.class, (building, value) -> {
@@ -81,7 +81,7 @@ public class SignalSource extends Block{
     @Override
     public void setStats(){
         super.setStats();
-        stats.add(Stat.signalLength, String.valueOf(SIGNAL_LENGTH), StatUnit.none);
+        stats.add(Stat.signalLength, StatUnit.none);
     }
 
     @Override
