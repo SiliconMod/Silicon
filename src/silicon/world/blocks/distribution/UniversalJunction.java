@@ -325,79 +325,6 @@ public class UniversalJunction extends Block {
             System.arraycopy(defaultRow, 0, weights[in], 0, 4);
         }
 
-        // ---------- 冗余折叠判定（数值相同组折叠为文字，hover/tap 展开滑块） ----------
-
-        /** 与 d 同值的最小方向序（组代表；上=0 最小） */
-        int repOf(int[] data, int d) {
-            int v = data[d];
-            int best = d;
-            for (int j = 0; j < 4; j++) {
-                if (j < best && data[j] == v) best = j;
-            }
-            return best;
-        }
-
-        /** 该方向的值在 4 个输出中是否唯一 */
-        boolean isUnique(int[] data, int d) {
-            int v = data[d];
-            for (int j = 0; j < 4; j++) {
-                if (j != d && data[j] == v) return false;
-            }
-            return true;
-        }
-
-        /** 该方向是否为同值组的代表（组内最小方向序，显示滑块） */
-        boolean isRepresentative(int[] data, int d) {
-            return repOf(data, d) == d;
-        }
-
-        /** 折叠文字：0 组显示"禁用"，非 0 重复组显示"与{代表}平均输出" */
-        String foldText(int[] data, int d) {
-            int v = data[d];
-            if (v == 0) return Core.bundle.get("universaljunction.disabled");
-            return Core.bundle.format("universaljunction.evenWith", dirName(repOf(data, d)));
-        }
-
-        /**
-         * 渲染一行输出配置：唯一值或同值组代表显示滑块；
-         * 重复值折叠为文字（数值>0 显示"与X平均输出"，0 显示"禁用"），hover 或点击展开滑块。
-         */
-        void renderOutRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, boolean[] sliderShown, java.util.function.IntConsumer onChanged) {
-            row.clearChildren();
-            boolean unique = isUnique(data, out);
-            boolean rep = isRepresentative(data, out);
-            boolean expanded = unique || rep || tapOpen[out] || hoverOpen[out];
-            sliderShown[out] = expanded;
-            if (expanded) {
-                Label dirL = new Label(dirName(out) + " →");
-                dirL.setColor(Color.white);
-                dirL.clicked(() -> {
-                    tapOpen[out] = !tapOpen[out]; // tap 方向标签可固定/取消固定
-                    renderOutRow(row, data, out, tapOpen, hoverOpen, sliderShown, onChanged);
-                });
-                row.add(dirL).width(50f);
-                Slider sl = new Slider(0f, 4f, 1f, false);
-                sl.setValue(data[out]);
-                Label val = new Label(String.valueOf((int) sl.getValue()));
-                sl.changed(() -> {
-                    int v = (int) sl.getValue();
-                    data[out] = v;
-                    val.setText(String.valueOf(v));
-                    onChanged.accept(v);
-                });
-                row.add(sl).width(150f).padRight(6f);
-                row.add(val).width(30f);
-            } else {
-                Label l = new Label("▾ " + foldText(data, out));
-                l.setColor(Color.gray);
-                l.clicked(() -> {
-                    tapOpen[out] = !tapOpen[out];
-                    renderOutRow(row, data, out, tapOpen, hoverOpen, sliderShown, onChanged);
-                });
-                row.add(l).left();
-            }
-        }
-
         /** 应用模板：设置全局默认行，并同步所有未覆盖的输入方向 */
         void applyTemplate(int[] row) {
             System.arraycopy(row, 0, defaultRow, 0, 4);
@@ -568,14 +495,10 @@ public class UniversalJunction extends Block {
                 }
             };
 
-            // 重建覆盖层（展开时显示方向选择 + 该方向滑块 + 快捷按钮；数值相同方向折叠为文字）
+            // 重建覆盖层（展开时显示方向选择 + 该方向滑块 + 快捷按钮）
             r[1] = () -> {
                 overrideTable.clearChildren();
                 if (!expanded[0]) return;
-                final boolean[] tapOpen = new boolean[4];
-                final boolean[] hoverOpen = new boolean[4];
-                final float[] lastExit = new float[4];
-                final boolean[] sliderShown = new boolean[4];
                 overrideTable.table(inputs -> {
                     for (int d = 0; d < 4; d++) {
                         final int dir = d;
@@ -584,47 +507,33 @@ public class UniversalJunction extends Block {
                             b.add(dirName(dir));
                         }, () -> {
                             selDir[0] = dir;
-                            r[1].run(); // 重置折叠状态并重建
+                            r[1].run();
                             table.invalidateHierarchy();
                         }).size(72f, 36f).pad(3f).get();
                         btn.update(() -> btn.setChecked(selDir[0] == dir));
                     }
                 }).padBottom(6f).row();
 
-                final int in = selDir[0];
+                int in = selDir[0];
                 overrideTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(4f).row();
                 if (isOverride(in)) {
                     overrideTable.add(Core.bundle.get("universaljunction.overrideHint")).color(Color.gray).padBottom(4f).row();
                 }
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
-                    Table row = new Table();
-                    // 行容器 hover：临时展开滑块；移出：延迟收回（防抖）；tap：固定展开
-                    row.hovered(() -> {
-                        hoverOpen[out] = true;
-                        renderOutRow(row, weights[in], out, tapOpen, hoverOpen, sliderShown, v -> {
-                            weights[in][out] = v;
-                            markConfigDirty();
+                    overrideTable.table(row -> {
+                        row.add(dirName(out) + " →").width(50f);
+                        Slider sl = new Slider(0f, 4f, 1f, false);
+                        sl.setValue(weights[in][out]);
+                        Label val = new Label(String.valueOf((int) sl.getValue()));
+                        sl.changed(() -> {
+                            weights[in][out] = (int) sl.getValue();
+                            val.setText(String.valueOf(weights[in][out]));
+                            markConfigDirty(); // 节流发送
                         });
-                    });
-                    row.exited(() -> {
-                        hoverOpen[out] = false;
-                        lastExit[out] = Time.time;
-                    });
-                    row.update(() -> {
-                        if (sliderShown[out] && !hoverOpen[out] && !tapOpen[out] && Time.time - lastExit[out] > 0.2f) {
-                            sliderShown[out] = false;
-                            renderOutRow(row, weights[in], out, tapOpen, hoverOpen, sliderShown, v -> {
-                                weights[in][out] = v;
-                                markConfigDirty();
-                            });
-                        }
-                    });
-                    overrideTable.add(row).padBottom(2f).row();
-                    renderOutRow(row, weights[in], out, tapOpen, hoverOpen, sliderShown, v -> {
-                        weights[in][out] = v;
-                        markConfigDirty();
-                    });
+                        row.add(sl).width(150f).padRight(6f);
+                        row.add(val).width(30f);
+                    }).padBottom(4f).row();
                 }
                 overrideTable.table(quick -> {
                     quick.button(Core.bundle.get("universaljunction.even"), () -> {
@@ -648,48 +557,28 @@ public class UniversalJunction extends Block {
                 }).padTop(4f);
             };
 
-            // 重建全局层（全局默认行 4 个输出；数值相同方向折叠为文字）
+            // 重建全局层（全局默认行 4 个滑块）
             r[0] = () -> {
                 globalTable.clearChildren();
-                final boolean[] gtap = new boolean[4];
-                final boolean[] ghover = new boolean[4];
-                final float[] glastExit = new float[4];
-                final boolean[] gshown = new boolean[4];
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
-                    Table row = new Table();
-                    row.hovered(() -> {
-                        ghover[out] = true;
-                        renderOutRow(row, defaultRow, out, gtap, ghover, gshown, v -> {
+                    globalTable.table(row -> {
+                        row.add(dirName(out) + " →").width(50f);
+                        Slider sl = new Slider(0f, 4f, 1f, false);
+                        sl.setValue(defaultRow[out]);
+                        Label val = new Label(String.valueOf((int) sl.getValue()));
+                        sl.changed(() -> {
+                            defaultRow[out] = (int) sl.getValue();
+                            val.setText(String.valueOf(defaultRow[out]));
                             // 应用到所有未单独覆盖的输入方向
                             for (int in = 0; in < 4; in++) {
-                                if (!isOverride(in)) weights[in][out] = v;
+                                if (!isOverride(in)) weights[in][out] = defaultRow[out];
                             }
                             markConfigDirty();
                         });
-                    });
-                    row.exited(() -> {
-                        ghover[out] = false;
-                        glastExit[out] = Time.time;
-                    });
-                    row.update(() -> {
-                        if (gshown[out] && !ghover[out] && !gtap[out] && Time.time - glastExit[out] > 0.2f) {
-                            gshown[out] = false;
-                            renderOutRow(row, defaultRow, out, gtap, ghover, gshown, v -> {
-                                for (int in = 0; in < 4; in++) {
-                                    if (!isOverride(in)) weights[in][out] = v;
-                                }
-                                markConfigDirty();
-                            });
-                        }
-                    });
-                    globalTable.add(row).padBottom(2f).row();
-                    renderOutRow(row, defaultRow, out, gtap, ghover, gshown, v -> {
-                        for (int in = 0; in < 4; in++) {
-                            if (!isOverride(in)) weights[in][out] = v;
-                        }
-                        markConfigDirty();
-                    });
+                        row.add(sl).width(150f).padRight(6f);
+                        row.add(val).width(30f);
+                    }).padBottom(4f).row();
                 }
             };
 
