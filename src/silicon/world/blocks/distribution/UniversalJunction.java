@@ -5,12 +5,15 @@ import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
+import arc.scene.event.Touchable;
 import arc.scene.ui.Button;
 import arc.scene.ui.Label;
 import arc.scene.ui.Slider;
 import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
+import arc.scene.ui.layout.WidgetGroup;
 import arc.scene.style.TextureRegionDrawable;
+import arc.util.Align;
 import arc.util.Time;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
@@ -324,6 +327,90 @@ public class UniversalJunction extends Block {
             System.arraycopy(defaultRow, 0, weights[in], 0, 4);
         }
 
+        // ---------- 同值折叠判定（数值相同组折叠为文字，滑块常驻占位、hover/tap 淡入淡出） ----------
+
+        /** 与 d 同值的最小方向序（组代表；上=0 最小） */
+        int repOf(int[] data, int d) {
+            int v = data[d];
+            int best = d;
+            for (int j = 0; j < 4; j++) {
+                if (j < best && data[j] == v) best = j;
+            }
+            return best;
+        }
+
+        /** 该方向的值在 4 个输出中是否唯一 */
+        boolean isUnique(int[] data, int d) {
+            int v = data[d];
+            for (int j = 0; j < 4; j++) {
+                if (j != d && data[j] == v) return false;
+            }
+            return true;
+        }
+
+        /** 该方向是否为同值组的代表（组内最小方向序，始终显示滑块） */
+        boolean isRepresentative(int[] data, int d) {
+            return repOf(data, d) == d;
+        }
+
+        /** 折叠文字：0 组显示"禁用"，非 0 重复组显示"与{代表}平均输出" */
+        String foldText(int[] data, int d) {
+            int v = data[d];
+            if (v == 0) return Core.bundle.get("universaljunction.disabled");
+            return Core.bundle.format("universaljunction.evenWith", dirName(repOf(data, d)));
+        }
+
+        /**
+         * 渲染一行输出配置：唯一值/组代表常显滑块；
+         * 重复值折叠为文字（覆盖层），滑块仍在原位（透明占位）——
+         * hover 或点击时文字与滑块交叉淡入淡出，布局恒定不抖动。
+         */
+        void renderRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, java.util.function.IntConsumer onChanged) {
+            row.clearChildren();
+            boolean force = isUnique(data, out) || isRepresentative(data, out); // 始终显示滑块
+            row.add(dirName(out) + " →").width(50f);
+
+            // 内容区：文字与滑块手动重叠（WidgetGroup 绝对布局），交叉淡入淡出
+            WidgetGroup group = new WidgetGroup();
+            group.setSize(200f, 26f);
+            // 折叠文字层（常态可见）
+            Label textL = new Label("▾ " + foldText(data, out));
+            textL.setBounds(0f, 0f, 200f, 26f);
+            textL.setAlignment(Align.left);
+            textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
+            textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
+            // 滑块层（常态透明占位，布局恒定）
+            Table sg = new Table();
+            sg.setBounds(0f, 0f, 200f, 26f);
+            Slider sl = new Slider(0f, 4f, 1f, false);
+            sl.setValue(data[out]);
+            Label val = new Label(String.valueOf((int) sl.getValue()));
+            sl.changed(() -> {
+                int v = (int) sl.getValue();
+                data[out] = v;
+                val.setText(String.valueOf(v));
+                onChanged.accept(v);
+            });
+            sg.add(sl).width(150f).padRight(6f);
+            sg.add(val).width(30f);
+            sg.setColor(1f, 1f, 1f, force ? 1f : 0f);
+
+            group.addChild(textL);
+            group.addChild(sg);
+            group.update(() -> {
+                boolean show = force || tapOpen[out] || hoverOpen[out];
+                textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, show ? 0f : 1f, 0.25f));
+                sg.setColor(1f, 1f, 1f, Mathf.lerp(sg.color.a, show ? 1f : 0f, 0.25f));
+                textL.touchable = show ? Touchable.disabled : Touchable.enabled;
+                sg.touchable = show ? Touchable.enabled : Touchable.disabled;
+            });
+            row.add(group).size(200f, 26f);
+
+            // 行容器 hover：临时展开；移出：淡出（渐变本身缓冲防抖）
+            row.hovered(() -> hoverOpen[out] = true);
+            row.exited(() -> hoverOpen[out] = false);
+        }
+
         /**
          * 应用模板：恢复完整配置——16 个矩阵值（[输入][输出]）+ 4 个全局默认行。
          * 覆盖关系由数据自动决定（行 ≠ 全局行即覆盖）。
@@ -567,21 +654,16 @@ public class UniversalJunction extends Block {
 
                 int in = selDir[0];
                 overrideTable.add(Core.bundle.format("universaljunction.from", dirName(in))).color(Pal.accent).padBottom(4f).row();
+                final boolean[] tapOpen = new boolean[4];
+                final boolean[] hoverOpen = new boolean[4];
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
-                    overrideTable.table(row -> {
-                        row.add(dirName(out) + " →").width(50f);
-                        Slider sl = new Slider(0f, 4f, 1f, false);
-                        sl.setValue(weights[in][out]);
-                        Label val = new Label(String.valueOf((int) sl.getValue()));
-                        sl.changed(() -> {
-                            weights[in][out] = (int) sl.getValue();
-                            val.setText(String.valueOf(weights[in][out]));
-                            markConfigDirty(); // 节流发送
-                        });
-                        row.add(sl).width(150f).padRight(6f);
-                        row.add(val).width(30f);
-                    }).padBottom(4f).row();
+                    Table row = new Table();
+                    renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
+                        weights[in][out] = v;
+                        markConfigDirty(); // 节流发送
+                    });
+                    overrideTable.add(row).padBottom(2f).row();
                 }
                 overrideTable.table(quick -> {
                     quick.button(Core.bundle.get("universaljunction.even"), () -> {
@@ -611,29 +693,24 @@ public class UniversalJunction extends Block {
             // 重建全局层（全局默认行 4 个滑块；覆盖提示行在 noteTable，由 noteR 单独刷新）
             r[0] = () -> {
                 globalTable.clearChildren();
+                final boolean[] gtap = new boolean[4];
+                final boolean[] ghover = new boolean[4];
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
-                    globalTable.table(row -> {
-                        row.add(dirName(out) + " →").width(50f);
-                        Slider sl = new Slider(0f, 4f, 1f, false);
-                        sl.setValue(defaultRow[out]);
-                        Label val = new Label(String.valueOf((int) sl.getValue()));
-                        sl.changed(() -> {
-                            defaultRow[out] = (int) sl.getValue();
-                            val.setText(String.valueOf(defaultRow[out]));
-                            // 仅应用到未单独覆盖的输入方向；被覆盖方向保持不变
-                            for (int in = 0; in < 4; in++) {
-                                if (!isOverride(in)) weights[in][out] = defaultRow[out];
-                            }
-                            // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
-                            r[1].run();
-                            noteR.run();
-                            table.invalidateHierarchy();
-                            markConfigDirty();
-                        });
-                        row.add(sl).width(150f).padRight(6f);
-                        row.add(val).width(30f);
-                    }).padBottom(4f).row();
+                    Table row = new Table();
+                    renderRow(row, defaultRow, out, gtap, ghover, v -> {
+                        defaultRow[out] = v;
+                        // 仅应用到未单独覆盖的输入方向；被覆盖方向保持不变
+                        for (int in = 0; in < 4; in++) {
+                            if (!isOverride(in)) weights[in][out] = v;
+                        }
+                        // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
+                        r[1].run();
+                        noteR.run();
+                        table.invalidateHierarchy();
+                        markConfigDirty();
+                    });
+                    globalTable.add(row).padBottom(2f).row();
                 }
             };
 
