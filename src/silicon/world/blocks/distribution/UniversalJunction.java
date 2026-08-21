@@ -11,6 +11,7 @@ import arc.scene.ui.Label;
 import arc.scene.ui.Slider;
 import arc.scene.ui.layout.Table;
 import arc.scene.style.TextureRegionDrawable;
+import arc.util.Time;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
 import mindustry.gen.BufferItem;
@@ -51,6 +52,16 @@ public class UniversalJunction extends Block {
     public static final String[] dirNames = {"上", "右", "下", "左"};
     /** 方向图标 */
     public static final TextureRegionDrawable[] dirIcons = {Icon.up, Icon.right, Icon.down, Icon.left};
+
+    /** 角度编码（0=东 1=北 2=西 3=南，relativeTo 返回值）→ 标准方位（物品来源方向） */
+    static int angleToSource(int angle) {
+        return 3 - angle;
+    }
+
+    /** 标准方位 → 角度编码（Building.nearby 参数） */
+    static int cardinalToAngle(int dir) {
+        return dir ^ 1;
+    }
 
     public UniversalJunction(String name) {
         super(name);
@@ -106,6 +117,14 @@ public class UniversalJunction extends Block {
         public final int[] activePriority = new int[4];
         /** 连续满载多少 tick 后才降级到次高优先级 */
         public static final int blockThreshold = 10;
+        /** 输入方向轮询指针（各输入方向轮流服务，避免高压方向饿死其他方向） */
+        public int inputRobin;
+        /** 配置节流间隔（秒）：拖动滑块期间合并多次改动为一次网络发送 */
+        public float configInterval = 0.25f;
+        /** 上次发送配置的时间 */
+        public float lastConfigTime;
+        /** 是否有待发送的配置改动 */
+        public boolean configDirty;
 
         private static final int timerMove = 0;
 
@@ -118,14 +137,14 @@ public class UniversalJunction extends Block {
         public boolean acceptItem(Building source, Item item) {
             int rel = source.relativeTo(tile);
             if (rel == -1) return false;
-            return buffer.accepts(3 - rel); // 角度编码 → 标准方位（物品来源方向）
+            return buffer.accepts(angleToSource(rel));
         }
 
         @Override
         public void handleItem(Building source, Item item) {
             int rel = source.relativeTo(tile);
             if (rel != -1) {
-                buffer.accept(3 - rel, item);
+                buffer.accept(angleToSource(rel), item);
             }
         }
 
@@ -134,9 +153,13 @@ public class UniversalJunction extends Block {
             if (timer(timerMove, moveTime)) {
                 moveItem();
             }
+            // 兜底补发：滑块松手后若还有未发送的配置改动，在窗口结束后发送
+            if (configDirty && Time.time >= lastConfigTime + configInterval) {
+                flushConfig();
+            }
         }
 
-        /** 每 moveTime 从缓冲最多的方向移动一个物品 */
+        /** 每 moveTime 从输入方向轮流服务一个物品 */
         void moveItem() {
             int input = pickInput();
             if (input == -1) return;
@@ -151,22 +174,22 @@ public class UniversalJunction extends Block {
             int out = pickOutput(input, item);
             if (out == -1) return; // 所有输出均阻塞，物品留在缓冲中等待
 
-            Building dest = nearby(out ^ 1); // 标准方位 → 角度编码
+            Building dest = nearby(cardinalToAngle(out));
             dest.handleItem(this, item);
             System.arraycopy(buffer.buffers[input], 1, buffer.buffers[input], 0, buffer.indexes[input] - 1);
             buffer.indexes[input]--;
         }
 
-        /** 选择缓冲物品最多的输入方向 */
+        /** 选择要服务的输入方向：从轮询指针开始找第一个有物品的方向（轮流服务，公平分配） */
         int pickInput() {
-            int best = -1, bestCount = 0;
-            for (int i = 0; i < 4; i++) {
-                if (buffer.indexes[i] > bestCount) {
-                    bestCount = buffer.indexes[i];
-                    best = i;
+            for (int n = 0; n < 4; n++) {
+                int i = (inputRobin + n) % 4;
+                if (buffer.indexes[i] > 0) {
+                    inputRobin = (i + 1) % 4;
+                    return i;
                 }
             }
-            return best;
+            return -1;
         }
 
         /**
@@ -200,7 +223,7 @@ public class UniversalJunction extends Block {
             for (int n = 0; n < 4; n++) {
                 int d = (roundRobin[input] + n) % 4;
                 if (weights[input][d] != p) continue;
-                Building dest = nearby(d ^ 1);
+                Building dest = nearby(cardinalToAngle(d));
                 if (dest == null || dest.team != team) continue; // 不可用 → 组内下一个
                 anyDest = true;
                 if (dest.acceptItem(this, item)) {
@@ -229,7 +252,7 @@ public class UniversalJunction extends Block {
         boolean groupUsable(int input, int p, Item item) {
             for (int d = 0; d < 4; d++) {
                 if (weights[input][d] != p) continue;
-                Building dest = nearby(d ^ 1);
+                Building dest = nearby(cardinalToAngle(d));
                 if (dest != null && dest.team == team && dest.acceptItem(this, item)) return true;
             }
             return false;
@@ -273,6 +296,22 @@ public class UniversalJunction extends Block {
                 }
             }
             return sb.toString();
+        }
+
+        /** 标记配置已改动：窗口内合并发送，超过窗口立即发送 */
+        void markConfigDirty() {
+            configDirty = true;
+            if (Time.time >= lastConfigTime + configInterval) {
+                flushConfig();
+            }
+        }
+
+        /** 立即发送当前配置（若确有未发送改动） */
+        void flushConfig() {
+            if (!configDirty) return;
+            configDirty = false;
+            lastConfigTime = Time.time;
+            configure(weightsString());
         }
 
         /** 解析配置字符串，非法时忽略 */
@@ -329,7 +368,7 @@ public class UniversalJunction extends Block {
                         sl.changed(() -> {
                             weights[in][out] = (int) sl.getValue();
                             val.setText(String.valueOf(weights[in][out]));
-                            configure(weightsString());
+                            markConfigDirty(); // 节流：拖动期间合并发送，松手后由 updateTile 兜底补发
                         });
                         row.add(sl).width(260f).padRight(10f);
                         row.add(val).width(44f);
@@ -364,12 +403,12 @@ public class UniversalJunction extends Block {
             dialog.buttons.button(Core.bundle.get("universaljunction.even"), () -> {
                 setAll(2);
                 rebuild.run();
-                configure(weightsString());
+                flushConfig(); // 快捷操作立即发送
             }).size(140f, 44f).pad(5f);
             dialog.buttons.button(Core.bundle.get("universaljunction.clear"), () -> {
                 setAll(0);
                 rebuild.run();
-                configure(weightsString());
+                flushConfig();
             }).size(140f, 44f).pad(5f);
             dialog.buttons.button(Core.bundle.get("universaljunction.done"), dialog::hide)
                 .size(140f, 44f).pad(5f);
