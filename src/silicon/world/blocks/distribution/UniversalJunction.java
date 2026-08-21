@@ -372,45 +372,56 @@ public class UniversalJunction extends Block {
             boolean force = isUnique(data, out) || isRepresentative(data, out); // 始终显示滑块
             boolean show = force || tapOpen[out] || hoverOpen[out];
 
-            // 数值列（先创建引用，最后 add 到行尾；滑块拖动时更新文本）
+            // 数值列（先创建引用，滑块拖动时更新文本；透明度随展开状态）
             Label val = new Label(String.valueOf(data[out]));
             val.setAlignment(Align.center);
+            val.setColor(1f, 1f, 1f, show ? 1f : 0f);
 
-            // 三列布局：标签 / 内容（文字↔滑块交替）/ 数值 —— Table 布局天然对齐
+            // 三列布局：标签 / 重叠组（文字↔滑块交叉淡入淡出）/ 数值
             Label dirL = new Label(dirName(out) + " →");
             dirL.setAlignment(Align.right);
             dirL.setColor(Color.lightGray);
-            // 点击标签可固定/取消固定展开（滑块态收起）
-            dirL.clicked(() -> {
-                tapOpen[out] = !tapOpen[out];
-                renderRow(row, data, out, tapOpen, hoverOpen, onChanged);
-            });
+            dirL.clicked(() -> tapOpen[out] = !tapOpen[out]); // 点击标签固定/收起（仅状态标志）
             row.add(dirL).width(46f).height(40f).padRight(4f);
 
-            // 内容列：折叠时文字，展开时滑块（交替，无重叠）
-            Table content = new Table();
-            row.add(content).growX().height(40f);
-            if (show) {
-                Slider sl = new Slider(0f, 4f, 1f, false);
-                sl.setValue(data[out]);
-                sl.changed(() -> {
-                    int v = (int) sl.getValue();
-                    data[out] = v;
-                    val.setText(String.valueOf(v));
-                    onChanged.accept(v);
-                });
-                content.add(sl).growX().padLeft(12f).padRight(12f);
-            } else {
-                Label textL = new Label("▾ " + foldText(data, out));
-                textL.setAlignment(Align.left);
-                textL.setColor(Color.white);
-                textL.clicked(() -> {
-                    tapOpen[out] = !tapOpen[out];
-                    renderRow(row, data, out, tapOpen, hoverOpen, onChanged);
-                });
-                content.add(textL).growX().padLeft(12f);
-            }
+            // 重叠组：文字与滑块同起点（x=12），严格对齐
+            WidgetGroup group = new WidgetGroup();
+            group.setSize(0f, 40f);
 
+            Label textL = new Label("▾ " + foldText(data, out));
+            textL.setAlignment(Align.left);
+            textL.setColor(1f, 1f, 1f, show ? 0f : 1f);
+            textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
+
+            Table sg = new Table();
+            sg.marginLeft(12f);
+            sg.marginRight(12f);
+            Slider sl = new Slider(0f, 4f, 1f, false);
+            sl.setValue(data[out]);
+            sl.changed(() -> {
+                int v = (int) sl.getValue();
+                data[out] = v;
+                val.setText(String.valueOf(v));
+                onChanged.accept(v);
+            });
+            sg.add(sl).grow();
+            sg.setColor(1f, 1f, 1f, show ? 1f : 0f);
+
+            group.addChild(textL);
+            group.addChild(sg);
+            group.update(() -> {
+                // 每帧同步子元素 bounds 到组实际宽度（growX 自适应），并交叉淡入淡出
+                float w = Math.max(group.getWidth(), 0f);
+                textL.setBounds(12f, 0f, Math.max(w - 24f, 0f), 40f);
+                sg.setBounds(0f, 0f, w, 40f);
+                boolean s = force || tapOpen[out] || hoverOpen[out];
+                textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, s ? 0f : 1f, 0.25f));
+                sg.setColor(1f, 1f, 1f, Mathf.lerp(sg.color.a, s ? 1f : 0f, 0.25f));
+                val.setColor(1f, 1f, 1f, Mathf.lerp(val.color.a, s ? 1f : 0f, 0.25f));
+                textL.touchable = s ? Touchable.disabled : Touchable.enabled;
+                sg.touchable = s ? Touchable.enabled : Touchable.disabled;
+            });
+            row.add(group).growX().height(40f);
             row.add(val).width(32f).height(40f);
         }
 
@@ -664,49 +675,9 @@ public class UniversalJunction extends Block {
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
-                    // hover/exited 监听仅注册一次；hover 变化时重建该行（文字↔滑块切换）
-                    row.hovered(() -> {
-                        hoverOpen[out] = true;
-                        renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
-                            weights[in][out] = v;
-                            for (int k = 0; k < 4; k++) {
-                                if (k == out) continue;
-                                final int kk = k;
-                                renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
-                                    weights[in][kk] = x;
-                                    noteR.run();
-                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                                    markConfigDirty();
-                                });
-                            }
-                            noteR.run();
-                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                            markConfigDirty();
-                        });
-                    });
-                    row.exited(() -> {
-                        hoverOpen[out] = false;
-                        renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
-                            weights[in][out] = v;
-                            for (int k = 0; k < 4; k++) {
-                                if (k == out) continue;
-                                final int kk = k;
-                                renderRow(rows[kk], weights[in], kk, tapOpen, hoverOpen, x -> {
-                                    weights[in][kk] = x;
-                                    noteR.run();
-                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                                    markConfigDirty();
-                                });
-                            }
-                            noteR.run();
-                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                            markConfigDirty();
-                        });
-                    });
+                    // hover/exited 监听仅注册一次；只改状态标志（重叠层 alpha 淡入淡出自动响应，不重建行）
+                    row.hovered(() -> hoverOpen[out] = true);
+                    row.exited(() -> hoverOpen[out] = false);
                     rows[out] = row;
                     renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
                         weights[in][out] = v;
@@ -776,57 +747,9 @@ public class UniversalJunction extends Block {
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
-                    // hover/exited 监听仅注册一次；hover 变化时重建该行（文字↔滑块切换）
-                    row.hovered(() -> {
-                        ghover[out] = true;
-                        renderRow(row, defaultRow, out, gtap, ghover, v -> {
-                            defaultRow[out] = v;
-                            for (int in = 0; in < 4; in++) weights[in][out] = v;
-                            for (int k = 0; k < 4; k++) {
-                                if (k == out) continue;
-                                final int kk = k;
-                                renderRow(grows[kk], defaultRow, kk, gtap, ghover, x -> {
-                                    defaultRow[kk] = x;
-                                    for (int in = 0; in < 4; in++) weights[in][kk] = x;
-                                    r[1].run();
-                                    noteR.run();
-                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                                    markConfigDirty();
-                                });
-                            }
-                            r[1].run();
-                            noteR.run();
-                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                            markConfigDirty();
-                        });
-                    });
-                    row.exited(() -> {
-                        ghover[out] = false;
-                        renderRow(row, defaultRow, out, gtap, ghover, v -> {
-                            defaultRow[out] = v;
-                            for (int in = 0; in < 4; in++) weights[in][out] = v;
-                            for (int k = 0; k < 4; k++) {
-                                if (k == out) continue;
-                                final int kk = k;
-                                renderRow(grows[kk], defaultRow, kk, gtap, ghover, x -> {
-                                    defaultRow[kk] = x;
-                                    for (int in = 0; in < 4; in++) weights[in][kk] = x;
-                                    r[1].run();
-                                    noteR.run();
-                                    // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                                    markConfigDirty();
-                                });
-                            }
-                            r[1].run();
-                            noteR.run();
-                            // 拖动/刷新路径不显式 invalidateHierarchy：Table 内容变化自动局部布局，
-                        // 全局重排会打断拖动中的滑块
-                            markConfigDirty();
-                        });
-                    });
+                    // hover/exited 监听仅注册一次；只改状态标志（重叠层 alpha 淡入淡出自动响应，不重建行）
+                    row.hovered(() -> ghover[out] = true);
+                    row.exited(() -> ghover[out] = false);
                     grows[out] = row;
                     renderRow(row, defaultRow, out, gtap, ghover, v -> {
                         defaultRow[out] = v;
