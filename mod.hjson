@@ -16,7 +16,7 @@ description: "一个添加了个人创意的 Mindustry 模组，提供多种实�
 
 
 #the mod version
-version: a0.8.7.0
+version: a0.9.0.0
 
 #the minimum game build required to run this mod
 minGameVersion: 155.4
