@@ -721,7 +721,16 @@ public class UniversalJunction extends Block {
                         table.invalidateHierarchy();
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
-                }).padTop(4f);
+                }).padTop(4f).row();
+                // 全部恢复为全局：一键取消所有输入方向的覆盖，全局修改立即生效
+                overrideTable.button(Core.bundle.get("universaljunction.resetAll"), () -> {
+                    for (int i = 0; i < 4; i++) resetToDefault(i);
+                    r[1].run();
+                    r[0].run();
+                    noteR.run();
+                    table.invalidateHierarchy();
+                    flushConfig();
+                }).size(220f, 32f).padTop(4f);
             };
 
             // 重建全局层（全局默认行 4 个滑块；覆盖提示行在 noteTable，由 noteR 单独刷新）
