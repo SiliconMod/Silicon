@@ -380,9 +380,9 @@ public class UniversalJunction extends Block {
             WidgetGroup group = new WidgetGroup();
             group.setSize(0f, 40f);
 
-            // 折叠文字层（常态可见，与拉条同宽，水平居中）
+            // 折叠文字层（常态可见，左对齐，与轨道等长）
             Label textL = new Label("▾ " + foldText(data, out));
-            textL.setAlignment(Align.center);
+            textL.setAlignment(Align.left);
             textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
             textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
 
@@ -697,7 +697,7 @@ public class UniversalJunction extends Block {
                         table.invalidateHierarchy();
                         markConfigDirty(); // 节流发送
                     });
-                    overrideTable.add(row).padBottom(2f).row();
+                    overrideTable.add(row).growX().padBottom(2f).row();
                 }
                 overrideTable.table(quick -> {
                     quick.button(Core.bundle.get("universaljunction.even"), () -> {
@@ -778,7 +778,7 @@ public class UniversalJunction extends Block {
                         table.invalidateHierarchy();
                         markConfigDirty();
                     });
-                    globalTable.add(row).padBottom(2f).row();
+                    globalTable.add(row).growX().padBottom(2f).row();
                 }
             };
 
