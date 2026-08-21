@@ -20,6 +20,7 @@ import mindustry.world.Block;
 import mindustry.world.Tile;
 import silicon.util.Signals;
 import silicon.util.SignalUser;
+import silicon.world.meta.Stat;
 
 /**
  * SignalSource - 信号源
@@ -73,6 +74,12 @@ public class SignalSource extends Block{
             () -> Pal.accent,
             () -> b.signal == null ? 0f : 1f
         ));
+    }
+
+    @Override
+    public void setStats(){
+        super.setStats();
+        stats.add(Stat.signalLenth, StatUnit.none);
     }
 
     @Override

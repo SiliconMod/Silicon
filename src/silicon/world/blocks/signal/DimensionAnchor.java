@@ -92,6 +92,7 @@ public class DimensionAnchor extends Block{
     public void setStats(){
         super.setStats();
         stats.add(Stat.sendInterval, sendInterval / 60f, StatUnit.seconds);
+        stats.add(Stat.receivePower, receivePower / 60f, StatUnit.powerSecond);
     }
 
     public class DimensionAnchorBuild extends Building implements SignalUser{
