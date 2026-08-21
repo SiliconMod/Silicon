@@ -364,6 +364,7 @@ public class UniversalJunction extends Block {
          * 渲染一行输出配置：唯一值/组代表常显滑块；
          * 重复值折叠为文字（覆盖层），滑块仍在原位（透明占位）——
          * hover 或点击时文字与滑块交叉淡入淡出，布局恒定不抖动。
+         * 注意：行的 hover/exited 监听由调用方在创建行时注册一次，本方法只刷新内容。
          */
         void renderRow(Table row, int[] data, int out, boolean[] tapOpen, boolean[] hoverOpen, java.util.function.IntConsumer onChanged) {
             row.clearChildren();
@@ -408,10 +409,6 @@ public class UniversalJunction extends Block {
                 sg.touchable = show ? Touchable.enabled : Touchable.disabled;
             });
             row.add(group).size(220f, 40f);
-
-            // 行容器 hover：临时展开；移出：淡出（渐变本身缓冲防抖）
-            row.hovered(() -> hoverOpen[out] = true);
-            row.exited(() -> hoverOpen[out] = false);
         }
 
         /**
@@ -663,6 +660,9 @@ public class UniversalJunction extends Block {
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
+                    // hover/exited 监听仅注册一次（renderRow 刷新内容不重复注册）
+                    row.hovered(() -> hoverOpen[out] = true);
+                    row.exited(() -> hoverOpen[out] = false);
                     rows[out] = row;
                     renderRow(row, weights[in], out, tapOpen, hoverOpen, v -> {
                         weights[in][out] = v;
@@ -717,6 +717,9 @@ public class UniversalJunction extends Block {
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     Table row = new Table();
+                    // hover/exited 监听仅注册一次
+                    row.hovered(() -> ghover[out] = true);
+                    row.exited(() -> ghover[out] = false);
                     renderRow(row, defaultRow, out, gtap, ghover, v -> {
                         defaultRow[out] = v;
                         // 仅应用到未单独覆盖的输入方向；被覆盖方向保持不变
