@@ -468,8 +468,14 @@ public class UniversalJunction extends Block {
         /** 配置面板：模板一键应用 + 全局输出优先级 + 按方向覆盖（折叠高级层） */
         @Override
         public void buildConfiguration(Table table) {
-            table.background(Styles.black6);
-            table.margin(10f);
+            // 背景放在内容包裹表 bg 上：bg 尺寸完全由内容决定，
+            // 覆盖层展开时 bg 随之变高，背景才能拉长覆盖全部内容
+            // （外层 table 由游戏配置面板容器固定尺寸，背景画在其上不会跟随内容增长）
+            table.clearChildren();
+            Table bg = new Table();
+            bg.background(Styles.black6);
+            bg.margin(10f);
+            table.add(bg);
 
             final int[] selDir = {0};
             final boolean[] expanded = {false};
@@ -591,7 +597,7 @@ public class UniversalJunction extends Block {
             };
 
             // 模板行：横向滚动按钮（内置 + 自定义），右侧固定保存按钮
-            table.table(top -> {
+            bg.table(top -> {
                 ScrollPane pane = new ScrollPane(templatesTable);
                 pane.setScrollingDisabled(false, true); // 仅水平滚动
                 pane.setFadeScrollBars(false);
@@ -609,8 +615,8 @@ public class UniversalJunction extends Block {
             }).padBottom(8f).row();
 
             // 全局输出优先级
-            table.add(Core.bundle.get("universaljunction.global")).color(Pal.accent).padBottom(4f).row();
-            table.add(globalTable).padBottom(6f).row();
+            bg.add(Core.bundle.get("universaljunction.global")).color(Pal.accent).padBottom(4f).row();
+            bg.add(globalTable).padBottom(6f).row();
 
             // 按方向覆盖（折叠开关）
             TextButton fold = new TextButton("", Styles.defaultt);
@@ -619,9 +625,9 @@ public class UniversalJunction extends Block {
                 expanded[0] = !expanded[0];
                 r[3].run();
             });
-            table.add(fold).size(220f, 34f).padTop(2f).row();
+            bg.add(fold).size(220f, 34f).padTop(2f).row();
 
-            table.add(overrideTable).padTop(4f);
+            bg.add(overrideTable).padTop(4f);
 
             r[3].run(); // 初始渲染
         }
