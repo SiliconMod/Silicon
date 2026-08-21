@@ -386,7 +386,7 @@ public class UniversalJunction extends Block {
             textL.setColor(1f, 1f, 1f, force ? 0f : 1f);
             textL.clicked(() -> tapOpen[out] = !tapOpen[out]); // tap 固定展开/收起
 
-            // 数值标签：叠加在右上角（不占拉条宽度）
+            // 数值标签：行级右侧独立列（不叠加轨道，避免重叠）
             Label val = new Label(String.valueOf(data[out]));
             val.setAlignment(Align.center);
             val.setColor(1f, 1f, 1f, force ? 1f : 0f);
@@ -408,12 +408,10 @@ public class UniversalJunction extends Block {
 
             group.addChild(textL);
             group.addChild(sg);
-            group.addChild(val);
             group.update(() -> {
                 // 每帧同步子元素 bounds 到组实际宽度（growX 自适应）
                 float w = group.getWidth();
                 textL.setBounds(12f, 0f, Math.max(w - 24f, 0f), 40f);
-                val.setBounds(Math.max(w - 44f, 0f), 0f, 40f, 16f);
                 sg.setBounds(0f, 0f, Math.max(w, 0f), 40f);
                 boolean show = force || tapOpen[out] || hoverOpen[out];
                 textL.setColor(1f, 1f, 1f, Mathf.lerp(textL.color.a, show ? 0f : 1f, 0.25f));
@@ -424,6 +422,7 @@ public class UniversalJunction extends Block {
                 val.touchable = Touchable.disabled;
             });
             row.add(group).growX().height(40f);
+            row.add(val).width(32f);
         }
 
         /**
