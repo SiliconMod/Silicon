@@ -286,6 +286,11 @@ public class UniversalJunction extends Block {
             }
         }
 
+        /** 仅设置指定输入方向的 4 个输出优先级（快捷按钮作用域：当前选中的输入方向） */
+        void setAllFor(int in, int v) {
+            for (int j = 0; j < 4; j++) weights[in][j] = v;
+        }
+
         /** 将优先级矩阵序列化为 16 个逗号分隔的整数 */
         public String weightsString() {
             StringBuilder sb = new StringBuilder();
@@ -399,14 +404,14 @@ public class UniversalJunction extends Block {
 
             t.add(outTable).padTop(8f).padBottom(4f);
 
-            // 底部按钮栏：快捷操作与完成按钮同一行，避免重叠
+            // 底部按钮栏：快捷操作作用于当前选中的输入方向，与完成按钮同一行
             dialog.buttons.button(Core.bundle.get("universaljunction.even"), () -> {
-                setAll(2);
+                setAllFor(selDir[0], 2);
                 rebuild.run();
                 flushConfig(); // 快捷操作立即发送
             }).size(140f, 44f).pad(5f);
             dialog.buttons.button(Core.bundle.get("universaljunction.clear"), () -> {
-                setAll(0);
+                setAllFor(selDir[0], 0);
                 rebuild.run();
                 flushConfig();
             }).size(140f, 44f).pad(5f);
