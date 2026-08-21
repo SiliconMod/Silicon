@@ -498,11 +498,25 @@ public class UniversalJunction extends Block {
             final boolean[] expanded = {false};
             final boolean[] manageOpen = {false};
             Table globalTable = new Table();
+            Table noteTable = new Table();
             Table overrideTable = new Table();
             Table manageTable = new Table();
 
             // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=全量 r3=管理区）
             final Runnable[] r = new Runnable[4];
+
+            // 重建全局区覆盖提示行（被单独配置的输入方向列表）
+            Runnable noteR = () -> {
+                noteTable.clearChildren();
+                StringBuilder sb = new StringBuilder();
+                for (int in = 0; in < 4; in++) {
+                    if (isOverride(in)) sb.append(dirName(in)).append("、");
+                }
+                if (sb.length() > 0) {
+                    sb.setLength(sb.length() - 1);
+                    noteTable.add(Core.bundle.format("universaljunction.overriddenDirs", sb.toString())).color(Pal.accent).padBottom(4f).row();
+                }
+            };
 
             // 重建覆盖层（展开时显示方向选择 + 该方向滑块 + 快捷按钮）
             r[1] = () -> {
@@ -545,36 +559,30 @@ public class UniversalJunction extends Block {
                     quick.button(Core.bundle.get("universaljunction.even"), () -> {
                         setAllFor(selDir[0], 2);
                         r[1].run();
+                        noteR.run();
                         table.invalidateHierarchy();
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
                     quick.button(Core.bundle.get("universaljunction.clear"), () -> {
                         setAllFor(selDir[0], 0);
                         r[1].run();
+                        noteR.run();
                         table.invalidateHierarchy();
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
                     quick.button(Core.bundle.get("universaljunction.reset"), () -> {
                         resetToDefault(selDir[0]);
                         r[1].run();
+                        noteR.run();
                         table.invalidateHierarchy();
                         flushConfig();
                     }).size(96f, 32f).pad(3f);
                 }).padTop(4f);
             };
 
-            // 重建全局层（全局默认行 4 个滑块；被单独配置的输入方向在全局区提示）
+            // 重建全局层（全局默认行 4 个滑块；覆盖提示行在 noteTable，由 noteR 单独刷新）
             r[0] = () -> {
                 globalTable.clearChildren();
-                // 覆盖提示：列出已单独配置的输入方向
-                StringBuilder sb = new StringBuilder();
-                for (int in = 0; in < 4; in++) {
-                    if (isOverride(in)) sb.append(dirName(in)).append("、");
-                }
-                if (sb.length() > 0) {
-                    sb.setLength(sb.length() - 1);
-                    globalTable.add(Core.bundle.format("universaljunction.overriddenDirs", sb.toString())).color(Pal.accent).padBottom(4f).row();
-                }
                 for (int d = 0; d < 4; d++) {
                     final int out = d;
                     globalTable.table(row -> {
@@ -585,10 +593,14 @@ public class UniversalJunction extends Block {
                         sl.changed(() -> {
                             defaultRow[out] = (int) sl.getValue();
                             val.setText(String.valueOf(defaultRow[out]));
-                            // 应用到所有未单独覆盖的输入方向
+                            // 仅应用到未单独覆盖的输入方向；被覆盖方向保持不变
                             for (int in = 0; in < 4; in++) {
                                 if (!isOverride(in)) weights[in][out] = defaultRow[out];
                             }
+                            // 刷新覆盖层滑块显示与全局提示（不重建正在拖动的滑块本身）
+                            r[1].run();
+                            noteR.run();
+                            table.invalidateHierarchy();
                             markConfigDirty();
                         });
                         row.add(sl).width(150f).padRight(6f);
@@ -641,6 +653,7 @@ public class UniversalJunction extends Block {
             // 全量重建
             r[2] = () -> {
                 r[0].run();
+                noteR.run();
                 r[1].run();
                 r[3].run();
                 table.invalidateHierarchy();
@@ -673,6 +686,7 @@ public class UniversalJunction extends Block {
 
             // 全局输出优先级
             bg.add(Core.bundle.get("universaljunction.global")).color(Pal.accent).padBottom(4f).row();
+            bg.add(noteTable).padBottom(2f).row();
             bg.add(globalTable).padBottom(6f).row();
 
             // 按方向覆盖（折叠开关）
