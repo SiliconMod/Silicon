@@ -18,10 +18,8 @@ import mindustry.graphics.Pal;
 import mindustry.ui.Bar;
 import mindustry.world.Block;
 import mindustry.world.Tile;
-import mindustry.world.meta.StatUnit;
 import silicon.util.Signals;
 import silicon.util.SignalUser;
-import silicon.world.meta.Stat;
 
 /**
  * SignalSource - 信号源
@@ -75,13 +73,6 @@ public class SignalSource extends Block{
             () -> Pal.accent,
             () -> b.signal == null ? 0f : 1f
         ));
-    }
-
-    /** Adds database/info page statistics. */
-    @Override
-    public void setStats(){
-        super.setStats();
-        stats.add(Stat.signalLength, StatUnit.none);
     }
 
     @Override
