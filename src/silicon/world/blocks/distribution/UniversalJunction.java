@@ -21,6 +21,7 @@ import arc.util.io.Writes;
 import mindustry.gen.BufferItem;
 import mindustry.gen.Building;
 import mindustry.gen.Icon;
+import mindustry.gen.Tex;
 import mindustry.gen.Teamc;
 import mindustry.graphics.Pal;
 import mindustry.type.Item;
@@ -619,7 +620,7 @@ public class UniversalJunction extends Block {
             // （外层 table 由游戏配置面板容器固定尺寸，背景画在其上不会跟随内容增长）
             table.clearChildren();
             Table bg = new Table();
-            bg.background(Styles.black6);
+            bg.background(Tex.inventory); // 原版物品栏面板样式：深色半透明 + 原版边框
             bg.margin(10f);
             table.add(bg);
 
