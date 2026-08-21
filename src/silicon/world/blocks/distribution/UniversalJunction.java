@@ -324,24 +324,40 @@ public class UniversalJunction extends Block {
             System.arraycopy(defaultRow, 0, weights[in], 0, 4);
         }
 
-        /** 应用模板：设置全局默认行，并同步所有未覆盖的输入方向 */
-        void applyTemplate(int[] row) {
-            System.arraycopy(row, 0, defaultRow, 0, 4);
-            for (int in = 0; in < 4; in++) {
-                if (!isOverride(in)) {
-                    System.arraycopy(row, 0, weights[in], 0, 4);
-                }
+        /**
+         * 应用模板：恢复完整配置——16 个矩阵值（[输入][输出]）+ 4 个全局默认行。
+         * 覆盖关系由数据自动决定（行 ≠ 全局行即覆盖）。
+         */
+        void applyTemplate(int[] tpl) {
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 4; j++) weights[i][j] = tpl[i * 4 + j];
             }
+            for (int j = 0; j < 4; j++) defaultRow[j] = tpl[16 + j];
+        }
+
+        /** 当前完整配置（16 矩阵 + 4 全局行），用于保存模板 */
+        int[] currentTemplate() {
+            int[] tpl = new int[20];
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 4; j++) tpl[i * 4 + j] = weights[i][j];
+            }
+            for (int j = 0; j < 4; j++) tpl[16 + j] = defaultRow[j];
+            return tpl;
         }
 
         // ---------- 模板持久化（玩家全局偏好，存于游戏设置） ----------
 
         static final String templatesKey = "silicon-uj-templates";
-        /** 内置模板：均分 / 全东 / 主东备西 / 南北直通（方向顺序 上右下左） */
+        /** 内置模板：均分 / 全右 / 主右备左 / 上下直通（20 值 = 16 矩阵 + 4 全局行，方向顺序 上右下左） */
         static final String[] builtinTemplateKeys = {"universaljunction.tpl.even", "universaljunction.tpl.east", "universaljunction.tpl.eastwest", "universaljunction.tpl.ns"};
-        static final int[][] builtinTemplateRows = {{2, 2, 2, 2}, {0, 4, 0, 0}, {0, 4, 0, 2}, {4, 0, 4, 0}};
+        static final int[][] builtinTemplateRows = {
+            {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},
+            {0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0},
+            {0, 4, 0, 2, 0, 4, 0, 2, 0, 4, 0, 2, 0, 4, 0, 2, 0, 4, 0, 2},
+            {4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0, 4, 0}
+        };
 
-        /** 读取自定义模板表（LinkedHashMap：名称 → 行） */
+        /** 读取自定义模板表（LinkedHashMap：名称 → 20 值完整配置；兼容旧版 4 值全局行格式） */
         static java.util.Map<String, int[]> loadTemplates() {
             java.util.Map<String, int[]> map = new java.util.LinkedHashMap<>();
             String raw = (String) Core.settings.get(templatesKey, "");
@@ -351,24 +367,36 @@ public class UniversalJunction extends Block {
                 String[] kv = part.split(":", 2);
                 if (kv.length != 2) continue;
                 String[] vals = kv[1].split(",");
-                if (vals.length != 4) continue;
                 try {
-                    int[] row = new int[4];
-                    for (int i = 0; i < 4; i++) row[i] = Mathf.clamp(Integer.parseInt(vals[i].trim()), 0, 4);
-                    map.put(kv[0], row);
+                    if (vals.length == 20) {
+                        // 新格式：完整配置
+                        int[] tpl = new int[20];
+                        for (int i = 0; i < 20; i++) tpl[i] = Mathf.clamp(Integer.parseInt(vals[i].trim()), 0, 4);
+                        map.put(kv[0], tpl);
+                    } else if (vals.length == 4) {
+                        // 旧格式：仅全局行 → 展开为所有输入方向相同
+                        int[] row = new int[4];
+                        for (int i = 0; i < 4; i++) row[i] = Mathf.clamp(Integer.parseInt(vals[i].trim()), 0, 4);
+                        int[] tpl = new int[20];
+                        for (int i = 0; i < 4; i++) {
+                            for (int j = 0; j < 4; j++) tpl[i * 4 + j] = row[j];
+                        }
+                        for (int j = 0; j < 4; j++) tpl[16 + j] = row[j];
+                        map.put(kv[0], tpl);
+                    }
                 } catch (NumberFormatException ignored) {
                 }
             }
             return map;
         }
 
-        /** 保存自定义模板 */
-        static void saveTemplate(String name, int[] row) {
+        /** 保存自定义模板（20 值完整配置） */
+        static void saveTemplate(String name, int[] tpl) {
             java.util.Map<String, int[]> map = loadTemplates();
             // 过滤非法字符（分隔符）
             String clean = name.replace(":", "").replace(";", "").replace(",", "").trim();
             if (clean.isEmpty()) return;
-            map.put(clean, row.clone());
+            map.put(clean, tpl.clone());
             saveTemplates(map);
         }
 
@@ -380,13 +408,13 @@ public class UniversalJunction extends Block {
             }
         }
 
-        /** 持久化自定义模板表（存于游戏设置，跨存档保留） */
+        /** 持久化自定义模板表（存于游戏设置，跨存档保留；每模板 20 值） */
         static void saveTemplates(java.util.Map<String, int[]> map) {
             StringBuilder sb = new StringBuilder();
             for (java.util.Map.Entry<String, int[]> e : map.entrySet()) {
                 if (sb.length() > 0) sb.append(';');
                 sb.append(e.getKey()).append(':');
-                for (int i = 0; i < 4; i++) {
+                for (int i = 0; i < 20; i++) {
                     if (i > 0) sb.append(',');
                     sb.append(e.getValue()[i]);
                 }
@@ -665,7 +693,7 @@ public class UniversalJunction extends Block {
                     ui.showTextInput("", Core.bundle.get("universaljunction.saveTitle"), 12, "", text -> {
                         String name = text.trim();
                         if (!name.isEmpty()) {
-                            saveTemplate(name, defaultRow);
+                            saveTemplate(name, currentTemplate()); // 保存完整 4 方向权重矩阵
                             r[3].run();
                             table.invalidateHierarchy();
                         }
