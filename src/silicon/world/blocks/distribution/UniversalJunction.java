@@ -19,6 +19,7 @@ import mindustry.gen.Icon;
 import mindustry.gen.Teamc;
 import mindustry.graphics.Pal;
 import mindustry.type.Item;
+import mindustry.ui.Styles;
 import mindustry.world.Block;
 import mindustry.world.DirectionalItemBuffer;
 import mindustry.world.meta.BlockGroup;
@@ -366,6 +367,9 @@ public class UniversalJunction extends Block {
         /** 配置面板：点击方块后直接在面板内选择输入方向并设置各输出方向优先级（扁平化，无嵌套弹窗） */
         @Override
         public void buildConfiguration(Table table) {
+            // 半透明深色背景，与游戏内原版浮层 UI 保持一致
+            table.background(Styles.black6);
+
             final int[] selDir = {0};
             Table outTable = new Table();
 
@@ -392,7 +396,7 @@ public class UniversalJunction extends Block {
                 table.invalidateHierarchy(); // 内容变化后强制重新布局
             };
 
-            table.margin(8f);
+            table.margin(12f);
             table.add(Core.bundle.get("universaljunction.hint")).color(Color.gray).padBottom(8f).row();
 
             // 输入方向选择
