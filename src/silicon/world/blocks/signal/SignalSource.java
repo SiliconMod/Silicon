@@ -22,9 +22,6 @@ import mindustry.world.meta.StatUnit;
 import silicon.util.Signals;
 import silicon.util.SignalUser;
 import silicon.world.meta.Stat;
-import silicon.world.meta.Stat;
-import mindustry.world.meta.Stat;
-import mindustry.world.meta.StatUnit;
 
 /**
  * SignalSource - 信号源

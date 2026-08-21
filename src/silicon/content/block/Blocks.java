@@ -106,7 +106,7 @@ public class Blocks {
         }};
         signalSource = new SignalSource("signal-source") {{
             requirements(Category.effect, BuildVisibility.shown,
-                    ItemStack.with(Items.surgeAlloy, 20, Itmes.phaseFabric, 300,
+                    ItemStack.with(Items.surgeAlloy, 20, Items.phaseFabric, 300,
                             Items.plastanium, 80, Items.silicon, 500));
             alwaysUnlocked = true;
             size = 2;
