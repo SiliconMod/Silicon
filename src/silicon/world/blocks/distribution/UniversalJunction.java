@@ -7,7 +7,6 @@ import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
 import arc.scene.ui.Button;
 import arc.scene.ui.Label;
-import arc.scene.ui.ScrollPane;
 import arc.scene.ui.Slider;
 import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
@@ -500,26 +499,10 @@ public class UniversalJunction extends Block {
             final boolean[] manageOpen = {false};
             Table globalTable = new Table();
             Table overrideTable = new Table();
-            Table templatesTable = new Table();
             Table manageTable = new Table();
 
-            // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=模板按钮 r3=全量 r4=管理区）
-            final Runnable[] r = new Runnable[5];
-
-            // 重建模板按钮行（按钮自适应宽度，长名称截断）
-            r[2] = () -> {
-                templatesTable.clearChildren();
-                for (String name : templateNames()) {
-                    templatesTable.button(b -> b.add(clip(name, 8)), () -> {
-                        int[] row = findTemplate(name);
-                        if (row != null) {
-                            applyTemplate(row);
-                            r[3].run();
-                            flushConfig();
-                        }
-                    }).pad(2f);
-                }
-            };
+            // 重建函数存于数组，避免 lambda 循环引用（r0=全局 r1=覆盖 r2=全量 r3=管理区）
+            final Runnable[] r = new Runnable[4];
 
             // 重建覆盖层（展开时显示方向选择 + 该方向滑块 + 快捷按钮）
             r[1] = () -> {
@@ -609,7 +592,7 @@ public class UniversalJunction extends Block {
             };
 
             // 重建模板管理区（展开时列出模板：使用/删除）
-            r[4] = () -> {
+            r[3] = () -> {
                 manageTable.clearChildren();
                 if (!manageOpen[0]) return;
                 manageTable.add(Core.bundle.get("universaljunction.customTemplates")).color(Pal.accent).padBottom(3f).row();
@@ -624,13 +607,12 @@ public class UniversalJunction extends Block {
                         t.add(clip(name, 10)).left().padRight(8f);
                         t.button(Core.bundle.get("universaljunction.use"), () -> {
                             applyTemplate(row);
-                            r[3].run();
+                            r[2].run();
                             flushConfig();
                         }).size(56f, 28f).pad(2f);
                         t.button(Core.bundle.get("universaljunction.delete"), () -> {
                             deleteTemplate(name);
-                            r[4].run();
-                            r[2].run();
+                            r[3].run();
                             table.invalidateHierarchy();
                         }).size(56f, 28f).pad(2f);
                     }).padBottom(3f).row();
@@ -643,7 +625,7 @@ public class UniversalJunction extends Block {
                         t.add(name).left().padRight(8f);
                         t.button(Core.bundle.get("universaljunction.use"), () -> {
                             applyTemplate(row);
-                            r[3].run();
+                            r[2].run();
                             flushConfig();
                         }).size(56f, 28f).pad(2f);
                     }).padBottom(3f).row();
@@ -651,39 +633,33 @@ public class UniversalJunction extends Block {
             };
 
             // 全量重建
-            r[3] = () -> {
+            r[2] = () -> {
                 r[0].run();
                 r[1].run();
-                r[2].run();
-                r[4].run();
+                r[3].run();
                 table.invalidateHierarchy();
             };
 
-            // 模板行：横向滚动按钮（内置 + 自定义）+ 保存 + 管理
+            // 模板区：仅 [保存] [管理] 两个按钮（模板使用与删除均在管理区）
             bg.table(top -> {
-                ScrollPane pane = new ScrollPane(templatesTable);
-                pane.setScrollingDisabled(false, true); // 仅水平滚动
-                pane.setFadeScrollBars(false);
-                top.add(pane).width(176f).height(40f).padRight(6f);
                 top.button(Core.bundle.get("universaljunction.save"), () -> {
                     ui.showTextInput("", Core.bundle.get("universaljunction.saveTitle"), 12, "", text -> {
                         String name = text.trim();
                         if (!name.isEmpty()) {
                             saveTemplate(name, defaultRow);
-                            r[2].run();
-                            r[4].run();
+                            r[3].run();
                             table.invalidateHierarchy();
                         }
                     });
-                }).size(56f, 40f).padRight(4f);
+                }).size(88f, 40f).padRight(6f);
                 TextButton manage = new TextButton(Core.bundle.get("universaljunction.manage"), Styles.defaultt);
                 manage.update(() -> manage.setText(Core.bundle.get(manageOpen[0] ? "universaljunction.manageClose" : "universaljunction.manage")));
                 manage.clicked(() -> {
                     manageOpen[0] = !manageOpen[0];
-                    r[4].run();
+                    r[3].run();
                     table.invalidateHierarchy();
                 });
-                top.add(manage).size(56f, 40f);
+                top.add(manage).size(88f, 40f);
             }).padBottom(8f).row();
 
             // 模板管理区（折叠）
@@ -698,13 +674,13 @@ public class UniversalJunction extends Block {
             fold.update(() -> fold.setText(Core.bundle.get(expanded[0] ? "universaljunction.collapse" : "universaljunction.expand")));
             fold.clicked(() -> {
                 expanded[0] = !expanded[0];
-                r[3].run();
+                r[2].run();
             });
             bg.add(fold).size(220f, 34f).padTop(2f).row();
 
             bg.add(overrideTable).padTop(4f);
 
-            r[3].run(); // 初始渲染
+            r[2].run(); // 初始渲染
         }
 
         // ---------- 存档 ----------
