@@ -5,7 +5,8 @@ import mindustry.world.meta.StatCat;
 public class Stat extends mindustry.world.meta.Stat {
     public static final Stat
             itemsScaled = new Stat("items-scaled", StatCat.items),
-            recivePower = new Stat("recive-power", StatCat.power),
+            sendInterval = new Stat("send-interval", StatCat.function),
+            receivePower = new Stat("receive-power", StatCat.power),
             signalLength = new Stat("signal-length", StatCat.general);
 
 

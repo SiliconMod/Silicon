@@ -18,8 +18,10 @@ import mindustry.graphics.Pal;
 import mindustry.ui.Bar;
 import mindustry.world.Block;
 import mindustry.world.Tile;
+import mindustry.world.meta.StatUnit;
 import silicon.util.Signals;
 import silicon.util.SignalUser;
+import silicon.world.meta.Stat;
 import silicon.world.meta.Stat;
 import mindustry.world.meta.Stat;
 import mindustry.world.meta.StatUnit;
@@ -81,7 +83,7 @@ public class SignalSource extends Block{
     @Override
     public void setStats(){
         super.setStats();
-        stats.add(Stat.signalLenth, StatUnit.none);
+        stats.add(Stat.signalLength, SIGNAL_LENGTH, StatUnit.none);
     }
 
     @Override
