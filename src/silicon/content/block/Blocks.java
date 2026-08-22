@@ -11,6 +11,7 @@ import silicon.world.blocks.signal.DimensionAnchor;
 import silicon.world.blocks.signal.SignalSource;
 import silicon.world.blocks.distribution.ItemTransferHub;
 import silicon.world.blocks.distribution.Junction;
+import silicon.world.blocks.distribution.UniversalJunction;
 import silicon.world.blocks.power.GeneratorPump;
 import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
@@ -22,7 +23,7 @@ import static mindustry.type.ItemStack.with;
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub, dimensionAnchor,
-            signalSource;
+            signalSource, universalJunction;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -109,6 +110,12 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 2;
             health = 300;
+        }};
+        universalJunction = new UniversalJunction("universal-junction") {{
+            requirements(Category.distribution, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 15, Items.lead, 10, Items.graphite, 8, Items.silicon, 5));
+            alwaysUnlocked = true;
+            size = 1;
         }};
     }
 }
