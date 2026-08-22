@@ -96,6 +96,12 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 3;
         }};
+        universalJunction = new UniversalJunction("universal-junction") {{
+            requirements(Category.distribution, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 15, Items.lead, 10, Items.graphite, 8, Items.silicon, 5));
+            alwaysUnlocked = true;
+            size = 1;
+        }};
         dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
             requirements(Category.effect, BuildVisibility.shown,
                     ItemStack.with(Items.surgeAlloy, 100, Items.phaseFabric, 500,
