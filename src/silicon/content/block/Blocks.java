@@ -21,7 +21,7 @@ import static mindustry.type.ItemStack.with;
 
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction,
-            rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub, dimensionAnchor,
+            rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub, universalJunction, dimensionAnchor,
             signalSource;
 
     public static void load() {
