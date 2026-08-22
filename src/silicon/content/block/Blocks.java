@@ -7,6 +7,8 @@ import mindustry.type.ItemStack;
 import mindustry.world.Block;
 import mindustry.world.meta.BuildVisibility;
 import silicon.world.blocks.defense.Switch;
+import silicon.world.blocks.signal.DimensionAnchor;
+import silicon.world.blocks.signal.SignalSource;
 import silicon.world.blocks.distribution.ItemTransferHub;
 import silicon.world.blocks.distribution.Junction;
 import silicon.world.blocks.distribution.UniversalJunction;
@@ -20,8 +22,8 @@ import static mindustry.type.ItemStack.with;
 
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction,
-            rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            universalJunction;
+            rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub, dimensionAnchor,
+            signalSource, universalJunction;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -94,6 +96,20 @@ public class Blocks {
                             Items.graphite, 30, Items.silicon, 25, Items.titanium, 15));
             alwaysUnlocked = true;
             size = 3;
+        }};
+        dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.surgeAlloy, 500));
+            alwaysUnlocked = true;
+            size = 3;
+            health = 600;
+        }};
+        signalSource = new SignalSource("signal-source") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.surgeAlloy, 600));
+            alwaysUnlocked = true;
+            size = 2;
+            health = 300;
         }};
         universalJunction = new UniversalJunction("universal-junction") {{
             requirements(Category.distribution, BuildVisibility.shown,
