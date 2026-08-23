@@ -11,6 +11,8 @@ import mindustry.core.GameState;
 import mindustry.game.EventType;
 import mindustry.gen.Call;
 import mindustry.gen.Player;
+import mindustry.gen.Tex;
+import mindustry.graphics.Pal;
 import mindustry.input.Binding;
 import mindustry.mod.Mod;
 import mindustry.mod.Mods;
@@ -61,8 +63,13 @@ public class Silicon extends Mod {
         Events.on(EventType.ClientLoadEvent.class, e -> {
             ui.settings.addCategory("@settings.silicon.meta.category.name",
                     new TextureRegionDrawable(new TextureRegion(Silicon.MOD.iconTexture)), st -> {
+                // —— 方块搜索设置 ——
                 st.checkPref("blocksearch.showHistory", true);
                 st.checkPref("blocksearch.clearOnSelect", true);
+                // 灰色细线：搜索设置与暂停设置分隔
+                st.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f);
+                st.row();
+                // —— 暂停设置 ——
                 st.sliderPref("pauseMode", 0, 0, 2, 1,
                         i -> Core.bundle.get("setting.pauseMode.value." + i, String.valueOf(i)),
                         i -> {
@@ -72,6 +79,9 @@ public class Silicon extends Mod {
                 st.checkPref("pauseRequest", true);
                 st.row();
                 st.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.flatBordert, Silicon::showWhitelistDialog).width(200f).padTop(6f);
+                // 灰色细线：更新按钮与上方设置分隔
+                st.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f);
+                st.row();
                 st.button(Core.bundle.get("setting.checkUpdate.name"), Styles.flatBordert, () -> UpdateChecker.check(true)).width(200f).padTop(6f);
 
                 SiliconLog.info("Loading settings.");
