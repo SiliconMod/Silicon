@@ -57,11 +57,11 @@ public class UpdateChecker {
     public static void check(boolean force) {
         if (checked && !force) return;
         if (force && System.currentTimeMillis() - lastCheckTime < 30_000) {
-            // 节流：30 秒内不重复手动检查
+            // 节流：30 秒内不重复手动检查（启动自动检查不占用手动额度）
             showInfoPopup(Core.bundle.get("updatecheck.tooFrequent"));
             return;
         }
-        lastCheckTime = System.currentTimeMillis();
+        if (force) lastCheckTime = System.currentTimeMillis();
         checked = true;
         hasUpdate = false;
         latestVersion = "";
@@ -177,11 +177,32 @@ public class UpdateChecker {
         return out;
     }
 
-    /** 下载新 jar 并安装到 mods 目录（替换旧 Silicon jar） */
+    /** CDN 加速前缀（GitHub 下载加速，直连失败时按序尝试；格式为 <前缀> + 原始 GitHub URL） */
+    public static final String[] CDN_PREFIXES = {
+        "https://ghproxy.net/",
+        "https://gh-proxy.com/",
+        "https://ghfast.top/",
+        "https://github.moeyy.xyz/",
+    };
+
+    /** 下载新 jar 并安装到 mods 目录（替换旧 Silicon jar）；直连失败自动依次尝试 CDN 加速源 */
     public static void downloadAndInstall(Runnable onDone, Runnable onError) {
         if (downloading || downloadUrl.isEmpty()) return;
         downloading = true;
-        Http.get(downloadUrl, res -> {
+        downloadFrom(0, onDone, onError);
+    }
+
+    /** 依次尝试下载源：index=0 为直连，1..CDN_PREFIXES.length 依次使用 CDN 前缀 */
+    static void downloadFrom(int index, Runnable onDone, Runnable onError) {
+        if (index > CDN_PREFIXES.length) {
+            // 所有源（直连 + 全部 CDN）均失败
+            downloading = false;
+            downloadFailed = true;
+            onError.run();
+            return;
+        }
+        String url = index == 0 ? downloadUrl : CDN_PREFIXES[index - 1] + downloadUrl;
+        Http.get(url, res -> {
             byte[] data = res.getResult();
             boolean ok = false;
             try {
@@ -199,18 +220,20 @@ public class UpdateChecker {
                 ok = target.length() == data.length;
             } catch (Exception ignored) {
             }
-            downloading = false;
             if (ok) {
+                downloading = false;
                 downloadDone = true;
                 onDone.run();
             } else {
+                // 写入失败（磁盘问题）：重试其他源无意义，直接失败
+                downloading = false;
                 downloadFailed = true;
                 onError.run();
             }
         }, err -> {
-            downloading = false;
-            downloadFailed = true;
-            onError.run();
+            // 网络失败：继续尝试下一个源（CDN 加速）
+            SiliconLog.info("Download failed, trying next source: " + url + " (" + err + ")");
+            downloadFrom(index + 1, onDone, onError);
         });
     }
 
