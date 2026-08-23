@@ -45,6 +45,8 @@ public class UpdateChecker {
     public static boolean downloading = false;
     public static boolean downloadDone = false;
     public static boolean downloadFailed = false;
+    /** 上次检查时间（毫秒）：限制手动检查频率，避免触发 GitHub API 限流 */
+    private static long lastCheckTime = 0;
 
     /** 启动后检查一次（异步；失败静默，保持隐藏） */
     public static void check() {
@@ -54,6 +56,12 @@ public class UpdateChecker {
     /** 检查更新；force=true 时强制重新检查（用于设置页手动检查按钮） */
     public static void check(boolean force) {
         if (checked && !force) return;
+        if (force && System.currentTimeMillis() - lastCheckTime < 30_000) {
+            // 节流：30 秒内不重复手动检查
+            showInfoPopup(Core.bundle.get("updatecheck.tooFrequent"));
+            return;
+        }
+        lastCheckTime = System.currentTimeMillis();
         checked = true;
         hasUpdate = false;
         latestVersion = "";
@@ -93,7 +101,14 @@ public class UpdateChecker {
         }, err -> {
             SiliconLog.info("Update check failed: " + err);
             if (force) {
-                showInfoPopup(Core.bundle.get("updatecheck.failed"));
+                // GitHub API 限流（403）与普通网络失败区分提示
+                if (err instanceof Http.HttpStatusException
+                        && ((Http.HttpStatusException)err).status != null
+                        && ((Http.HttpStatusException)err).status.code == 403) {
+                    showInfoPopup(Core.bundle.get("updatecheck.rateLimited"));
+                } else {
+                    showInfoPopup(Core.bundle.get("updatecheck.failed"));
+                }
             }
         });
     }
