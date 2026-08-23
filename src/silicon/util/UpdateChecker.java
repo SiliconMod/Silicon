@@ -70,7 +70,11 @@ public class UpdateChecker {
             String body = res.getResultAsString();
             String tag = extractTag(body);
             String current = currentVersion();
-            if (tag == null) return;
+            if (tag == null) {
+                // 响应异常（限流/格式变化）：手动检查时提示失败
+                if (force) showInfoPopup(Core.bundle.get("updatecheck.failed"));
+                return;
+            }
             if (isNewer(tag, current)) {
                 latestVersion = tag;
                 downloadUrl = findAssetUrl(body, tag);
@@ -83,13 +87,13 @@ public class UpdateChecker {
                     Core.app.post(UpdateChecker::refreshBanner);
                 }
             } else if (force) {
-                // 手动检查且已是最新：提示
-                Core.app.post(() -> ui.showInfoToast(Core.bundle.get("updatecheck.none"), 5f));
+                // 手动检查且已是最新：居中弹窗提示
+                showInfoPopup(Core.bundle.get("updatecheck.none"));
             }
         }, err -> {
             SiliconLog.info("Update check failed: " + err);
             if (force) {
-                Core.app.post(() -> ui.showInfoToast(Core.bundle.get("updatecheck.failed"), 5f));
+                showInfoPopup(Core.bundle.get("updatecheck.failed"));
             }
         });
     }
@@ -194,8 +198,10 @@ public class UpdateChecker {
 
     /** 更新弹窗是否已显示（本次会话只弹一次） */
     public static boolean dialogShown = false;
-    /** 自定义浮动窗口 */
+    /** 自定义浮动窗口（更新弹窗，只维持一个） */
     public static Table popupTable;
+    /** 信息弹窗（如"已是最新版本"，只维持一个，保持在最上层） */
+    public static Table infoPopup;
 
     public static void setupBanner() {
         // 状态变化（含进入主界面）时检查是否弹窗
@@ -212,6 +218,12 @@ public class UpdateChecker {
     public static void showUpdateDialog() {
         if (dialogShown) return;
         dialogShown = true;
+
+        // 只维持一个：先关闭旧弹窗（force 重复检查时避免堆叠）
+        if (popupTable != null) {
+            popupTable.remove();
+            popupTable = null;
+        }
 
         Table popup = new Table();
         // 用 pane 而非 pane2：pane2 九宫格贴图的上边框为近黑色，在深色背景上不可见
@@ -251,6 +263,12 @@ public class UpdateChecker {
             bt.button(Core.bundle.get("updatecheck.close"), UpdateChecker::hidePopup).size(170f, 44f).pad(5f);
         });
 
+        // 保持在最上层：每次渲染前若不在 root 最上层则移到末尾
+        popup.update(() -> {
+            if (Core.scene.root.getChildren().peek() != popup) {
+                Core.scene.root.addChild(popup);
+            }
+        });
         popup.pack();
         // 底部中央定位
         popup.setPosition((Core.graphics.getWidth() - popup.getWidth()) / 2f, 80f);
@@ -285,6 +303,36 @@ public class UpdateChecker {
             popupTable.remove();
             popupTable = null;
         }
+    }
+
+    /** 居中显示一个信息弹窗（如"已是最新版本"/"检查失败"），带关闭按钮；只维持一个并保持在最上层 */
+    public static void showInfoPopup(String text) {
+        Core.app.post(() -> {
+            // 只维持一个：先关闭旧弹窗
+            if (infoPopup != null) {
+                infoPopup.remove();
+                infoPopup = null;
+            }
+
+            Table popup = new Table();
+            popup.setBackground(Tex.pane);
+            popup.margin(14f);
+            popup.add(text).pad(12f).row();
+            popup.table(bt -> bt.button(Core.bundle.get("updatecheck.close"), () -> {
+                popup.remove();
+                if (infoPopup == popup) infoPopup = null;
+            }).size(120f, 40f));
+            // 保持在最上层：每次渲染前若不在 root 最上层则移到末尾
+            popup.update(() -> {
+                if (Core.scene.root.getChildren().peek() != popup) {
+                    Core.scene.root.addChild(popup);
+                }
+            });
+            popup.pack();
+            popup.setPosition((Core.graphics.getWidth() - popup.getWidth()) / 2f, (Core.graphics.getHeight() - popup.getHeight()) / 2f);
+            infoPopup = popup;
+            Core.scene.root.addChild(popup);
+        });
     }
 
     static void restartGame() {

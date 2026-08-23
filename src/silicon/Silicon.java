@@ -98,10 +98,10 @@ public class Silicon extends Mod {
                             if (net.client()) Call.serverPacketReliable("pause-setmode", String.valueOf(i));
                         });
                 st.checkPref("pauseRequest", true);
-                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.flatBordert, Silicon::showWhitelistDialog).width(200f).padTop(6f)));
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.defaultt, Silicon::showWhitelistDialog).width(200f).padTop(6f)));
                 // 灰色细线：更新按钮与上方设置分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
-                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.flatBordert, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
 
                 SiliconLog.info("Loading settings.");
             });
