@@ -19,6 +19,7 @@ import mindustry.ui.dialogs.BaseDialog;
 import silicon.content.block.Blocks;
 import silicon.content.item.Items;
 import silicon.util.SiliconLog;
+import silicon.util.UpdateChecker;
 import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.signal.SignalSource;
 import blocksearch.ui.BlockSearch;
@@ -51,6 +52,12 @@ public class Silicon extends Mod {
         BlockSearch.init();
         MineConverter.initNetworking();
 
+        // 主界面自动检查 GitHub 更新（有更新才显示横幅，初始隐藏）
+        Events.on(EventType.ClientLoadEvent.class, e -> {
+            UpdateChecker.check();
+            UpdateChecker.setupBanner();
+        });
+
         Events.on(EventType.ClientLoadEvent.class, e -> {
             ui.settings.addCategory("@settings.silicon.meta.category.name",
                     new TextureRegionDrawable(new TextureRegion(Silicon.MOD.iconTexture)), st -> {
@@ -65,6 +72,7 @@ public class Silicon extends Mod {
                 st.checkPref("pauseRequest", true);
                 st.row();
                 st.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.flatBordert, Silicon::showWhitelistDialog).width(200f).padTop(6f);
+                st.button(Core.bundle.get("setting.checkUpdate.name"), Styles.flatBordert, () -> UpdateChecker.check(true)).width(200f).padTop(6f);
 
                 SiliconLog.info("Loading settings.");
             });
