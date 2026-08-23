@@ -2,6 +2,7 @@ package silicon;
 
 import arc.Core;
 import arc.Events;
+import arc.func.Cons;
 import arc.graphics.Color;
 import arc.graphics.g2d.TextureRegion;
 import arc.scene.style.TextureRegionDrawable;
@@ -18,6 +19,7 @@ import mindustry.mod.Mod;
 import mindustry.mod.Mods;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
+import mindustry.ui.dialogs.SettingsMenuDialog;
 import silicon.content.block.Blocks;
 import silicon.content.item.Items;
 import silicon.util.SiliconLog;
@@ -31,6 +33,26 @@ import static mindustry.Vars.*;
 
 public class Silicon extends Mod {
     public static Mods.LoadedMod MOD;
+
+    /**
+     * 自定义设置项：在设置表中插入任意内容（分隔线、按钮等）。
+     * 通过 SettingsTable.pref() 注册进设置列表，rebuild（恢复默认/切换分类）时自动保留；
+     * name 传 null，恢复默认设置时不会被删除。
+     */
+    public static class CustomSetting extends SettingsMenuDialog.SettingsTable.Setting {
+        private final Cons<SettingsMenuDialog.SettingsTable> cons;
+
+        public CustomSetting(Cons<SettingsMenuDialog.SettingsTable> cons) {
+            super(null);
+            this.cons = cons;
+        }
+
+        @Override
+        public void add(SettingsMenuDialog.SettingsTable table) {
+            cons.get(table);
+            table.row();
+        }
+    }
 
     public Silicon() {
         Events.on(EventType.ClientLoadEvent.class, e -> {
@@ -66,9 +88,8 @@ public class Silicon extends Mod {
                 // —— 方块搜索设置 ——
                 st.checkPref("blocksearch.showHistory", true);
                 st.checkPref("blocksearch.clearOnSelect", true);
-                // 灰色细线：搜索设置与暂停设置分隔
-                st.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f);
-                st.row();
+                // 灰色细线：搜索设置与暂停设置分隔（注册为设置项，rebuild 时保留）
+                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
                 // —— 暂停设置 ——
                 st.sliderPref("pauseMode", 0, 0, 2, 1,
                         i -> Core.bundle.get("setting.pauseMode.value." + i, String.valueOf(i)),
@@ -77,12 +98,10 @@ public class Silicon extends Mod {
                             if (net.client()) Call.serverPacketReliable("pause-setmode", String.valueOf(i));
                         });
                 st.checkPref("pauseRequest", true);
-                st.row();
-                st.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.flatBordert, Silicon::showWhitelistDialog).width(200f).padTop(6f);
-                // 灰色细线：更新按钮与上方设置分隔
-                st.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f);
-                st.row();
-                st.button(Core.bundle.get("setting.checkUpdate.name"), Styles.flatBordert, () -> UpdateChecker.check(true)).width(200f).padTop(6f);
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.flatBordert, Silicon::showWhitelistDialog).width(200f).padTop(6f)));
+                // 灰色细线：更新按钮与上方设置分隔（注册为设置项，rebuild 时保留）
+                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.flatBordert, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
 
                 SiliconLog.info("Loading settings.");
             });
