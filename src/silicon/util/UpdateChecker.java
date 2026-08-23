@@ -170,15 +170,18 @@ public class UpdateChecker {
             byte[] data = res.getResult();
             boolean ok = false;
             try {
-                // 删除旧 Silicon jar（防重复加载冲突）
+                // 只删除本模组的 jar：精确名 Silicon.jar，或 release 资产命名（Silicon-<版本>.jar），
+                // 避免误删其他文件名含 silicon 的模组
                 for (var f : Vars.modDirectory.list()) {
-                    if (f.extEquals("jar") && f.name().toLowerCase().contains("silicon")) {
+                    String n = f.name().toLowerCase();
+                    if (f.extEquals("jar") && (n.equals("silicon.jar") || n.startsWith("silicon-"))) {
                         f.delete();
                     }
                 }
-                // 写入新 jar
-                Vars.modDirectory.child("Silicon.jar").writeBytes(data);
-                ok = true;
+                // 写入新 jar，并校验落盘字节数
+                var target = Vars.modDirectory.child("Silicon.jar");
+                target.writeBytes(data);
+                ok = target.length() == data.length;
             } catch (Exception ignored) {
             }
             downloading = false;
