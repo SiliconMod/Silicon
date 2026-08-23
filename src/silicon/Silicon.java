@@ -76,9 +76,11 @@ public class Silicon extends Mod {
         BlockSearch.init();
         MineConverter.initNetworking();
 
-        // 主界面自动检查 GitHub 更新（有更新才显示横幅，初始隐藏）
+        // 主界面自动检查 GitHub 更新（可在设置中关闭；有更新才显示横幅，初始隐藏）
         Events.on(EventType.ClientLoadEvent.class, e -> {
-            UpdateChecker.check();
+            if (Core.settings.getBool("updatecheck.autoCheck", true)) {
+                UpdateChecker.check();
+            }
             UpdateChecker.setupBanner();
         });
 
@@ -99,9 +101,16 @@ public class Silicon extends Mod {
                         });
                 st.checkPref("pauseRequest", true);
                 st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.defaultt, Silicon::showWhitelistDialog).width(200f).padTop(6f)));
-                // 灰色细线：更新按钮与上方设置分隔（注册为设置项，rebuild 时保留）
+                // 灰色细线：更新区与上方设置分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
-                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
+                // —— 更新设置 ——
+                st.checkPref("updatecheck.autoCheck", true);
+                // 检查更新按钮 + 与「恢复默认设置」之间再加一条灰色细线（rebuild 时保留）
+                st.pref(new CustomSetting(t -> {
+                    t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f);
+                    t.row();
+                    t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f);
+                }));
 
                 SiliconLog.info("Loading settings.");
             });
