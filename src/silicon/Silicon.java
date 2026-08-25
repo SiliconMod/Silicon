@@ -23,6 +23,7 @@ import mindustry.ui.dialogs.SettingsMenuDialog;
 import silicon.content.block.Blocks;
 import silicon.content.item.Items;
 import silicon.util.SiliconLog;
+import silicon.util.SignalOverlay;
 import silicon.util.UpdateChecker;
 import silicon.world.blocks.production.MineConverter;
 import blocksearch.ui.BlockSearch;
@@ -71,6 +72,7 @@ public class Silicon extends Mod {
     public void init() {
         BlockSearch.init();
         MineConverter.initNetworking();
+        SignalOverlay.init();
 
         // 主界面自动检查 GitHub 更新（可在设置中关闭；有更新才显示横幅，初始隐藏）
         Events.on(EventType.ClientLoadEvent.class, e -> {
@@ -101,12 +103,18 @@ public class Silicon extends Mod {
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
                 // —— 更新设置 ——
                 st.checkPref("updatecheck.autoCheck", true);
-                // 检查更新按钮 + 与「恢复默认设置」之间再加一条灰色细线（rebuild 时保留）
-                st.pref(new CustomSetting(t -> {
-                    t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f);
-                    t.row();
-                    t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f);
-                }));
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
+                // 灰色细线：更新区与信号显示设置分隔（注册为设置项，rebuild 时保留）
+                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
+                // —— 信号显示设置 ——
+                st.checkPref("signal.hkey.toggle", true);
+                // 数字模式 / 范围模式透明度（0~100%）
+                st.sliderPref("signal.digitAlpha", 80, 0, 100, 5,
+                        i -> Core.bundle.get("setting.signal.digitAlpha.value", i + "%"));
+                st.sliderPref("signal.rangeAlpha", 45, 0, 100, 5,
+                        i -> Core.bundle.get("setting.signal.rangeAlpha.value", i + "%"));
+                // 灰色细线：与「恢复默认设置」分隔（注册为设置项，rebuild 时保留）
+                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
 
                 SiliconLog.info("Loading settings.");
             });

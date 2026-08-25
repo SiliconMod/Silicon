@@ -15,13 +15,15 @@ import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.sandbox.PowerSource;
+import silicon.world.blocks.signal.SignalRelay;
+import silicon.world.blocks.signal.SignalSource;
 
 import static mindustry.type.ItemStack.with;
 
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            universalJunction;
+            signalSource, signalRelay, universalJunction;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -94,6 +96,20 @@ public class Blocks {
                             Items.graphite, 30, Items.silicon, 25, Items.titanium, 15));
             alwaysUnlocked = true;
             size = 3;
+        }};
+        signalSource = new SignalSource("signal-source") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 20, Items.lead, 10, Items.silicon, 15));
+            alwaysUnlocked = true;
+            size = 1;
+            health = 120;
+        }};
+        signalRelay = new SignalRelay("signal-relay") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 15, Items.lead, 10, Items.silicon, 12));
+            alwaysUnlocked = true;
+            size = 1;
+            health = 100;
         }};
         universalJunction = new UniversalJunction("universal-junction") {{
             requirements(Category.distribution, BuildVisibility.shown,

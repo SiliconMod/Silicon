@@ -1,0 +1,100 @@
+package silicon.world.blocks.signal;
+
+import arc.graphics.g2d.Draw;
+import arc.graphics.g2d.Lines;
+import arc.math.Mathf;
+import arc.struct.Seq;
+import mindustry.game.Team;
+import mindustry.gen.Building;
+import mindustry.gen.Groups;
+import mindustry.graphics.Drawf;
+import mindustry.world.Block;
+import silicon.util.SignalOverlay;
+
+/**
+ * 信号中继器：位于信号覆盖范围（信号源或已激活中继器的 15 格内）时自动激活，
+ * 激活后自身同样提供半径 15 格的信号，可级联延长信号覆盖。
+ * 信号强度与信号源一致（正态分布衰减，0~15），绑定放置队伍。
+ */
+public class SignalRelay extends Block {
+    /** 中继器信号半径（格） */
+    public static final float RADIUS = SignalSource.RADIUS;
+
+    public SignalRelay(String name) {
+        super(name);
+        // 手动指定建筑类
+        buildType = SignalRelayBuild::new;
+        size = 1;
+        solid = true;
+        destructible = true;
+        // 需要更新以检测激活状态
+        update = true;
+    }
+
+    /** 收集某队伍所有已激活的中继器 */
+    public static Seq<SignalRelayBuild> allActive(Team team) {
+        Seq<SignalRelayBuild> out = new Seq<>();
+        for (Building b : Groups.build) {
+            if (b instanceof SignalRelayBuild rb && rb.team == team && rb.active) {
+                out.add(rb);
+            }
+        }
+        return out;
+    }
+
+    /** 放置预览显示信号范围（同信号源） */
+    @Override
+    public void drawPlace(int x, int y, int rotation, boolean valid) {
+        super.drawPlace(x, y, rotation, valid);
+        Draw.color(SignalOverlay.SIGNAL_COLOR, 0.5f);
+        Drawf.circles(x * 8 + 4f, y * 8 + 4f, RADIUS * 8f);
+        Draw.reset();
+    }
+
+    public class SignalRelayBuild extends Building {
+        /** 是否已激活（在信号覆盖范围内） */
+        public boolean active = false;
+        private int timer = 0;
+
+        @Override
+        public void updateTile() {
+            // 每 20 tick 检测一次激活状态（级联传播：逐级激活）
+            if (++timer >= 20) {
+                timer = 0;
+                updateActive();
+            }
+        }
+
+        void updateActive() {
+            boolean newActive = false;
+            for (Building b : Groups.build) {
+                if (b.team != team || b == this) continue;
+                // 附近有信号源，或附近有已激活的中继器（级联）
+                if (b instanceof SignalSource.SignalSourceBuild
+                        || (b instanceof SignalRelayBuild rb && rb.active)) {
+                    if (Mathf.dst(x, y, b.x, b.y) <= RADIUS * 8f) {
+                        newActive = true;
+                        break;
+                    }
+                }
+            }
+            active = newActive;
+        }
+
+        /** 本中继器在指定世界坐标处的信号强度（0~15，激活时） */
+        public float strengthAt(float wx, float wy) {
+            if (!active) return 0f;
+            return SignalSource.strengthAt(x, y, wx, wy);
+        }
+
+        /** 选中时显示信号范围（激活=深蓝，未激活=灰色） */
+        @Override
+        public void drawSelect() {
+            super.drawSelect();
+            Draw.color(active ? SignalOverlay.SIGNAL_COLOR : SignalOverlay.NO_SIGNAL_COLOR, active ? 0.6f : 0.3f);
+            Lines.stroke(2f);
+            Lines.circle(x, y, RADIUS * 8f);
+            Draw.reset();
+        }
+    }
+}
