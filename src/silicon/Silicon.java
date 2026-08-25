@@ -25,7 +25,6 @@ import silicon.content.item.Items;
 import silicon.util.SiliconLog;
 import silicon.util.UpdateChecker;
 import silicon.world.blocks.production.MineConverter;
-import silicon.world.blocks.signal.SignalSource;
 import blocksearch.ui.BlockSearch;
 
 import static mindustry.Vars.*;
@@ -70,9 +69,6 @@ public class Silicon extends Mod {
 
     @Override
     public void init() {
-        // Rebuild the signal registry from the world after load (buildings are read by then).
-        Events.on(EventType.WorldLoadEvent.class, e -> SignalSource.rebuildUsedSignals());
-
         BlockSearch.init();
         MineConverter.initNetworking();
 
