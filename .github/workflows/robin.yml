@@ -1,0 +1,39 @@
+name: Robin
+
+on:
+  # 浣跨敤 pull_request_target锛氳法 fork 鐨?PR 涔熻兘璇诲彇鏈粨搴?secrets
+  # 锛坮obin 浠呴€氳繃 API 璇诲彇 diff 骞惰皟鐢?LLM 鍑鸿瘎璁猴紝涓嶅湪 CI 涓墽琛?PR 浠ｇ爜锛?  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  # 鎺㈡祴 LLM secrets 鏄惁閰嶇疆锛坰ecrets 涓嶈兘鐢ㄤ簬椤跺眰 env / job.if锛岄』缁忔楠よ緭鍑轰腑杞級
+  config-check:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          _BASE: ${{ secrets.LLM_BASE_URL }}
+        run: |
+          if [ -n "$_BASE" ]; then echo "configured=true" >> "$GITHUB_OUTPUT";
+          else echo "configured=false" >> "$GITHUB_OUTPUT"; fi
+
+  review:
+    needs: config-check
+    # 鍝釜浠撳簱閰嶉綈浜?LLM secrets 灏卞湪鍝噷杩愯锛涙湭閰嶇疆鍒欐樉绀鸿烦杩囪€岄潪澶辫触
+    if: needs.config-check.outputs.configured == 'true'
+    uses: antongulin/robin/.github/workflows/review.yml@main
+    with:
+      review-on-synchronize: true
+    secrets:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
