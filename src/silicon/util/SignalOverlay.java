@@ -15,6 +15,7 @@ import mindustry.Vars;
 import mindustry.game.EventType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
+import mindustry.gen.Player;
 import mindustry.ui.Fonts;
 import mindustry.ui.Styles;
 import silicon.world.blocks.signal.SignalRelay;
@@ -66,8 +67,10 @@ public class SignalOverlay {
     }
 
     static void update() {
-        Team team = Vars.player == null ? null : Vars.player.team();
-        if (team == null) return;
+        // 先取局部引用再判空，避免 null 检查与 team() 调用之间玩家断线导致的空指针
+        Player player = Vars.player;
+        if (player == null) return;
+        Team team = player.team();
         boolean toggleMode = Core.settings.getBool("signal.hkey.toggle", true);
         boolean hold = Core.input.keyDown(KeyCode.h);
         // 无论设置开关如何，按住 H 始终显示信号强度
@@ -152,7 +155,8 @@ public class SignalOverlay {
         float radiusPx = SignalSource.RADIUS * 8f;
         // 数字模式透明度（0~100，设置项）
         float digitAlpha = Core.settings.getInt("signal.digitAlpha", 80) / 100f;
-        // 字号固定一次，避免内层循环重复设置
+        // 字号固定一次（保存原始值，绘制后恢复，避免异常/提前返回污染全局字体比例）
+        float oldScale = Fonts.def.getData().scaleX;
         Fonts.def.getData().setScale(0.2f);
         float radiusSq = radiusPx * radiusPx;
         for (int dx = -r; dx <= r; dx++) {
@@ -172,7 +176,7 @@ public class SignalOverlay {
                 Fonts.def.draw(NUMBER_STRINGS[val < 0 ? 0 : (val > 15 ? 15 : val)], wx - 1.2f, wy - 0.8f);
             }
         }
-        Fonts.def.getData().setScale(1f);
+        Fonts.def.getData().setScale(oldScale);
     }
 
     /** 范围模式：半透明蓝色渐变填充信号覆盖圆（每格 8px，不挡方块），强度高=深蓝、低=浅蓝 */

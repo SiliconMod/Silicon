@@ -11,7 +11,7 @@ author: "Xiaobei"
 main: "silicon.Silicon"
 
 #the mod description as seen in the mod dialog
-description: "A personal Mindustry mod adding practical blocks and features. Includes MineConverter, ItemTransferHub, DualPurposeStorager, PowerProtector, RollGenerator and more."
+description: "一个个人用的 Mindustry 模组，添加实用方块与功能：信号源与信号中继器（H 键查看信号覆盖）、物品传输中枢、万向交叉器、复合储物器、电力保护器、电力泵、卷扬发电机、矿机转换器、开关等。"
 
 
 #the mod version
