@@ -67,6 +67,11 @@ public class SignalRelay extends Block {
 
         void updateActive() {
             boolean newActive = false;
+            // 被禁用（如开关控制）时不激活
+            if (!enabled) {
+                active = false;
+                return;
+            }
             for (Building b : Groups.build) {
                 if (b.team != team || b == this) continue;
                 // 附近有信号源，或附近有已激活的中继器（级联）

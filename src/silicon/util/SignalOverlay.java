@@ -104,6 +104,9 @@ public class SignalOverlay {
         if (hintLabel != null) hintLabel.visible = false;
     }
 
+    /** 信号源与激活中继器列表（静态复用，避免每帧分配） */
+    private static final Seq<Building> sources = new Seq<>();
+
     static void drawOverlay(Team team, float alpha) {
         // 视野宽（缩小视角）显示蓝色范围；视野窄（放大视角）显示数字
         boolean rangeMode = Core.camera.width >= ZOOM_THRESHOLD_WIDTH;
@@ -113,7 +116,7 @@ public class SignalOverlay {
             displayAlpha = 0f;
         }
         // 收集所有信号源与已激活中继器（同队）
-        Seq<Building> sources = new Seq<>();
+        sources.clear();
         sources.addAll(SignalSource.allSources(team));
         sources.addAll(SignalRelay.allActive(team));
         if (sources.isEmpty()) return;
@@ -145,10 +148,14 @@ public class SignalOverlay {
         float radiusPx = SignalSource.RADIUS * 8f;
         // 数字模式透明度（0~100，设置项）
         float digitAlpha = Core.settings.getInt("signal.digitAlpha", 80) / 100f;
+        // 字号固定一次，避免内层循环重复设置
+        Fonts.def.getData().setScale(0.2f);
+        float radiusSq = radiusPx * radiusPx;
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -r; dy <= r; dy++) {
                 float wx = b.x + dx * 8f, wy = b.y + dy * 8f; // 格子中心（像素）
-                if (Mathf.dst(wx, wy, b.x, b.y) > radiusPx + 0.001f) continue;
+                float ddx = wx - b.x, ddy = wy - b.y;
+                if (ddx * ddx + ddy * ddy > radiusSq) continue; // 平方距离比较，避免 sqrt
                 float s = sourceStrength(b, wx, wy);
                 if (s <= 0) continue;
                 int val = Mathf.round(s);
@@ -156,8 +163,7 @@ public class SignalOverlay {
                 // 浅蓝 → 深蓝渐变（强度越高越深）
                 Color c = Tmp.c1.set(LIGHT_BLUE).lerp(DEEP_BLUE, t);
                 c.a((0.6f + 0.4f * t) * digitAlpha * alpha);
-                // 字号 0.2（约 3.2px，更小）；基本 draw 用 setColor 指定颜色（复用预计算字符串避免分配）
-                Fonts.def.getData().setScale(0.2f);
+                // 复用预计算字符串避免分配
                 Fonts.def.setColor(c);
                 Fonts.def.draw(NUMBER_STRINGS[val < 0 ? 0 : (val > 15 ? 15 : val)], wx - 1.2f, wy - 0.8f);
             }
@@ -171,10 +177,12 @@ public class SignalOverlay {
         float radiusPx = SignalSource.RADIUS * 8f;
         // 范围模式透明度（0~100，设置项）
         float rangeAlpha = Core.settings.getInt("signal.rangeAlpha", 45) / 100f;
+        float radiusSq = radiusPx * radiusPx;
         for (int dx = -r; dx <= r; dx++) {
             for (int dy = -r; dy <= r; dy++) {
                 float wx = b.x + dx * 8f, wy = b.y + dy * 8f; // 格子中心（像素）
-                if (Mathf.dst(wx, wy, b.x, b.y) > radiusPx + 0.001f) continue;
+                float ddx = wx - b.x, ddy = wy - b.y;
+                if (ddx * ddx + ddy * ddy > radiusSq) continue; // 平方距离比较，避免 sqrt
                 float s = sourceStrength(b, wx, wy);
                 if (s <= 0) continue;
                 float t = s / SignalSource.MAX_STRENGTH;
