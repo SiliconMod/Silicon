@@ -25,8 +25,9 @@ import silicon.content.item.Items;
 import silicon.util.SiliconLog;
 import silicon.util.SignalOverlay;
 import silicon.util.UpdateChecker;
+import silicon.world.blocks.distribution.ItemTransferHubNetwork;
 import silicon.world.blocks.production.MineConverter;
-import blocksearch.ui.BlockSearch;
+import silicon.ui.BlockSearch;
 
 import static mindustry.Vars.*;
 
@@ -70,6 +71,9 @@ public class Silicon extends Mod {
 
     @Override
     public void init() {
+        // Reset hub network ID counter on world load to avoid ID collisions with saved hubs.
+        Events.on(EventType.WorldLoadEvent.class, e -> ItemTransferHubNetwork.resetIdCounter());
+
         BlockSearch.init();
         MineConverter.initNetworking();
         SignalOverlay.init();
@@ -104,7 +108,7 @@ public class Silicon extends Mod {
                 // —— 更新设置 ——
                 st.checkPref("updatecheck.autoCheck", true);
                 st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
-                // 灰色细线：更新区与信号显示设置分隔（注册为设置项，rebuild 时保留）
+                // 灰色细线：更新区与信号/中枢显示设置分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
                 // —— 信号显示设置 ——
                 st.checkPref("signal.hkey.toggle", true);
@@ -113,6 +117,9 @@ public class Silicon extends Mod {
                         i -> Core.bundle.get("setting.signal.digitAlpha.value", i + "%"));
                 st.sliderPref("signal.rangeAlpha", 45, 0, 100, 5,
                         i -> Core.bundle.get("setting.signal.rangeAlpha.value", i + "%"));
+                // —— 中枢物流调试与连线 ——
+                st.checkPref("hubDebugLog", false, v -> silicon.world.blocks.distribution.ItemTransferHub.debugFlows = v);
+                st.sliderPref("hubLinkOpacity", 100, 0, 100, 5, i -> i + "%");
                 // 灰色细线：与「恢复默认设置」分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
 
@@ -121,52 +128,57 @@ public class Silicon extends Mod {
         });
 
         Events.on(EventType.ClientLoadEvent.class, e -> {
-            netServer.addPacketHandler("pause", (p, time) -> {
-                if (p.admin || p.name.equals(state.map.author())) {
-                    state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                    Call.clientPacketReliable(p.con, "paused", time);
-                    SiliconLog.info(p.name + " pause");
-                    return;
-                }
+            // 启动时从持久化设置恢复调试开关（checkPref 的变更回调只在用户手动切换时触发，
+            // 不初始化的话每次启动都要重新关闭再打开才生效）
+            silicon.world.blocks.distribution.ItemTransferHub.debugFlows = Core.settings.getBool("hubDebugLog", false);
+            if (netServer != null) {
+                netServer.addPacketHandler("pause", (p, time) -> {
+                    if (p.admin || p.name.equals(state.map.author())) {
+                        state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
+                        Call.clientPacketReliable(p.con, "paused", time);
+                        SiliconLog.info(p.name + " pause");
+                        return;
+                    }
 
-                if (Vars.pauseMode == 0) return;
+                    if (Vars.pauseMode == 0) return;
 
-                if (Vars.pauseMode == 1) {
-                    state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                    Call.clientPacketReliable(p.con, "paused", time);
-                    SiliconLog.info(p.name + " pause");
-                    return;
-                }
+                    if (Vars.pauseMode == 1) {
+                        state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
+                        Call.clientPacketReliable(p.con, "paused", time);
+                        SiliconLog.info(p.name + " pause");
+                        return;
+                    }
 
-                if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
-                    state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                    Call.clientPacketReliable(p.con, "paused", time);
-                    SiliconLog.info(p.name + " pause");
-                }
-            });
+                    if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
+                        state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
+                        Call.clientPacketReliable(p.con, "paused", time);
+                        SiliconLog.info(p.name + " pause");
+                    }
+                });
 
-            netServer.addPacketHandler("pause-setmode", (p, data) -> {
-                if (!p.admin && !p.name.equals(state.map.author())) return;
-                try {
-                    Vars.pauseMode = Integer.parseInt(data.trim());
-                    if (Vars.pauseMode < 0 || Vars.pauseMode > 2) Vars.pauseMode = 0;
-                } catch (NumberFormatException ignored) {}
-            });
+                netServer.addPacketHandler("pause-setmode", (p, data) -> {
+                    if (!p.admin && !p.name.equals(state.map.author())) return;
+                    try {
+                        Vars.pauseMode = Integer.parseInt(data.trim());
+                        if (Vars.pauseMode < 0 || Vars.pauseMode > 2) Vars.pauseMode = 0;
+                    } catch (NumberFormatException ignored) {}
+                });
 
-            netServer.addPacketHandler("pause-grant", (p, data) -> {
-                if (!p.admin && !p.name.equals(state.map.author())) return;
-                String target = data.trim();
-                if (target.isEmpty()) return;
-                if (!Vars.pauseWhitelist.contains(target)) {
-                    Vars.pauseWhitelist.add(target);
-                }
-            });
+                netServer.addPacketHandler("pause-grant", (p, data) -> {
+                    if (!p.admin && !p.name.equals(state.map.author())) return;
+                    String target = data.trim();
+                    if (target.isEmpty()) return;
+                    if (!Vars.pauseWhitelist.contains(target)) {
+                        Vars.pauseWhitelist.add(target);
+                    }
+                });
 
-            netServer.addPacketHandler("pause-revoke", (p, data) -> {
-                if (!p.admin && !p.name.equals(state.map.author())) return;
-                String target = data.trim();
-                Vars.pauseWhitelist.remove(target);
-            });
+                netServer.addPacketHandler("pause-revoke", (p, data) -> {
+                    if (!p.admin && !p.name.equals(state.map.author())) return;
+                    String target = data.trim();
+                    Vars.pauseWhitelist.remove(target);
+                });
+            }
 
             netClient.addPacketHandler("paused", (s) -> {
                 Vars.pause.complete = true;

@@ -99,9 +99,9 @@ public class Junction extends LiquidJunction {
                             continue;
                         }
 
-                        // Transfer item to destination and shift buffer
-                        dest.handleItem(this, item);
-                        System.arraycopy(buffer.buffers[i], 1, buffer.buffers[i], 0, buffer.indexes[i] - 1);
+                    // Transfer item to destination and shift buffer
+                    dest.handleItem(this, item);
+                    System.arraycopy(buffer.buffers[i], 1, buffer.buffers[i], 0, buffer.indexes[i] - 1);
                         buffer.indexes[i]--;
                     }
                 }

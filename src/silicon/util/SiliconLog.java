@@ -13,4 +13,8 @@ public class SiliconLog extends Log {
     public static void info(Object object) {
         info(String.valueOf(object), empty);
     }
+
+    public static void warn(String text, Object... args) {
+        log(LogLevel.warn, "[" + Vars.name + "] " + text, args);
+    }
 }

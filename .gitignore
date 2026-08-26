@@ -161,3 +161,27 @@ Silicon.mod.jar
 .gradle-home/
 
 saves/
+
+javap4/
+.build_*.log
+.format.jar
+.build_*.log
+hotreload.log
+tests/*.txt
+.javap_tmp/
+build-err.log
+deploy-err.log
+d-err.log
+jobs.txt
+prc.txt
+rel.json
+tags.json
+anuken.json
+javap2/
+javap3/
+javap_core/
+d2.log
+d3.log
+d4.log
+sb.txt
+hr-rel.json

@@ -205,8 +205,10 @@ public class MineConverter extends FrameBlock {
             costs.increment(tile.drop(), 0, 1);
         });
         ObjectFloatMap<Item> newCosts = new ObjectFloatMap<>();
+        Drill drill = blastDrill instanceof Drill d ? d : null;
         costs.each((o) -> {
-            newCosts.put(o.key, 1e4f / o.value * ((Drill) blastDrill).getDrillTime(o.key));
+            float drillTime = drill != null ? drill.getDrillTime(o.key) : 1f;
+            newCosts.put(o.key, 1e4f / o.value * drillTime);
         });
         costs.clear();
         newCosts.each((o) -> costs.put(o.key, o.value));

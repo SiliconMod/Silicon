@@ -103,8 +103,7 @@ public class UniversalJunction extends Block {
     @Override
     public void load() {
         super.load();
-        // 自带贴图：assets/sprites/blocks/distribution/universal-junction.png
-        // （四向箭头 + 中心青色智能中枢；TODO: 后续补充物品流向动画）
+        // assets/sprites/blocks/distribution/universal-junction.png（四向箭头 + 中心青色智能中枢）
         region = Core.atlas.find(name);
         generatedIcons = new TextureRegion[]{region};
     }

@@ -31,6 +31,7 @@
 - `configurable`: false（使用 tapped() 切换，非配置模式）
 - `rotate`: true
 - `alwaysUnlocked`: true
+- `group`: `BlockGroup.logic`（逻辑组，电力节点式批量交互）
 
 ## 机制说明
 
@@ -73,3 +74,4 @@
 | 版本 | 变更 |
 |------|------|
 | a0.8.0 | 初始创建 |
+| a0.10.1 | `group` `projectors` → `logic`，归入逻辑组，电力节点式批量操作 |

@@ -1,20 +1,47 @@
 name: Robin
 
 on:
-  # 浣跨敤 pull_request_target锛氳法 fork 鐨?PR 涔熻兘璇诲彇鏈粨搴?secrets
-  # 锛坮obin 浠呴€氳繃 API 璇诲彇 diff 骞惰皟鐢?LLM 鍑鸿瘎璁猴紝涓嶅湪 CI 涓墽琛?PR 浠ｇ爜锛?  pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review]
+  # robin action 本体明确拒绝 pull_request_target（防 secrets 暴露给不可信 PR 代码，
+  # 见其日志：pull_request_target is intentionally not supported），
+  # 因此这里只用它「代发 /review 评论」；真正的审查走下方 issue_comment 链路（携带 secrets）
+  pull_request_target:
+    types: [opened, reopened]
+  # PR 内评论 /review、/robin 可按需（重新）审查；失败用评论或 Actions 重跑重试
   issue_comment:
     types: [created]
 
 permissions:
-  actions: write
   contents: read
   pull-requests: write
 
+concurrency:
+  group: robin-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
-  # 鎺㈡祴 LLM secrets 鏄惁閰嶇疆锛坰ecrets 涓嶈兘鐢ㄤ簬椤跺眰 env / job.if锛岄』缁忔楠よ緭鍑轰腑杞級
+  # ① 引导：PR 建立/重开时，以机器人身份在 PR 下代发 /review，
+  #    触发 ② 的 issue_comment 链路完成真实审查（跨 fork 亦可）
+  bootstrap:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask robin to review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          existing=$(gh api "repos/$REPO/issues/$NUMBER/comments" \
+            --jq '[.[]|select(.user.login=="github-actions[bot]" and (.body|startswith("/review")))]|length')
+          if [ "$existing" -eq 0 ]; then
+            gh pr comment "$NUMBER" --repo "$REPO" --body "/review"
+          else
+            echo "bootstrap comment already present, skipping"
+          fi
+
+  # ② 秘钥探测：LLM 三件套配置齐全才继续（secrets 不能直接用于 job.if，须经输出中转）
   config-check:
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request
     runs-on: ubuntu-latest
     outputs:
       configured: ${{ steps.check.outputs.configured }}
@@ -26,14 +53,30 @@ jobs:
           if [ -n "$_BASE" ]; then echo "configured=true" >> "$GITHUB_OUTPUT";
           else echo "configured=false" >> "$GITHUB_OUTPUT"; fi
 
+  # ③ 真实审查：允许维护者手动命令与 github-actions[bot] 自动命令；
+  #    命令别名：/review 与 /robin 均可触发（/summary、/help 由 robin 内部处理不在此列）；
+  #    robin 只通过 API 读 diff 并调用 LLM 出评论，不在 CI 中执行 PR 代码
   review:
     needs: config-check
-    # 鍝釜浠撳簱閰嶉綈浜?LLM secrets 灏卞湪鍝噷杩愯锛涙湭閰嶇疆鍒欐樉绀鸿烦杩囪€岄潪澶辫触
-    if: needs.config-check.outputs.configured == 'true'
-    uses: antongulin/robin/.github/workflows/review.yml@main
-    with:
-      review-on-synchronize: true
-    secrets:
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+    if: >-
+      needs.config-check.outputs.configured == 'true' &&
+      (
+        startsWith(github.event.comment.body, '/review') ||
+        startsWith(github.event.comment.body, '/robin')
+      ) &&
+      (
+        github.event.comment.user.login == 'github-actions[bot]' ||
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Robin review
+        uses: antongulin/robin@v2.7.2
+        with:
+          github-token: ${{ github.token }}
+          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          llm-base-url: ${{ secrets.LLM_BASE_URL }}
+          model: ${{ secrets.LLM_MODEL }}
+          config-file: .github/robin.yml
+          review-instructions-file: .github/code-reviewer.md

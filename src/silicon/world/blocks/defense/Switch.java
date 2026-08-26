@@ -20,7 +20,7 @@ public class Switch extends Block {
         solid = true;
         configurable = false;
         rotate = true;
-        group = BlockGroup.projectors;
+        group = BlockGroup.logic;
         config(Boolean.class, (building, enabled) -> {
             if (building.front() != null) building.front().enabled = !enabled;
         });

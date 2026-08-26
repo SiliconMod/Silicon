@@ -1,0 +1,11 @@
+skip-paths:
+  - "assets/sprites/**"
+  - "assets/icons/**"
+  - "assets/maps/**"
+  - "*.jar"
+  - "gradle/**"
+  - ".gradle/**"
+  - "build/**"
+  - "docs/**"
+  - "tests/**"
+  - "scripts/**"

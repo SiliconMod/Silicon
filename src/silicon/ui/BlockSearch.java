@@ -1,4 +1,4 @@
-package blocksearch.ui;
+package silicon.ui;
 
 import arc.Core;
 import arc.Events;

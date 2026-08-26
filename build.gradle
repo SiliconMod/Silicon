@@ -9,19 +9,7 @@ repositories {
     maven { setUrl("https://raw.githubusercontent.com/Zelaux/MindustryRepo/master/repository") }
     mavenCentral()
 
-    //Downloads the dependencies JAR file from Mindustry releases; does not use any real repository. Surprisingly, this is the most reliable option.
-   ivy {
-       url = 'https://github.com/'
-       patternLayout { artifact '/[organisation]/[module]/releases/download/[revision]/dependencies.jar' }
-       metadataSources { artifact() }
-   }
-//
-//    //If the version is set to 'latest', downloads the latest Mindustry *release* as a dependency
-//    ivy {
-//        url = 'https://github.com/'
-//        patternLayout { artifact '/[organisation]/[module]/releases/[revision]/download/dependencies.jar' }
-//        metadataSources { artifact() }
-//    }
+
     ivy {
         url = 'https://github.com/'
         patternLayout { artifact '/[organisation]/[module]/releases/download/[revision]/Mindustry.jar' }
@@ -39,6 +27,10 @@ repositories {
 java {
     targetCompatibility = JavaVersion.VERSION_17
     sourceCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
 }
 
 ext{
@@ -59,7 +51,8 @@ ext{
 }
 
 dependencies{
-    compileOnly mindustryVersion == "be" ? "Anuken:MindustryBuilds:latest" : "Anuken:Mindustry:$mindustryVersion"
+    compileOnly "com.github.Anuken.Arc:arc-core:$mindustryVersion"
+    compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
 }
 
 tasks.register('jarAndroid') {
@@ -90,6 +83,9 @@ tasks.register('jarAndroid') {
         classpathDeps.each { dep -> cmd.add("--classpath"); cmd.add(dep.path) }
         cmd.add("--lib"); cmd.add(new File(platformRoot, "android.jar").path)
         cmd.add("--min-api"); cmd.add("21")
+        // build-tools 34.0.0 的 d8（R8 8.2.2-dev）在启用 desugaring 时会因
+        // java.lang.Record 类路径冲突抛 NPE，必须关闭（对齐 Anuken 官方模板/CI）
+        cmd.add("--no-desugaring")
         cmd.add("--output"); cmd.add(projectName + "Android.jar")
         cmd.add(projectName + "Desktop.jar")
 
