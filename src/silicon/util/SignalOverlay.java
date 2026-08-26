@@ -176,6 +176,8 @@ public class SignalOverlay {
                 Fonts.def.draw(NUMBER_STRINGS[val < 0 ? 0 : (val > 15 ? 15 : val)], wx - 1.2f, wy - 0.8f);
             }
         }
+        // 恢复默认颜色与字号，避免影响其他字体渲染
+        Fonts.def.setColor(Color.white);
         Fonts.def.getData().setScale(oldScale);
     }
 
