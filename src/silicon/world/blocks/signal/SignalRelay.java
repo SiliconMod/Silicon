@@ -5,6 +5,8 @@ import arc.graphics.g2d.Lines;
 import arc.math.Mathf;
 import arc.struct.ObjectMap;
 import arc.struct.Seq;
+import arc.util.io.Reads;
+import arc.util.io.Writes;
 import mindustry.game.Team;
 import mindustry.gen.Building;
 import mindustry.gen.Groups;
@@ -58,15 +60,6 @@ public class SignalRelay extends Block {
     public static Seq<SignalRelayBuild> allRelays(Team team) {
         rebuildCache();
         return relayCache.get(team, new Seq<>());
-    }
-
-    /** 收集某队伍所有已激活的中继器 */
-    public static Seq<SignalRelayBuild> allActive(Team team) {
-        Seq<SignalRelayBuild> out = new Seq<>();
-        for (SignalRelayBuild rb : allRelays(team)) {
-            if (rb.active) out.add(rb);
-        }
-        return out;
     }
 
     /** 放置预览显示信号范围（同信号源） */
@@ -145,6 +138,19 @@ public class SignalRelay extends Block {
             Lines.stroke(2f);
             Lines.circle(x, y, RADIUS * 8f);
             Draw.reset();
+        }
+
+        /** 存档/网络同步 active 字段（host 上由 updateActive 重算，保证一致性） */
+        @Override
+        public void write(Writes write) {
+            super.write(write);
+            write.bool(active);
+        }
+
+        @Override
+        public void read(Reads read, byte revision) {
+            super.read(read, revision);
+            active = read.bool();
         }
     }
 }

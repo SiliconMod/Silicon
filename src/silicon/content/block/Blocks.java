@@ -16,6 +16,7 @@ import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.sandbox.PowerSource;
+import silicon.world.blocks.signal.DimensionAnchor;
 import silicon.world.blocks.signal.SignalRelay;
 import silicon.world.blocks.signal.SignalSource;
 
@@ -24,7 +25,7 @@ import static mindustry.type.ItemStack.with;
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            signalSource, signalRelay, universalJunction;
+            dimensionAnchor, signalSource, universalJunction, signalRelay;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -105,6 +106,10 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 3;
         }};
+        // 已废弃的维度锚点存根：保持原注册位置以保留旧存档方块 ID（隐藏于建造菜单，无功能）
+        dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
+            health = 600;
+        }};
         signalSource = new SignalSource("signal-source") {{
             requirements(Category.effect, BuildVisibility.shown,
                     ItemStack.with(Items.copper, 20, Items.lead, 10, Items.silicon, 15));
@@ -112,18 +117,19 @@ public class Blocks {
             size = 1;
             health = 120;
         }};
+        universalJunction = new UniversalJunction("universal-junction") {{
+            requirements(Category.distribution, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 15, Items.lead, 10, Items.graphite, 8, Items.silicon, 5));
+            alwaysUnlocked = true;
+            size = 1;
+        }};
+        // 信号中继器注册在最后：保证旧存档（含维度锚点/旧信号源/万能枢纽）的方块 ID 不被后续新增方块打乱
         signalRelay = new SignalRelay("signal-relay") {{
             requirements(Category.effect, BuildVisibility.shown,
                     ItemStack.with(Items.copper, 15, Items.lead, 10, Items.silicon, 12));
             alwaysUnlocked = true;
             size = 1;
             health = 100;
-        }};
-        universalJunction = new UniversalJunction("universal-junction") {{
-            requirements(Category.distribution, BuildVisibility.shown,
-                    ItemStack.with(Items.copper, 15, Items.lead, 10, Items.graphite, 8, Items.silicon, 5));
-            alwaysUnlocked = true;
-            size = 1;
         }};
     }
 }

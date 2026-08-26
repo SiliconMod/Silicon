@@ -7,15 +7,14 @@ import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.input.KeyCode;
 import arc.math.Mathf;
+import arc.math.geom.Rect;
 import arc.scene.ui.Label;
 import arc.struct.Seq;
-import arc.util.Align;
 import arc.util.Tmp;
 import mindustry.Vars;
 import mindustry.game.EventType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
-import mindustry.gen.Groups;
 import mindustry.ui.Fonts;
 import mindustry.ui.Styles;
 import silicon.world.blocks.signal.SignalRelay;
@@ -115,13 +114,18 @@ public class SignalOverlay {
             lastRangeMode = rangeMode;
             displayAlpha = 0f;
         }
-        // 收集所有信号源与已激活中继器（同队）
+        // 收集所有信号源与已激活中继器（同队；静态列表复用，不产生分配）
         sources.clear();
         sources.addAll(SignalSource.allSources(team));
-        sources.addAll(SignalRelay.allActive(team));
+        for (SignalRelayBuild rb : SignalRelay.allRelays(team)) {
+            if (rb.active) sources.add(rb);
+        }
         if (sources.isEmpty()) return;
+        // 视野裁剪：屏幕外（含信号半径外扩）的来源跳过，避免大量来源时每帧绘制全部
+        Rect view = Core.camera.bounds(Tmp.r1).grow(SignalSource.RADIUS * 8f + 8f);
         // 每个源独立绘制其覆盖（O(n × r²)，避免每格再遍历全部源）
         for (Building b : sources) {
+            if (!view.contains(b.x, b.y)) continue;
             if (rangeMode) {
                 drawRange(b, alpha);
             } else {
