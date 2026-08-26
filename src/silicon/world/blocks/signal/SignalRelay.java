@@ -3,6 +3,7 @@ package silicon.world.blocks.signal;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Lines;
 import arc.math.Mathf;
+import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import mindustry.game.Team;
 import mindustry.gen.Building;
@@ -31,13 +32,39 @@ public class SignalRelay extends Block {
         update = true;
     }
 
+    /**
+     * 每队中继器缓存（建筑放置/拆除/加载时标记失效重建，避免每帧遍历 Groups.build）。
+     */
+    private static final ObjectMap<Team, Seq<SignalRelayBuild>> relayCache = new ObjectMap<>();
+    private static boolean dirty = true;
+
+    /** 标记缓存失效（建筑增删时调用） */
+    public static void markDirty() {
+        dirty = true;
+    }
+
+    static void rebuildCache() {
+        if (!dirty) return;
+        dirty = false;
+        relayCache.clear();
+        for (Building b : Groups.build) {
+            if (b instanceof SignalRelayBuild rb) {
+                relayCache.get(rb.team, Seq::new).add(rb);
+            }
+        }
+    }
+
+    /** 收集某队伍的所有中继器（走缓存） */
+    public static Seq<SignalRelayBuild> allRelays(Team team) {
+        rebuildCache();
+        return relayCache.get(team, new Seq<>());
+    }
+
     /** 收集某队伍所有已激活的中继器 */
     public static Seq<SignalRelayBuild> allActive(Team team) {
         Seq<SignalRelayBuild> out = new Seq<>();
-        for (Building b : Groups.build) {
-            if (b instanceof SignalRelayBuild rb && rb.team == team && rb.active) {
-                out.add(rb);
-            }
+        for (SignalRelayBuild rb : allRelays(team)) {
+            if (rb.active) out.add(rb);
         }
         return out;
     }
@@ -57,6 +84,18 @@ public class SignalRelay extends Block {
         private int timer = 0;
 
         @Override
+        public void onProximityAdded() {
+            super.onProximityAdded();
+            SignalRelay.markDirty();
+        }
+
+        @Override
+        public void onRemoved() {
+            super.onRemoved();
+            SignalRelay.markDirty();
+        }
+
+        @Override
         public void updateTile() {
             // 每 20 tick 检测一次激活状态（级联传播：逐级激活）
             if (++timer >= 20) {
@@ -72,12 +111,18 @@ public class SignalRelay extends Block {
                 active = false;
                 return;
             }
-            for (Building b : Groups.build) {
-                if (b.team != team || b == this) continue;
-                // 附近有信号源，或附近有已激活的中继器（级联）
-                if (b instanceof SignalSource.SignalSourceBuild
-                        || (b instanceof SignalRelayBuild rb && rb.active)) {
-                    if (Mathf.dst(x, y, b.x, b.y) <= RADIUS * 8f) {
+            // 遍历本队信号源缓存（不再每帧遍历 Groups.build）
+            for (SignalSource.SignalSourceBuild sb : SignalSource.allSources(team)) {
+                if (Mathf.dst(x, y, sb.x, sb.y) <= RADIUS * 8f) {
+                    newActive = true;
+                    break;
+                }
+            }
+            // 附近有已激活的中继器（级联），走中继器缓存
+            if (!newActive) {
+                for (SignalRelayBuild rb : SignalRelay.allRelays(team)) {
+                    if (rb == this || !rb.active) continue;
+                    if (Mathf.dst(x, y, rb.x, rb.y) <= RADIUS * 8f) {
                         newActive = true;
                         break;
                     }

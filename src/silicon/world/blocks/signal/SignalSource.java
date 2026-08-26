@@ -5,6 +5,7 @@ import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
 import arc.math.Mathf;
+import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
@@ -64,15 +65,32 @@ public class SignalSource extends Block {
         return MAX_STRENGTH * gaussian;
     }
 
-    /** 收集某队伍的所有信号源 */
-    public static Seq<SignalSourceBuild> allSources(Team team) {
-        Seq<SignalSourceBuild> out = new Seq<>();
+    /**
+     * 每队信号源缓存（建筑放置/拆除/加载时标记失效重建，避免每帧遍历 Groups.build）。
+     */
+    private static final ObjectMap<Team, Seq<SignalSourceBuild>> sourceCache = new ObjectMap<>();
+    private static boolean dirty = true;
+
+    /** 标记缓存失效（建筑增删时调用） */
+    public static void markDirty() {
+        dirty = true;
+    }
+
+    static void rebuildCache() {
+        if (!dirty) return;
+        dirty = false;
+        sourceCache.clear();
         for (Building b : Groups.build) {
-            if (b instanceof SignalSourceBuild sb && sb.team == team) {
-                out.add(sb);
+            if (b instanceof SignalSourceBuild sb) {
+                sourceCache.get(sb.team, Seq::new).add(sb);
             }
         }
-        return out;
+    }
+
+    /** 收集某队伍的所有信号源（走缓存） */
+    public static Seq<SignalSourceBuild> allSources(Team team) {
+        rebuildCache();
+        return sourceCache.get(team, new Seq<>());
     }
 
     /** 生成一个未被使用的 4 字符信号名（大写字母 A-Z + 数字 0-9） */
@@ -129,10 +147,17 @@ public class SignalSource extends Block {
         @Override
         public void onProximityAdded() {
             super.onProximityAdded();
+            markDirty();
             // 加载存档后向客户端重新同步（自定义字段不随实体系统同步）
             if (signal != null && Vars.net.server()) {
                 Call.tileConfig(null, this, signal.name);
             }
+        }
+
+        @Override
+        public void onRemoved() {
+            super.onRemoved();
+            markDirty();
         }
 
         /** 本源在指定世界坐标处的信号强度（0~15；无信号时为 0） */
