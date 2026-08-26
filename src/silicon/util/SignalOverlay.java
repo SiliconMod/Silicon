@@ -55,10 +55,14 @@ public class SignalOverlay {
     private static Label hintLabel;
 
     public static void init() {
+        // 无头服务器跳过（无渲染循环/无 UI），避免访问 Vars.ui.hudGroup 崩溃
+        if (Vars.headless) return;
         // 渲染循环方块层绘制后触发（每帧）
         Events.run(EventType.Trigger.draw, SignalOverlay::update);
         // 客户端加载完成后创建底部提示标签
         Events.on(EventType.ClientLoadEvent.class, e -> {
+            // 模组重载等场景重复触发时先移除旧标签，避免泄漏
+            if (hintLabel != null) hintLabel.remove();
             hintLabel = new Label(Core.bundle.get("signal.overlay.hint"), Styles.outlineLabel);
             hintLabel.setFontScale(0.7f);
             hintLabel.visible = false;
@@ -155,30 +159,34 @@ public class SignalOverlay {
         float radiusPx = SignalSource.RADIUS * 8f;
         // 数字模式透明度（0~100，设置项）
         float digitAlpha = Core.settings.getInt("signal.digitAlpha", 80) / 100f;
-        // 字号固定一次（保存原始值，绘制后恢复，避免异常/提前返回污染全局字体比例）
+        // 保存字体原始颜色与比例，绘制后恢复（try-finally 保证异常时也恢复，避免污染全局字体状态）
+        Color oldFontColor = Fonts.def.getColor();
         float oldScale = Fonts.def.getData().scaleX;
         Fonts.def.getData().setScale(0.2f);
         float radiusSq = radiusPx * radiusPx;
-        for (int dx = -r; dx <= r; dx++) {
-            for (int dy = -r; dy <= r; dy++) {
-                float wx = b.x + dx * 8f, wy = b.y + dy * 8f; // 格子中心（像素）
-                float ddx = wx - b.x, ddy = wy - b.y;
-                if (ddx * ddx + ddy * ddy > radiusSq) continue; // 平方距离比较，避免 sqrt
-                float s = sourceStrength(b, wx, wy);
-                if (s <= 0) continue;
-                int val = Mathf.round(s);
-                float t = s / SignalSource.MAX_STRENGTH;
-                // 浅蓝 → 深蓝渐变（强度越高越深）
-                Color c = Tmp.c1.set(LIGHT_BLUE).lerp(DEEP_BLUE, t);
-                c.a((0.6f + 0.4f * t) * digitAlpha * alpha);
-                // 复用预计算字符串避免分配
-                Fonts.def.setColor(c);
-                Fonts.def.draw(NUMBER_STRINGS[val < 0 ? 0 : (val > 15 ? 15 : val)], wx - 1.2f, wy - 0.8f);
+        try {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dy = -r; dy <= r; dy++) {
+                    float wx = b.x + dx * 8f, wy = b.y + dy * 8f; // 格子中心（像素）
+                    float ddx = wx - b.x, ddy = wy - b.y;
+                    if (ddx * ddx + ddy * ddy > radiusSq) continue; // 平方距离比较，避免 sqrt
+                    float s = sourceStrength(b, wx, wy);
+                    if (s <= 0) continue;
+                    int val = Mathf.round(s);
+                    float t = s / SignalSource.MAX_STRENGTH;
+                    // 浅蓝 → 深蓝渐变（强度越高越深）
+                    Color c = Tmp.c1.set(LIGHT_BLUE).lerp(DEEP_BLUE, t);
+                    c.a((0.6f + 0.4f * t) * digitAlpha * alpha);
+                    // 复用预计算字符串避免分配
+                    Fonts.def.setColor(c);
+                    Fonts.def.draw(NUMBER_STRINGS[val < 0 ? 0 : (val > 15 ? 15 : val)], wx - 1.2f, wy - 0.8f);
+                }
             }
+        } finally {
+            // 恢复默认颜色与字号，避免影响其他字体渲染
+            Fonts.def.setColor(oldFontColor);
+            Fonts.def.getData().setScale(oldScale);
         }
-        // 恢复默认颜色与字号，避免影响其他字体渲染
-        Fonts.def.setColor(Color.white);
-        Fonts.def.getData().setScale(oldScale);
     }
 
     /** 范围模式：半透明蓝色渐变填充信号覆盖圆（每格 8px，不挡方块），强度高=深蓝、低=浅蓝 */
