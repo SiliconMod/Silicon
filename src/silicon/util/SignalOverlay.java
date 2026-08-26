@@ -41,6 +41,8 @@ public class SignalOverlay {
     public static final Color NO_SIGNAL_COLOR = Color.valueOf("9a9a9a");
     /** 缩放阈值（相机视野宽度，像素）：视野宽于该值（缩小视角）显示蓝色范围，否则显示数字 */
     public static final float ZOOM_THRESHOLD_WIDTH = 600f;
+    /** 预计算的强度数字字符串（0~15），避免每帧分配 */
+    private static final String[] NUMBER_STRINGS = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"};
 
     private static boolean visible = false;
     private static boolean toggleVisible = false;
@@ -154,10 +156,10 @@ public class SignalOverlay {
                 // 浅蓝 → 深蓝渐变（强度越高越深）
                 Color c = Tmp.c1.set(LIGHT_BLUE).lerp(DEEP_BLUE, t);
                 c.a((0.6f + 0.4f * t) * digitAlpha * alpha);
-                // 字号 0.2（约 3.2px，更小）；基本 draw 用 setColor 指定颜色
+                // 字号 0.2（约 3.2px，更小）；基本 draw 用 setColor 指定颜色（复用预计算字符串避免分配）
                 Fonts.def.getData().setScale(0.2f);
                 Fonts.def.setColor(c);
-                Fonts.def.draw(String.valueOf(val), wx - 1.2f, wy - 0.8f);
+                Fonts.def.draw(NUMBER_STRINGS[val < 0 ? 0 : (val > 15 ? 15 : val)], wx - 1.2f, wy - 0.8f);
             }
         }
         Fonts.def.getData().setScale(1f);

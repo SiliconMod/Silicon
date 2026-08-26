@@ -114,9 +114,9 @@ public class Silicon extends Mod {
                 st.checkPref("signal.hkey.toggle", true);
                 // 数字模式 / 范围模式透明度（0~100%）
                 st.sliderPref("signal.digitAlpha", 80, 0, 100, 5,
-                        i -> Core.bundle.get("setting.signal.digitAlpha.value", i + "%"));
+                        i -> Core.bundle.format("setting.signal.digitAlpha.value", i));
                 st.sliderPref("signal.rangeAlpha", 45, 0, 100, 5,
-                        i -> Core.bundle.get("setting.signal.rangeAlpha.value", i + "%"));
+                        i -> Core.bundle.format("setting.signal.rangeAlpha.value", i));
                 // —— 中枢物流调试与连线 ——
                 st.checkPref("hubDebugLog", false, v -> silicon.world.blocks.distribution.ItemTransferHub.debugFlows = v);
                 st.sliderPref("hubLinkOpacity", 100, 0, 100, 5, i -> i + "%");
