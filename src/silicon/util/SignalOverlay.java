@@ -19,6 +19,7 @@ import mindustry.gen.Groups;
 import mindustry.ui.Fonts;
 import mindustry.ui.Styles;
 import silicon.world.blocks.signal.SignalRelay;
+import silicon.world.blocks.signal.SignalRelay.SignalRelayBuild;
 import silicon.world.blocks.signal.SignalSource;
 import silicon.world.blocks.signal.SignalSource.SignalSourceBuild;
 
@@ -114,28 +115,30 @@ public class SignalOverlay {
         sources.addAll(SignalSource.allSources(team));
         sources.addAll(SignalRelay.allActive(team));
         if (sources.isEmpty()) return;
+        // 每个源独立绘制其覆盖（O(n × r²)，避免每格再遍历全部源）
         for (Building b : sources) {
             if (rangeMode) {
-                drawRange(b, alpha, sources);
+                drawRange(b, alpha);
             } else {
-                drawNumbers(b, alpha, sources);
+                drawNumbers(b, alpha);
             }
         }
         Draw.reset();
     }
 
-    /** 计算 (wx, wy) 处所有源/中继器中的最大信号强度（重叠覆盖取最强） */
-    static float maxStrength(Seq<Building> sources, float wx, float wy) {
-        float max = 0f;
-        for (Building b : sources) {
-            float s = SignalSource.strengthAt(b.x, b.y, wx, wy);
-            if (s > max) max = s;
+    /** 该源/中继器在 (wx, wy) 的信号强度（信号源无信号、中继器未激活时为 0） */
+    static float sourceStrength(Building b, float wx, float wy) {
+        if (b instanceof SignalSourceBuild sb) {
+            return sb.signal == null ? 0f : SignalSource.strengthAt(b.x, b.y, wx, wy);
         }
-        return max;
+        if (b instanceof SignalRelayBuild rb) {
+            return rb.active ? SignalSource.strengthAt(b.x, b.y, wx, wy) : 0f;
+        }
+        return 0f;
     }
 
     /** 数字模式：在信号覆盖圆内每格绘制强度数字（强度高=深蓝，低=浅蓝渐变；透明度由设置调节） */
-    static void drawNumbers(Building b, float alpha, Seq<Building> sources) {
+    static void drawNumbers(Building b, float alpha) {
         int r = (int) SignalSource.RADIUS;
         float radiusPx = SignalSource.RADIUS * 8f;
         // 数字模式透明度（0~100，设置项）
@@ -144,7 +147,7 @@ public class SignalOverlay {
             for (int dy = -r; dy <= r; dy++) {
                 float wx = b.x + dx * 8f, wy = b.y + dy * 8f; // 格子中心（像素）
                 if (Mathf.dst(wx, wy, b.x, b.y) > radiusPx + 0.001f) continue;
-                float s = maxStrength(sources, wx, wy);
+                float s = sourceStrength(b, wx, wy);
                 if (s <= 0) continue;
                 int val = Mathf.round(s);
                 float t = s / SignalSource.MAX_STRENGTH;
@@ -161,7 +164,7 @@ public class SignalOverlay {
     }
 
     /** 范围模式：半透明蓝色渐变填充信号覆盖圆（每格 8px，不挡方块），强度高=深蓝、低=浅蓝 */
-    static void drawRange(Building b, float alpha, Seq<Building> sources) {
+    static void drawRange(Building b, float alpha) {
         int r = (int) SignalSource.RADIUS;
         float radiusPx = SignalSource.RADIUS * 8f;
         // 范围模式透明度（0~100，设置项）
@@ -170,7 +173,7 @@ public class SignalOverlay {
             for (int dy = -r; dy <= r; dy++) {
                 float wx = b.x + dx * 8f, wy = b.y + dy * 8f; // 格子中心（像素）
                 if (Mathf.dst(wx, wy, b.x, b.y) > radiusPx + 0.001f) continue;
-                float s = maxStrength(sources, wx, wy);
+                float s = sourceStrength(b, wx, wy);
                 if (s <= 0) continue;
                 float t = s / SignalSource.MAX_STRENGTH;
                 // 浅蓝 → 深蓝渐变（强度越高越深）

@@ -135,8 +135,9 @@ public class SignalSource extends Block {
             }
         }
 
-        /** 本源在指定世界坐标处的信号强度（0~15） */
+        /** 本源在指定世界坐标处的信号强度（0~15；无信号时为 0） */
         public float strengthAt(float wx, float wy) {
+            if (signal == null) return 0f;
             return SignalSource.strengthAt(x, y, wx, wy);
         }
 
