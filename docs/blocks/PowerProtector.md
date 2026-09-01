@@ -28,45 +28,50 @@
 - `hasPower`: true
 - `consumesPower`: true
 - `outputsPower`: true
-- `conductivePower`: false
 - `update`: true
 - `solid`: true
-- `configurable`: false
-- `alwaysUnlocked`: true
+- `configurable`: true（新版加入配置面板：启用/禁用开关、剩余保护时间、欠款、当前供电）
+- `replaceable`: false（不可被其他方块替换放置）
 
 ## 机制说明
 
 ### 核心机制
 
-电力保护器，用于在电网崩溃时保护电力系统。具有三状态机：
+电力保护器：电网亏电时补电（记欠款），电网富余时偿还欠款。新版采用**存档级共享状态**架构：
 
-1. **Normal (status=0)**: 监控电网状态，当存储电力降至接近0且电力变化为负时进入保护模式
-2. **Protection (status=1)**: 电网崩溃时激活，记录所有"已消耗"电力（电力赤字）。5分钟后或连续增长30秒后退出
-3. **Recovery (status=-1)**: 使用"等额本金"还款方式逐步偿还消耗的电力，利率为0.1%/秒
+1. **共享 `State`**：同一电网同队伍的保护器共享同一个 `State` 引用（模式/冲突/提示/会话时间，由最早放置者作 Master 维护）。数据字段写入每台保护器的存档（write/read），属存档层面而非全局静态。
+2. **全队时间池**：全队共享"可用保护时间" `remainingProtectionTime`，跨电网由队伍 Master 统一维护消耗与回充。保护时按每台 1x 扣减；全队无欠款才回充（每 `restoreInterval` 秒恢复 1 秒可用时间）。
+3. **欠款（debt）**：每台保护器独立计算与偿还（不同步）。
+4. **模式（纯显示）**：`Normal / Protecting / Recovering / Blocked / Error / Stopped`，根据实际供电/消耗/空闲/阻塞状态自动推导，不控制逻辑。
+5. **供电/消耗逻辑独立**：满足条件即执行，不受模式切换影响。
 
-### 特殊行为
+### 具体逻辑
 
-- **Error检测**: 同一电网中存在相同类型的PowerProtector时，error=true，停止工作
-- **PowerVoid检测**: 电网中存在PowerVoid时，直接返回不工作
-- **拆除限制**: 仅在Normal状态下可拆除
-- **放置限制**: 电网中已有PowerProtector时不允许放置
-- **禁用行为**: 在保护/恢复模式下被禁用时，仅重置状态为Normal（不自动恢复enabled）
-- **恢复模式电网连接**: 恢复期间一次性连接电网并保持（不再每60 tick断开/重连），避免电网波动导致物品传输中枢等消费者跳变
+- **保护**：电网净盈余为负（`gridNet < 0`）&& 无存储电力 && 无冲突/阻塞 && 全队时间池有剩余 → 填补电网缺口，累计 `debt`。
+- **恢复**：自家有欠款 && 电网富余（`gridNet > 0`）→ 从电网富余 + 电池按"均摊本金 + 利息 + 手续费"偿还欠款。利率 `recoveryRatePerSecond`、手续费 `recoverySurcharge`。
+- **冲突检测**：同电网同队伍存在 >1 台保护器 → `error=true`，停止工作（阻塞）。
+- **阻塞**：同电网其他保护器正在 保护/恢复 → 本机 `Blocked`，不工作。
+- **PowerVoid 检测**：电网存在 PowerVoid 时停止工作。
+- **拆除限制**：欠款（`debt > 0`）时不可拆除（防通过拆除抹掉欠款），仅 `lastBreakToast` 节流提示横幅。
+- **手动停止**：配置面板可启用/禁用（切换 `stopped`），停止后不供电不恢复。
+- **警报音效**：电力不足提示横幅出现时播放一次 `sounds/warn/power-protector.ogg`。
 
 ### 配置参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `protectionTime` | float | 5 * 60 * 60f | 保护模式持续时间 |
-| `exitGrowthTime` | float | 30 * 60f | 退出保护的增长时间 |
-| `secondRecoveryRate` | float | 0.001f | 每秒恢复率 |
+| `protectionTime` | float | 90 * 60f | 全队可用保护总时长（tick），默认 90 秒 |
+| `recoveryRatePerSecond` | float | 0.02f | 恢复利率（每秒 2%） |
+| `recoverySurcharge` | float | 0.1f | 偿还手续费比例（10%） |
+| `restoreInterval` | float | 5f | 每满该秒数线性恢复 1 秒可用保护时间 |
+| `maxDebt` | float | 100000f | 欠款进度条满格对应的归一化值（仅显示） |
 | `warmupSpeed` | float | 0.1f | 预热速度 |
 
 ## 电力系统
 
-- **消耗方式**: `consumePowerDynamic` 动态消耗（恢复阶段消耗tickRPower）
-- **产出方式**: `getPowerProduction` 返回 `tickPPower`（保护阶段产出）
-- **公式**: 恢复阶段使用等额本金还款，利息=0.1%/秒
+- **消耗方式**: `consumePowerDynamic` 动态消耗（恢复阶段按 `state.tickRPower` 消耗）
+- **产出方式**: `getPowerProduction` 保护阶段返回 `state.tickPPower`，否则 0
+- **恢复公式**: 均摊本金 `debt / max(protectionTimer,1)` + 利息 `debt * recoveryRate / 60`，乘 `(1+recoverySurcharge)`
 
 ## 物品处理
 
@@ -74,14 +79,22 @@
 
 ## 状态栏 (Bars)
 
-1. **Power Output**: 显示电力产出状态
-2. **Spent Power**: 显示已消耗电力（累积赤字）
-3. **Protection Status**: 显示当前状态（Normal/Protection/Recovery/Error）
+1. **状态**: 当前模式文本（Normal/Protecting/Recovering/Blocked/Error/Stopped），颜色随模式
+2. **可用保护时间**: 青色，`remainingProtectionTime / protectionTime`
+3. **欠下电力**: 淡橙，`debt / maxDebt`
+
+## 配置面板
+
+- 状态徽章（颜色随模式）
+- 可用保护剩余时间（秒）
+- 欠下电力
+- 当前供电（/s）
+- 启用/禁用切换按钮（红色高亮 checked）
 
 ## 序列化
 
-- 版本: 8
-- 保存字段: 状态机所有变量
+- 版本: 14
+- 保存字段: `remainingProtectionTime`、`debt`、`restoreTimer`、`error`（均来自 `state`）
 
 ## 版本历史
 
@@ -90,3 +103,4 @@
 | a0.8.0 | 初始创建 |
 | a0.8.5.0 | 修复禁用时自动恢复enabled的行为、日志改用SiliconLog |
 | a0.12.1.0 | 修复恢复模式频繁断开/重连电网导致物品传输中枢跳变 |
+| a0.12.3.0 | **重写为存档级共享 State 架构**：全队共享可用保护时间池、独立欠款计费与偿还、模式枚举（Normal/Protecting/Recovering/Blocked/Error/Stopped）、配置 UI 面板（启用/禁用/剩余时间/欠款/供电）、电力不足与禁止拆除提示横幅、警报音效、欠款期禁止拆除、不可replaceable |

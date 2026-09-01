@@ -9,3 +9,14 @@ skip-paths:
   - "docs/**"
   - "tests/**"
   - "scripts/**"
+
+# 顾问模式：高严重度发现只发非阻塞 COMMENT，不自动 REQUEST_CHANGES 卡 PR，
+# 减少误报对合并的阻塞影响（真实阻塞交由人类维护者判断）。
+request-changes: false
+
+# 收敛单次行内评论数量，避免弱模型刷屏式误报淹没有效发现。
+max-comments: 8
+
+# 调低送模型的 diff 上限：PR 过大时模型更容易臆断/漏上下文。
+max-diff-size: 30000
+
