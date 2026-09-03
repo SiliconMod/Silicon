@@ -118,10 +118,9 @@ public class SatelliteConsole extends Block {
             return null;
         }
 
-        /** SSO 是否灰化：绑定的中枢正在制造或待发射信号卫星（信号卫星不能发 SSO） */
+        /** SSO 是否灰化：绑定的中枢选择了信号卫星（信号卫星不能发 SSO，选中即灰化，与生产进度无关） */
         boolean ssoBlocked() {
-            return boundHub != null && boundHub.selectedType == TYPE_SIGNAL
-                    && (boundHub.produced || boundHub.progress > 0f);
+            return boundHub != null && boundHub.selectedType == TYPE_SIGNAL;
         }
 
         /** 发射卫星：本队可点发射。权威端（主机/单机）直接执行；纯客机发请求由主机执行并广播/反馈结果 */
@@ -214,7 +213,7 @@ public class SatelliteConsole extends Block {
             }).color(Color.lightGray).pad(2f);
         }
 
-        /** 轨道选择按钮行（4 单选）；绑定的中枢在造/待发信号卫星时 SSO 灰化（信号卫星不能发 SSO） */
+        /** 轨道选择按钮行（4 单选）；绑定的中枢选择信号卫星时 SSO 即灰化（信号卫星不能发 SSO） */
         void rebuildOrbitRow(Table table) {
             table.row();
             table.label(() -> Core.bundle.format("block.silicon-satellite-console.orbit.current", orbitName(selectedOrbit)))
