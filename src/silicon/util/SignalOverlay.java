@@ -286,15 +286,15 @@ public class SignalOverlay {
         Draw.reset();
     }
 
-    /** 卫星覆盖层（范围模式）：每颗在轨卫星按其星下点覆盖圆绘制（编码专属色）；
-     *  被固化信道干扰器压到 0 的格子不画（与绑定判定同一模型）。只扫视口与覆盖圆的交集 */
+    /** 卫星覆盖层（范围模式）：每颗在轨卫星按其星下点覆盖圆绘制（编码专属色，未绑定兜底记录为
+     *  蓝色强度渐变——与数字模式的强度聚合口径一致）；被固化信道干扰器压到 0 的格子不画
+     *  （与绑定判定同一模型）。只扫视口与覆盖圆的交集 */
     static void drawSatelliteRange(Team team, float alpha) {
         Rect view = Core.camera.bounds(Tmp.r1);
         float rangeAlpha = Core.settings.getInt("signal.rangeAlpha", 45) / 100f;
         int vx0 = (int) (view.x / 8f) - 1, vx1 = (int) ((view.x + view.width) / 8f) + 1;
         int vy0 = (int) (view.y / 8f) - 1, vy1 = (int) ((view.y + view.height) / 8f) + 1;
         for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
-            if (r.code == null) continue; // 未绑定兜底记录：无编码着色，仅数字模式计强度
             Unit u = mindustry.gen.Groups.unit.getByID(r.unitId);
             if (u == null) continue;
             float rad = SatelliteManager.coverageRadius(r.orbit);
@@ -305,7 +305,7 @@ public class SignalOverlay {
                     float wx = gx * 8f, wy = gy * 8f;
                     float e = SatelliteManager.satelliteEffAt(r, wx, wy);
                     if (e <= 0f) continue;
-                    float t = Math.min(1f, e / 2f); // 单星≈半亮，叠星增强（卫星档按 2 归一化）
+                    float t = Math.min(1f, e / 2f); // 单星 0.75 亮、两颗饱和（卫星档按 2 归一化）
                     satelliteColor(r.code, t, Tmp.c1);
                     Draw.color(Tmp.c1, (0.45f + 0.35f * t) * rangeAlpha * alpha);
                     Fill.rect(wx, wy, 8f, 8f);
