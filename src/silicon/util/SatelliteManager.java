@@ -35,7 +35,7 @@ import silicon.world.blocks.signal.SignalJammer;
  * 卫星系统全局状态（按队伍）：
  * - 待发射卫星：由卫星发射中枢生产（每中枢同时 1 颗），生产完成后登记；燃料（石油）与缓冲电力（10000）均存储于中枢
  * - 在轨卫星：真实引擎单位（SatelliteUnits 四机型），由卫星控制台发射；沿以地图为中心的圆轨道飞行，
- *   覆盖为星下点覆盖圆（LEO 30 / MEO 45 / GEO 60 / SSO 20 格），不再全图短路；
+ *   覆盖为星下点覆盖圆（LEO 40 / MEO 60 / GEO 80 / SSO 25 格，轨道越高覆盖越大、强度越低），不再全图短路；
  *   只能被 scripted 伤害（unit.damage()，如 ASAT 拦截塔）击落，地面单位/炮塔对其完全失明
  * - 名册 SatelliteRecord（每星一条：unitId/编码/信道/轨道/相位）是卫星语义的唯一载体：
  *   编码决定其为哪条信号提供覆盖，信道在发射时从所选编码的信号源固化（源被拆不影响干扰判定），
@@ -82,8 +82,15 @@ public class SatelliteManager {
     /** 状态广播字段分隔符（编码：teamId|sigC|testC|名册|readyC|readyType|producingType；
      *  名册条目 "unitId:code:channel:orbit:phaseBits"，条目间 ';'，空名册为空字段） */
     static final String SEP = "|";
-    /** 单星信号强度（覆盖圆内、未被压制时每星贡献 1.5；多星叠加后扣底噪——首颗有效强度 1.0，足以激活中继器转发） */
-    public static final float STRENGTH_PER_SATELLITE = 1.5f;
+    /** 每星信号强度（覆盖圆内、未被压制时的原始强度；多星叠加后扣底噪）——轨道越高覆盖越大、强度越低：
+     *  LEO 1.5 / MEO 1.3 / GEO 1.1（首颗扣底噪后 1.0/0.8/0.6，均足以激活中继器转发），SSO 特例 1.5（小覆盖强信号） */
+    public static float satelliteStrength(int orbit) {
+        switch (orbit) {
+            case SatelliteConsole.ORBIT_MEO: return 1.3f;
+            case SatelliteConsole.ORBIT_GEO: return 1.1f;
+            default: return 1.5f; // LEO 与 SSO
+        }
+    }
 
     /** 在轨卫星记录：卫星语义的自定义数据载体 */
     public static class SatelliteRecord {
@@ -237,13 +244,14 @@ public class SatelliteManager {
 
     // —— 轨道几何（确定性：位置 = 相位 + 时间/周期 的纯函数，读档/联机两端一致）——
 
-    /** 星下点覆盖半径（世界像素）：LEO 30 / MEO 45 / GEO 60 / SSO 20 格 */
+    /** 星下点覆盖半径（世界像素）：LEO 40 / MEO 60 / GEO 80 / SSO 25 格——轨道越高覆盖越大；
+     *  约 10 颗卫星覆盖全图（参考 250×250 地图：10 颗 GEO 均布联合覆盖约 98%，角落由轨道扫掠周期性覆盖） */
     public static float coverageRadius(int orbit) {
         switch (orbit) {
-            case SatelliteConsole.ORBIT_MEO: return 45f * 8f;
-            case SatelliteConsole.ORBIT_GEO: return 60f * 8f;
-            case SatelliteConsole.ORBIT_SSO: return 20f * 8f;
-            default: return 30f * 8f;
+            case SatelliteConsole.ORBIT_MEO: return 60f * 8f;
+            case SatelliteConsole.ORBIT_GEO: return 80f * 8f;
+            case SatelliteConsole.ORBIT_SSO: return 25f * 8f;
+            default: return 40f * 8f;
         }
     }
 
@@ -275,20 +283,20 @@ public class SatelliteManager {
 
     // —— 卫星信号语义（覆盖/强度/干扰）——
 
-    /** 单条记录在 (wx,wy) 处的有效强度（0~1）：星下点覆盖圆内为 1，减去其固化信道的干扰强度；
-     *  信道未固化（-1，发射时编码无地面源）则不可被信道干扰——"在轨广播"的物理化 */
+    /** 单条记录在 (wx,wy) 处的有效强度：星下点覆盖圆内为该轨道的原始强度（LEO 1.5 / MEO 1.3 / GEO 1.1 / SSO 1.5），
+     *  减去其固化信道的干扰强度；信道未固化（-1，发射时编码无地面源）则不可被信道干扰——"在轨广播"的物理化 */
     public static float satelliteEffAt(SatelliteRecord r, float wx, float wy) {
         Unit u = Groups.unit.getByID(r.unitId);
         if (u == null) return 0f;
         if (!u.within(wx, wy, coverageRadius(r.orbit))) return 0f;
         float jam = r.channel >= 1 ? SignalJammer.strengthAt(r.channel, wx, wy) : 0f;
-        return Math.max(0f, STRENGTH_PER_SATELLITE - jam);
+        return Math.max(0f, satelliteStrength(r.orbit) - jam);
     }
 
     /**
      * 指定编码的卫星信号在 (wx,wy) 处的有效强度：覆盖该点且编码匹配的卫星各自扣同信道干扰后
-     * 求和，再扣底噪（NOISE_FLOOR）——首颗卫星有效强度 1.0，超过中继器激活阈值（>0.5），
-     * 单星即可让覆盖圆内的中继器转发；叠星线性提升抗干扰裕度（每多一星 +1.5）。
+     * 求和，再扣底噪（NOISE_FLOOR）——首颗卫星有效强度按轨道 1.0/0.8/0.6（LEO/MEO/GEO），
+     * 均超过中继器激活阈值（>0.5），单星即可让覆盖圆内的中继器转发；叠星线性提升抗干扰裕度。
      * code 必须 non-null（中继器按编码判定；全量聚合在绘制层内联）。
      */
     public static float satelliteStrengthAt(Team team, String code, float wx, float wy) {

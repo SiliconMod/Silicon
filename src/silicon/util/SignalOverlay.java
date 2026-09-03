@@ -305,7 +305,7 @@ public class SignalOverlay {
                     float wx = gx * 8f, wy = gy * 8f;
                     float e = SatelliteManager.satelliteEffAt(r, wx, wy);
                     if (e <= 0f) continue;
-                    float t = Math.min(1f, e / 2f); // 单星 0.75 亮、两颗饱和（卫星档按 2 归一化）
+                    float t = Math.min(1f, e / 2f); // 亮度按强度/2 归一化：LEO 单星 0.75、MEO 0.65、GEO 0.55（轨道越高越暗），叠星饱和
                     satelliteColor(r.code, t, Tmp.c1);
                     Draw.color(Tmp.c1, (0.45f + 0.35f * t) * rangeAlpha * alpha);
                     Fill.rect(wx, wy, 8f, 8f);
