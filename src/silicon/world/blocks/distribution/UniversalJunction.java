@@ -687,20 +687,26 @@ public class UniversalJunction extends Block {
         /** 解析配置字符串，非法时忽略；兼容旧版 16 值（无全局默认行）格式 */
         public void applyConfig(String str) {
             if (str == null) return;
-            String[] parts = str.split(",");
-            if (parts.length != 16 && parts.length != 20) return;
+            try {
+                String[] parts = str.split(",");
+                if (parts.length != 16 && parts.length != 20) return;
 
-            for (int i = 0; i < 4; i++) {
-                for (int j = 0; j < 4; j++) {
-                    weights[i][j] = Mathf.clamp(Integer.parseInt(parts[i * 4 + j].trim()), 0, 4);
+                for (int i = 0; i < 4; i++) {
+                    for (int j = 0; j < 4; j++) {
+                        weights[i][j] = Mathf.clamp(Integer.parseInt(parts[i * 4 + j].trim()), 0, 4);
+                    }
                 }
-            }
-            if (parts.length == 20) {
-                for (int j = 0; j < 4; j++) {
-                    defaultRow[j] = Mathf.clamp(Integer.parseInt(parts[16 + j].trim()), 0, 4);
+                if (parts.length == 20) {
+                    for (int j = 0; j < 4; j++) {
+                        defaultRow[j] = Mathf.clamp(Integer.parseInt(parts[16 + j].trim()), 0, 4);
+                    }
+                } else {
+                    defaultRow = weights[0].clone(); // 旧格式：取第一行作全局默认
                 }
-            } else {
-                defaultRow = weights[0].clone(); // 旧格式：取第一行作全局默认
+            } catch (NumberFormatException e) {
+                // 本方法经 config(String) 挂在 tileConfig 网络通道上,同队客户端可发任意
+                // 16/20 段非数字串——不能在服务器包线程抛异常,畸形输入一律安全忽略
+                return;
             }
 
             // 配置变更后重置路由瞬态状态，避免沿用旧配置的降级/轮询状态
