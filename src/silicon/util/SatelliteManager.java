@@ -34,8 +34,8 @@ import silicon.world.blocks.signal.SignalJammer;
 /**
  * 卫星系统全局状态（按队伍）：
  * - 待发射卫星：由卫星发射中枢生产（每中枢同时 1 颗），生产完成后登记；燃料（石油）与缓冲电力（10000）均存储于中枢
- * - 在轨卫星：真实引擎单位（SiliconUnits 四机型），由卫星控制台发射；沿以地图为中心的圆轨道飞行，
- *   覆盖为星下点覆盖圆（LEO 30 / MEO 45 / GEO 60 / SSO 测试 20 格），不再全图短路；
+ * - 在轨卫星：真实引擎单位（SatelliteUnits 四机型），由卫星控制台发射；沿以地图为中心的圆轨道飞行，
+ *   覆盖为星下点覆盖圆（LEO 30 / MEO 45 / GEO 60 / SSO 20 格），不再全图短路；
  *   只能被 scripted 伤害（unit.damage()，如 ASAT 拦截塔）击落，地面单位/炮塔对其完全失明
  * - 名册 SatelliteRecord（每星一条：unitId/编码/信道/轨道/相位）是卫星语义的唯一载体：
  *   编码决定其为哪条信号提供覆盖，信道在发射时从所选编码的信号源固化（源被拆不影响干扰判定），
@@ -82,8 +82,8 @@ public class SatelliteManager {
     /** 状态广播字段分隔符（编码：teamId|sigC|testC|名册|readyC|readyType|producingType；
      *  名册条目 "unitId:code:channel:orbit:phaseBits"，条目间 ';'，空名册为空字段） */
     static final String SEP = "|";
-    /** 单星信号强度（覆盖圆内、未被压制时每星贡献 1；多星叠加后扣底噪） */
-    public static final float STRENGTH_PER_SATELLITE = 1f;
+    /** 单星信号强度（覆盖圆内、未被压制时每星贡献 1.5；多星叠加后扣底噪——首颗有效强度 1.0，足以激活中继器转发） */
+    public static final float STRENGTH_PER_SATELLITE = 1.5f;
 
     /** 在轨卫星记录：卫星语义的自定义数据载体 */
     public static class SatelliteRecord {
@@ -193,7 +193,8 @@ public class SatelliteManager {
         return satellites(team).size;
     }
 
-    /** 某队伍指定种类在轨卫星数（信号卫星=非 SSO 轨道；测试卫星=SSO 轨道） */
+    /** 某队伍指定种类在轨卫星数（协议兼容近似字段：按轨道近似判定，测试卫星可发任意轨道故非精确；
+     *  客机 applyState 不消费此字段，仅用于广播串格式占位） */
     public static int launchedCount(Team team, int type) {
         int n = 0;
         boolean wantTest = type == SatelliteLauncher.TYPE_TEST;
@@ -236,7 +237,7 @@ public class SatelliteManager {
 
     // —— 轨道几何（确定性：位置 = 相位 + 时间/周期 的纯函数，读档/联机两端一致）——
 
-    /** 星下点覆盖半径（世界像素）：LEO 30 / MEO 45 / GEO 60 / SSO 测试 20 格 */
+    /** 星下点覆盖半径（世界像素）：LEO 30 / MEO 45 / GEO 60 / SSO 20 格 */
     public static float coverageRadius(int orbit) {
         switch (orbit) {
             case SatelliteConsole.ORBIT_MEO: return 45f * 8f;
@@ -246,7 +247,7 @@ public class SatelliteManager {
         }
     }
 
-    /** 轨道周期（tick/圈）：轨道越高越慢（LEO 100s / MEO 160s / GEO 240s / SSO 测试 60s） */
+    /** 轨道周期（tick/圈）：轨道越高越慢（LEO 100s / MEO 160s / GEO 240s / SSO 60s） */
     public static float orbitPeriod(int orbit) {
         switch (orbit) {
             case SatelliteConsole.ORBIT_MEO: return 60f * 160f;
@@ -286,8 +287,9 @@ public class SatelliteManager {
 
     /**
      * 指定编码的卫星信号在 (wx,wy) 处的有效强度：覆盖该点且编码匹配的卫星各自扣同信道干扰后
-     * 求和，再扣底噪（NOISE_FLOOR）——单颗卫星强度 0.5，两颗起才足以激活中继器（阈值 >0.5），
-     * 叠星首次有了真实收益曲线。code 必须 non-null（中继器按编码判定；全量聚合在绘制层内联）。
+     * 求和，再扣底噪（NOISE_FLOOR）——首颗卫星有效强度 1.0，超过中继器激活阈值（>0.5），
+     * 单星即可让覆盖圆内的中继器转发；叠星线性提升抗干扰裕度（每多一星 +1.5）。
+     * code 必须 non-null（中继器按编码判定；全量聚合在绘制层内联）。
      */
     public static float satelliteStrengthAt(Team team, String code, float wx, float wy) {
         if (code == null || code.isEmpty()) return 0f;

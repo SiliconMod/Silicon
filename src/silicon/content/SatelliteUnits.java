@@ -28,6 +28,8 @@ import silicon.util.OrbitSatelliteController;
  * - allowedInPayloads = false：不可被 payload 方块装载搬运。
  * - drawMinimap = false：小地图不画（MinimapRenderer.java:158 过滤）——敌方小地图看不到卫星过境
  *   （代价：己方小地图也无点，由世界内轨道绘制补偿）。
+ * - useUnitCap = false：不占用队伍单位上限，且永远不会触发超限击杀（UnitComp.java:596 的
+ *   count() > cap() 分支；原版 eta 机甲/导弹机型同款处理）——卫星是环境实体，不该挤占军队编制。
  * - immunities = 全部状态效果：不受 EMP/减速等影响。
  * - 未来武器卫星（激光）的目标选择由控制器驱动并显式排除卫星类型，且 hittable=false 使任何
  *   流弹/激光扫过其他卫星时直接穿透——"不同轨道层卫星互不攻击"由代码保证并双重兜底。
@@ -76,6 +78,7 @@ public class SatelliteUnits {
                 logicControllable = false;
                 allowedInPayloads = false;
                 drawMinimap = false;
+                useUnitCap = false; // 不占队伍单位上限 + 免疫超限击杀（UnitComp.java:596）
 
                 // 轨道控制器（按轨道携带周期/半径参数；无状态，读档经 type 工厂重建即续接）
                 aiController = () -> new OrbitSatelliteController(orbit);

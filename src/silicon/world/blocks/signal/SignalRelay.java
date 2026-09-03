@@ -170,7 +170,7 @@ public class SignalRelay extends Block {
                 }
                 // 卫星中继：所选编码存在在轨卫星，且卫星信号在中继器位置有效
                 // （星下点覆盖圆内、未被其固化信道干扰压制；总和扣底噪后需 >0.5——
-                // 单颗卫星恰好 0.5 不达标，两颗起可激活卫星级联，叠星有真实收益）
+                // 首颗卫星有效强度 1.0 达标，覆盖圆内中继器即可被激活转发，叠星提升抗干扰裕度）
                 if (!newActive) {
                     float satEff = silicon.util.SatelliteManager.satelliteStrengthAt(team, selectedSource, x, y);
                     if (satEff > 0.5f) newActive = true;
