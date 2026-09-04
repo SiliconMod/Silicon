@@ -364,22 +364,6 @@ public class SatelliteLauncher extends Block {
             }
         }
 
-        /** 状态显示：原版状态条（缺材料/断电自动着色）+ 石油不足图标 */
-        @Override
-        public void drawStatus() {
-            // 原版状态条：底部灰色方块 + 状态色（缺材料=红、供电正常=绿），缺失物品由此显示
-            super.drawStatus();
-            if (produced) {
-                Draw.reset();
-                return;
-            }
-            // 石油不足（低于最低轨道 LEO 需求）：方块左下角显示石油小图标（原版缺液体风格）
-            if (liquids.get(Liquids.oil) < SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO]) {
-                Draw.rect(Liquids.oil.uiIcon, x - size * 4f + 6f, y - size * 4f + 6f, 8f, 8f);
-            }
-            Draw.reset();
-        }
-
         /** 配置面板：选择卫星种类（生产所需种类） */
         @Override
         public void buildConfiguration(Table table) {
@@ -472,7 +456,19 @@ public class SatelliteLauncher extends Block {
                     ).size(40f);
                 }).padRight(4f);
             }
-            // 石油（发射燃料）不在此列出需求：消耗量随控制台所选轨道变化（LEO 1000 ~ SSO 8000），见下方石油储备条
+            // 石油（发射燃料）：与材料同栏同风格展示——需求数量随控制台所选轨道变化
+            // （LEO 1.0k ~ SSO 8.0k），数量角标显示区间；不足判断取最低轨道需求（连 LEO 都发不起时标红斜线）
+            materialTable.table(r -> {
+                r.left();
+                r.stack(
+                        new Image(Liquids.oil.uiIcon),
+                        new InsufficientLine(() -> liquids.get(Liquids.oil) < SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO]),
+                        new Table(t -> t.add(new Label(formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO])
+                                + "[gray]~[]" + formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_SSO])) {{
+                            setFontScale(0.95f);
+                        }}).expand().bottom().left().padBottom(2f).padLeft(2f))
+                ).size(40f);
+            }).padRight(4f);
         }
 
         @Override
