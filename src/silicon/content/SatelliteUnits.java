@@ -1,9 +1,13 @@
 package silicon.content;
 
+import arc.Core;
 import arc.graphics.Color;
+import arc.graphics.Pixmap;
+import arc.graphics.Texture;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
+import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
 import arc.util.Time;
 import mindustry.Vars;
@@ -32,6 +36,12 @@ import silicon.util.OrbitSatelliteController;
  * - useUnitCap = false：不占用队伍单位上限，且永远不会触发超限击杀（UnitComp.java:596 的
  *   count() > cap() 分支；原版 eta 机甲/导弹机型同款处理）——卫星是环境实体，不该挤占军队编制。
  * - immunities = 全部状态效果：不受 EMP/减速等影响。
+ * - hitSize = 24：右下角悬停信息面板的触发窗 = PlacementFragment.hovered() → Units.closestOverlap(5f)
+ *   + 单位 hitbox/2（arc QuadTree 按 hitbox 相交），7px 时窗口仅约 8.5px 且卫星持续移动，鼠标几乎
+ *   无法命中导致面板弹不出/不显示名称；24px 使窗口达约 17px。战斗语义不受影响——索敌/伤害/碰撞
+ *   均被 targetable/hittable/collides 隔离，命中窗只服务鼠标悬停/拾取类查询。
+ * - uiIcon/fullIcon = 程序化生成图标（loadIcon 覆写）：无 sprite 机型原版 loadIcon 会落到 error
+ *   白方块，悬停面板/单位图鉴观感异常；生成 32×32 环+核+板图标替代。
  * - 未来武器卫星（激光）的目标选择由控制器驱动并显式排除卫星类型，且 hittable=false 使任何
  *   流弹/激光扫过其他卫星时直接穿透——"不同轨道层卫星互不攻击"由代码保证并双重兜底。
  * <p>
@@ -59,12 +69,28 @@ public class SatelliteUnits {
         }
     }
 
+    /** 程序化 UI 图标缓存（32×32：太阳能板横条 + 本体环 + 核心）——无 sprite 机型原版 loadIcon
+     *  会把 uiIcon 落到 error 白方块，右下角悬停面板/单位图鉴观感异常；四个机型共用一个 */
+    private static TextureRegion satelliteIcon;
+
+    static TextureRegion satelliteIcon() {
+        if (satelliteIcon != null) return satelliteIcon;
+        Pixmap px = new Pixmap(32, 32);
+        // 太阳能板横条（中段被本体环覆盖，两侧留出板翼）
+        px.fillRect(2, 15, 28, 2, Color.gray.rgba());
+        // 本体环 + 核心
+        px.drawCircle(16, 16, 8, Color.white.rgba());
+        px.fillCircle(16, 16, 4, Color.lightGray.rgba());
+        Texture tex = new Texture(px);
+        px.dispose();
+        return satelliteIcon = new TextureRegion(tex);
+    }
+
     static UnitType orbitSatellite(String name, int orbit) {
         // 匿名子类:实例初始化块集中赋值,再覆写 draw(双花括号写法会把方法吞进 init 块,编译不过)
         return new UnitType(name) {
             {
                 flying = true;
-                hitSize = 7f;
                 health = 400f; // 只能被 scripted 伤害（ASAT 拦截塔）击落，血量即拦截成本
                 armor = 2f;
                 speed = 0f; // 位置由控制器直接覆写，不使用自身速度
@@ -80,6 +106,8 @@ public class SatelliteUnits {
                 allowedInPayloads = false;
                 drawMinimap = false;
                 useUnitCap = false; // 不占队伍单位上限 + 免疫超限击杀（UnitComp.java:596）
+                // 悬停信息面板触发窗 = 5 + hitSize/2（见类注释）；仅影响鼠标悬停/拾取，不影响战斗
+                hitSize = 24f;
 
                 // 轨道控制器（按轨道携带周期/半径参数；无状态，读档经 type 工厂重建即续接）
                 aiController = () -> new OrbitSatelliteController(orbit);
@@ -93,6 +121,13 @@ public class SatelliteUnits {
             }
 
             @Override
+            public void loadIcon() {
+                super.loadIcon();
+                // 原版 loadIcon 会把无 sprite 机型的图标指到 error 白方块——统一替换为程序化图标
+                uiIcon = fullIcon = satelliteIcon();
+            }
+
+            @Override
             public void draw(Unit unit) {
                 // 无贴图兜底：程序化卫星造型（队色环+核心+太阳能板线）；
                 // 作者后续补 sprite（atlas 键 = 机型名）后自动切换为原版贴图绘制
@@ -101,16 +136,20 @@ public class SatelliteUnits {
                 } else {
                     super.draw(unit);
                 }
-                // 名字标签：卫星本体无 sprite、且不显示在小地图，上空常驻机型名（信号卫星·LEO 等）便于识别
-                Draw.z(Layer.flyingUnit + 1f);
-                Drawf.text(localizedName, unit.x, unit.y + hitSize + 8f, Color.white, 0.5f);
-                Draw.reset();
+                // 名字标签：鼠标悬停卫星附近时在其上方显示机型名——与右下角信息面板互补
+                // （面板触发窗 = 5 + hitSize/2，这里放宽到 +12，鼠标稍偏也能看到名字）
+                if (!Core.scene.hasMouse(Core.input.mouseX(), Core.input.mouseY())
+                    && Core.input.mouseWorld().within(unit.x, unit.y, hitSize / 2f + 12f)) {
+                    Draw.z(Layer.flyingUnit + 1f);
+                    Drawf.text(localizedName, unit.x, unit.y + hitSize / 2f + 8f, Color.white, 0.5f);
+                    Draw.reset();
+                }
             }
 
             void drawFallback(Unit unit) {
-                Draw.z(Layer.flyingUnit + 1f);
+                // 视觉尺寸与 hitSize 解耦（hitSize=24 只为悬停窗口，造型保持小卫星观感）
+                float r = 6.5f;
                 Color tc = unit.team.color;
-                float r = hitSize * 0.85f;
                 // 太阳能板横线
                 Lines.stroke(1.2f, tc.cpy().mul(0.7f));
                 Lines.line(unit.x - r * 2f, unit.y, unit.x + r * 2f, unit.y);
