@@ -184,10 +184,18 @@ public class MusicBar {
             bar.add(loopBtn).width(Scl.scl(64f)).height(Scl.scl(30f)).pad(1f);
 
             // 设置按钮：打开音乐播放器设置页
-            iconBtn(bar, Icon.settings, MusicPlayerDialog::open).pad(1f);
+            ImageButton settingsBtn = new ImageButton(Icon.settings, Styles.cleari);
+            settingsBtn.resizeImage(Scl.scl(18f));
+            settingsBtn.clicked(MusicPlayerDialog::open);
+            settingsBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("设置")));
+            bar.add(settingsBtn).size(Scl.scl(32f)).pad(1f);
 
             // 收起（最小值化）
-            iconBtn(bar, Icon.down, () -> { collapsed = true; Core.settings.put(CFG_COLLAPSED, true); detach(); }).pad(1f);
+            ImageButton collapseBtn = new ImageButton(Icon.down, Styles.cleari);
+            collapseBtn.resizeImage(Scl.scl(18f));
+            collapseBtn.clicked(() -> { collapsed = true; Core.settings.put(CFG_COLLAPSED, true); detach(); });
+            collapseBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("收起")));
+            bar.add(collapseBtn).size(Scl.scl(32f)).pad(1f);
 
             bar.row();
             // 曲名 + 当前/总时长：内嵌横向 Table，growX 铺满整条固定宽度 → 长曲名在条内滚动裁剪、不拉长整条
