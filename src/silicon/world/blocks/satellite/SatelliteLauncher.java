@@ -12,6 +12,7 @@ import arc.scene.ui.Image;
 import arc.scene.ui.Label;
 import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
+import arc.struct.Seq;
 import arc.util.Time;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
@@ -23,6 +24,7 @@ import mindustry.content.Liquids;
 import mindustry.ctype.UnlockableContent;
 import mindustry.gen.Building;
 import mindustry.gen.Call;
+import mindustry.gen.Groups;
 import mindustry.gen.Tex;
 import mindustry.graphics.Pal;
 import mindustry.type.Item;
@@ -35,6 +37,7 @@ import mindustry.world.Block;
 import mindustry.world.meta.Stat;
 import mindustry.world.meta.StatUnit;
 import silicon.util.SatelliteManager;
+import silicon.world.blocks.signal.SignalChannel;
 
 import static mindustry.type.ItemStack.with;
 
@@ -166,6 +169,10 @@ public class SatelliteLauncher extends Block {
         public boolean produced = false;
         /** 发射动画计时（tick，-1=未在发射）：由 SatelliteManager 在发射成功时启动，方块自绘特效（绕开 Effect 渲染管线，保证可见） */
         public float launchAnim = -1f;
+        /** 石油需求显示用轨道：绑定本中枢的唯一控制台的所选轨道（无唯一绑定控制台为 -1 → 面板显示区间） */
+        private int displayOrbit = -1;
+        /** 控制台轨道扫描节流（显示面板帧） */
+        private int orbitScanTick = 0;
         /** 是否已登记到待发射队列 */
         private boolean registered = false;
         /** 选中面板需求材料行（切换种类时重建） */
@@ -456,19 +463,45 @@ public class SatelliteLauncher extends Block {
                     ).size(40f);
                 }).padRight(4f);
             }
-            // 石油（发射燃料）：与材料同栏同风格展示——需求数量随控制台所选轨道变化
-            // （LEO 1.0k ~ SSO 8.0k），数量角标显示区间；不足判断取最低轨道需求（连 LEO 都发不起时标红斜线）
+            // 石油（发射燃料）：与材料同栏同风格展示——数量取自绑定本中枢的唯一控制台的所选轨道
+            // （与控制台侧 boundHub 判定对称，节流 30 帧扫描）；无唯一绑定控制台时显示区间，
+            // 不足判断取该轨道需求（无控制台时取最低轨道 LEO）
             materialTable.table(r -> {
                 r.left();
                 r.stack(
                         new Image(Liquids.oil.uiIcon),
-                        new InsufficientLine(() -> liquids.get(Liquids.oil) < SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO]),
-                        new Table(t -> t.add(new Label(formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO])
-                                + "[gray]~[]" + formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_SSO])) {{
-                            setFontScale(0.95f);
-                        }}).expand().bottom().left().padBottom(2f).padLeft(2f))
+                        new InsufficientLine(() -> liquids.get(Liquids.oil) < SatelliteConsole.fuelFor(displayOrbit >= 0 ? displayOrbit : SatelliteConsole.ORBIT_LEO)),
+                        new Table(t -> {
+                            Label l = new Label("", Styles.outlineLabel);
+                            l.setFontScale(0.95f);
+                            l.update(() -> {
+                                if ((orbitScanTick = (orbitScanTick + 1) % 30) == 0) refreshDisplayOrbit();
+                                l.setText(displayOrbit >= 0
+                                        ? formatCount(SatelliteConsole.fuelFor(displayOrbit))
+                                        : formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO])
+                                                + "[gray]~[]" + formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_SSO]));
+                            });
+                            t.add(l).expand().bottom().left().padBottom(2f).padLeft(2f);
+                        })
                 ).size(40f);
             }).padRight(4f);
+        }
+
+        /** 刷新石油需求显示轨道：找绑定本中枢的控制台（与控制台侧 boundHub 判定完全对称——
+         *  信号有效、控制台自身在信号范围内、且本中枢为其信号"地面覆盖"内唯一中枢），取其所选轨道 */
+        void refreshDisplayOrbit() {
+            displayOrbit = -1;
+            for (Building b : Groups.build) {
+                if (!(b instanceof SatelliteConsole.SatelliteConsoleBuild cb) || cb.team != team) continue;
+                String sig = cb.selectedSignal;
+                if (sig == null || sig.isEmpty()) continue;
+                if (!SignalChannel.inSignalRange(team, sig, cb.x, cb.y)) continue;
+                Seq<SatelliteLauncher.SatelliteLauncherBuild> hubs = SatelliteManager.hubsInSignal(team, sig);
+                if (hubs.size == 1 && hubs.first() == this) {
+                    displayOrbit = cb.selectedOrbit;
+                    return;
+                }
+            }
         }
 
         @Override
