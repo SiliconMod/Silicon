@@ -507,6 +507,7 @@ public class MusicPlayerDialog extends BaseDialog {
             row.add(albumBtn).size(Scl.scl(32f)).padLeft(4f);
             ImageButton del = new ImageButton(Icon.trash, Styles.cleari);
             del.resizeImage(Scl.scl(18f));
+            del.addListener(new Tooltip(tbl -> tbl.background(Styles.black6).margin(4f).add("删除")));
             del.clicked(() -> removeTrack(idx));
             row.add(del).size(Scl.scl(36f)).padLeft(4f);
             trackTable.add(row).growX().row();
