@@ -364,7 +364,7 @@ public class SatelliteLauncher extends Block {
             }
         }
 
-        /** 状态显示：原版状态条（缺材料/断电自动着色）+ 原版风格制造进度条 + 石油不足图标 */
+        /** 状态显示：原版状态条（缺材料/断电自动着色）+ 石油不足图标 */
         @Override
         public void drawStatus() {
             // 原版状态条：底部灰色方块 + 状态色（缺材料=红、供电正常=绿），缺失物品由此显示
@@ -372,17 +372,6 @@ public class SatelliteLauncher extends Block {
             if (produced) {
                 Draw.reset();
                 return;
-            }
-            // 制造进度条（原版 Bar 背景样式：Tex.bar 圆角灰底 + Tex.barTop 强调色填充，方块顶部）
-            if (power != null && power.status > 0.001f) {
-                float barW = size * 8f - 8f;
-                float barH = 3f;
-                float barY = y + size * 4f + 2f;
-                Draw.color(Pal.gray, 0.7f);
-                Tex.bar.draw(x - barW / 2f, barY - barH / 2f, barW, barH);
-                float t = Math.min(1f, progress / produceTime(selectedType));
-                Draw.color(Pal.accent);
-                Tex.barTop.draw(x - barW / 2f, barY - barH / 2f, barW * t, barH);
             }
             // 石油不足（低于最低轨道 LEO 需求）：方块左下角显示石油小图标（原版缺液体风格）
             if (liquids.get(Liquids.oil) < SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO]) {
