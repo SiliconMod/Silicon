@@ -219,7 +219,7 @@ public class MusicBar {
             Table infoRow = new Table();
             MarqueeLabel track = new MarqueeLabel(trackLabel(), Styles.outlineLabel);
             track.setColor(Color.white);
-            track.maxPref = Scl.scl(900f);
+            track.maxPref = 0f;
             track.clicked(() -> MusicPlayerDialog.open());
             final String[] lastTrack = {trackLabel()};
             track.update(() -> {
@@ -245,8 +245,8 @@ public class MusicBar {
                 if (!s.equals(timeLbl.getText().toString())) timeLbl.setText(s);
             });
             infoRow.add(timeLbl).padLeft(8f).width(Scl.scl(96f)).right();
-            // 行高给足（40f 提升可读性），配合 MarqueeLabel 垂直居中
-            bar.add(infoRow).growX().pad(2f, 6f, 2f, 6f).colspan(11).left().height(Scl.scl(40f));
+            // 行高给足（44f 彻底避免上半部被裁），配合 MarqueeLabel 垂直居中
+            bar.add(infoRow).growX().pad(2f, 6f, 2f, 6f).colspan(11).left().height(Scl.scl(44f));
 
             bar.row();
             // 进度条（独立一行，加高并上下留白，避免滑杆圆钮越界遮挡上方曲名/按钮文字）
@@ -372,8 +372,8 @@ public class MusicBar {
         public float maxPref = 0f;
         private float scroll = 0f;
         private String lastKey = "";
-        /** 滚动回绕间隙（36dp 平衡可读与紧凑） */
-        private static final float GAP = 36f;
+        /** 滚动回绕间隙（48dp 更易读） */
+        private static final float GAP = 48f;
 
         MarqueeLabel(CharSequence text, LabelStyle style) {
             super(text, style);
