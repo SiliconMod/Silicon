@@ -16,4 +16,4 @@ jobs:
       - name: Evaluate vote
         uses: myyk/git-democracy@v2
         with:
-          configPath: .github/workflows
+          configPath: .
