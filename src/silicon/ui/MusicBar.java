@@ -150,6 +150,7 @@ public class MusicBar {
             albumBtn.getLabel().setEllipsis(true);
             albumBtn.getLabel().setFontScale(Scl.scl(0.9f));
             albumBtn.setColor(Pal.accent);
+            albumBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("点击切换专辑")));
             final String[] lastScope = {albumScopeLabel()};
             albumBtn.update(() -> {
                 String lbl = albumScopeLabel();
