@@ -97,6 +97,8 @@ public class SignalRelay extends Block {
         public int channel = 1;
         /** 上次渲染的信号源列表签名（配置面板实时刷新用） */
         private String lastSrcSignature = "";
+        /** 配置面板源按钮组（选中态实时同步用；面板关闭后无引用也无妨） */
+        private arc.scene.ui.ButtonGroup<arc.scene.ui.TextButton> srcBtnGroup = null;
         private int timer = 0;
 
         @Override
@@ -213,6 +215,7 @@ public class SignalRelay extends Block {
                 srcTable.add(btn).size(88f, 40f).pad(1f);
                 if (++count % perRow == 0) srcTable.row();
             }
+            srcBtnGroup = group;
             if (!any) {
                 srcTable.add(Core.bundle.get("block.silicon-signal-relay.search.none"))
                         .color(arc.graphics.Color.lightGray).pad(2f);
@@ -269,6 +272,13 @@ public class SignalRelay extends Block {
                     if (!sig.equals(lastSrcSignature)) {
                         lastSrcSignature = sig;
                         rebuildSourceButtons(srcTable, search.getText().trim());
+                    }
+                    // 选中态实时同步：清除绑定/外部 configure 变更不触发重建，这里让按钮高亮始终
+                    // 跟随 selectedSource（未绑定=全部不亮，杜绝"未绑定却残留选中黄框"）
+                    if (srcBtnGroup != null) {
+                        for (arc.scene.ui.TextButton b : srcBtnGroup.getButtons()) {
+                            b.setChecked(selectedSource != null && selectedSource.contentEquals(b.getText()));
+                        }
                     }
                 });
                 // 初始填充全部信号源
