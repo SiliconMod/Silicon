@@ -34,7 +34,8 @@ import silicon.world.blocks.signal.SignalJammer;
  * 卫星系统全局状态（按队伍）：
  * - 待发射卫星：由卫星发射中枢生产（每中枢同时 1 颗），生产完成后登记；燃料（石油）与缓冲电力（10000）均存储于中枢
  * - 在轨卫星：真实引擎单位（SatelliteUnits 四机型），由卫星控制台发射；沿以地图为中心的圆轨道飞行，
- *   覆盖为星下点覆盖圆（LEO 40 / MEO 60 / GEO 80 / SSO 25 格，轨道越高覆盖越大、强度越低），不再全图短路；
+ *   覆盖为星下点覆盖圆（半径随图幅短半轴等比缩放，250×250 基准 LEO 40 / MEO 60 / GEO 80 / SSO 25 格，
+ *   轨道越高覆盖越大、强度越低），不再全图短路；
  *   只能被 scripted 伤害（unit.damage()，如 ASAT 拦截塔）击落，地面单位/炮塔对其完全失明
  * - 名册 SatelliteRecord（每星一条：unitId/编码/信道/轨道/相位）是卫星语义的唯一载体：
  *   编码决定其为哪条信号提供覆盖，信道在发射时从所选编码的信号源固化（源被拆不影响干扰判定），
@@ -243,14 +244,24 @@ public class SatelliteManager {
 
     // —— 轨道几何（确定性：位置 = 相位 + 时间/周期 的纯函数，读档/联机两端一致）——
 
-    /** 星下点覆盖半径（世界像素）：LEO 40 / MEO 60 / GEO 80 / SSO 25 格——轨道越高覆盖越大；
-     *  约 10 颗卫星覆盖全图（参考 250×250 地图：10 颗 GEO 均布联合覆盖约 98%，角落由轨道扫掠周期性覆盖） */
+    /** 地图短半轴（世界像素）：轨道飞行圆与覆盖圆共用的几何锚点 = min(宽,高)/2；
+     *  无地图（菜单/预览期）回退 1000px，即 250×250 地图基准 */
+    public static float mapHalfPx() {
+        if (Vars.world == null || Vars.world.unitWidth() <= 0 || Vars.world.unitHeight() <= 0) return 1000f;
+        return Math.min(Vars.world.unitWidth(), Vars.world.unitHeight()) / 2f;
+    }
+
+    /** 星下点覆盖半径（世界像素）：随地图短半轴等比缩放——轨道越高覆盖越大，任意图幅下「约 10 颗覆盖全图」均成立；
+     *  比例（×短半轴）：LEO 0.32 / MEO 0.48 / GEO 0.64 / SSO 0.20——250×250 地图（短半轴 1000px）即
+     *  LEO 40 / MEO 60 / GEO 80 / SSO 25 格；10 颗 GEO 均布联合覆盖约 98%，角落由轨道扫掠周期性覆盖。
+     *  与 {@link #orbitPathRadius} 共用短半轴锚点，覆盖圆/轨道圆的几何关系在任何图幅下恒定 */
     public static float coverageRadius(int orbit) {
+        float half = mapHalfPx();
         switch (orbit) {
-            case SatelliteConsole.ORBIT_MEO: return 60f * 8f;
-            case SatelliteConsole.ORBIT_GEO: return 80f * 8f;
-            case SatelliteConsole.ORBIT_SSO: return 25f * 8f;
-            default: return 40f * 8f;
+            case SatelliteConsole.ORBIT_MEO: return 0.48f * half;
+            case SatelliteConsole.ORBIT_GEO: return 0.64f * half;
+            case SatelliteConsole.ORBIT_SSO: return 0.20f * half;
+            default: return 0.32f * half;
         }
     }
 
@@ -264,7 +275,7 @@ public class SatelliteManager {
         }
     }
 
-    /** 轨道飞行圆半径（世界像素）：地图短半轴的比例，轨道越高越外层 */
+    /** 轨道飞行圆半径（世界像素）：地图短半轴的比例，轨道越高越外层（与覆盖半径共用短半轴锚点，随图幅等比缩放） */
     public static float orbitPathRadius(int orbit, float centerX, float centerY) {
         float half = Math.min(centerX, centerY);
         switch (orbit) {
