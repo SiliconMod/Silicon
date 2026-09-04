@@ -464,8 +464,8 @@ public class SatelliteLauncher extends Block {
                 }).padRight(4f);
             }
             // 石油（发射燃料）：与材料同栏同风格展示——数量取自绑定本中枢的唯一控制台的所选轨道
-            // （与控制台侧 boundHub 判定对称，节流 30 帧扫描）；无唯一绑定控制台时显示区间，
-            // 不足判断取该轨道需求（无控制台时取最低轨道 LEO）
+            // （与控制台侧 boundHub 判定对称，节流 30 帧扫描）；无唯一绑定控制台时回退最低轨道 LEO（1.0k），
+            // 不足判断取该轨道需求
             materialTable.table(r -> {
                 r.left();
                 r.stack(
@@ -476,10 +476,7 @@ public class SatelliteLauncher extends Block {
                             l.setFontScale(0.95f);
                             l.update(() -> {
                                 if ((orbitScanTick = (orbitScanTick + 1) % 30) == 0) refreshDisplayOrbit();
-                                l.setText(displayOrbit >= 0
-                                        ? formatCount(SatelliteConsole.fuelFor(displayOrbit))
-                                        : formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_LEO])
-                                                + "[gray]~[]" + formatCount(SatelliteConsole.ORBIT_FUEL[SatelliteConsole.ORBIT_SSO]));
+                                l.setText(formatCount(SatelliteConsole.fuelFor(displayOrbit >= 0 ? displayOrbit : SatelliteConsole.ORBIT_LEO)));
                             });
                             t.add(l).expand().bottom().left().padBottom(2f).padLeft(2f);
                         })
