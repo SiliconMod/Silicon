@@ -377,11 +377,27 @@ public class MusicPlayerDialog extends BaseDialog {
                 s.button(Icon.cancel, Styles.cleari, () -> { filterText = ""; rebuild(); }).size(Scl.scl(28f)).padLeft(4f);
             }
         }).growX().padTop(4f).padBottom(2f).row();
+        final arc.scene.ui.Label countLbl = new arc.scene.ui.Label("", Styles.outlineLabel);
+        countLbl.setColor(Color.lightGray);
         cont.table(h -> {
             h.image(Icon.book).size(Scl.scl(12f)).padRight(4f);
-            h.add("[gray]曲目列表 (" + MusicPlayer.tracks().size + ")[]").left();
+            h.add(countLbl).left();
             h.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("共 " + MusicPlayer.tracks().size + " 首")));
         }).left().padBottom(2f).row();
+        countLbl.update(() -> {
+            int total = MusicPlayer.tracks().size;
+            // 统计当前过滤后的可见数量（与 rebuildRows 同口径）
+            int visible = 0;
+            String ft = filterText == null ? "" : filterText.trim().toLowerCase();
+            for (MusicTrack t : MusicPlayer.tracks()) {
+                if (filterAlbum != null && !isInAlbum(filterAlbum, t.cacheHash)) continue;
+                if (!ft.isEmpty() && (t.name == null || !t.name.toLowerCase().contains(ft))) continue;
+                visible++;
+            }
+            String txt = ft.isEmpty() && filterAlbum == null ? "[gray]曲目列表 (" + total + ")[]"
+                    : "[gray]曲目列表 (" + visible + "/" + total + ")[]";
+            if (!txt.equals(countLbl.getText().toString())) countLbl.setText(txt);
+        });
         ScrollPane pane = new ScrollPane(trackTable, Styles.defaultPane);
         pane.setScrollingDisabled(true, false);
         pane.setFadeScrollBars(false);
