@@ -83,7 +83,8 @@ public class MusicBar {
                 btn.getImage().setDrawable(MusicPlayer.isPlaying() ? Icon.pause : Icon.play);
                 btn.getImage().setColor(MusicPlayer.isPlaying() ? Pal.accent : Color.white);
             });
-            btn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add(trackLabel())));
+            String tip = MusicPlayer.currentTrack() == null ? "none" : MusicPlayer.currentTrack().name;
+            btn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add(tip.replace("[", "[[").replace("]", "]]"))));
             bar.add(btn).size(Scl.scl(44f));
             makeDraggable(btn, () -> {
                 collapsed = false;
