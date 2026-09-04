@@ -86,7 +86,7 @@ public class MusicPlayer {
     public static Fi cacheFile(String name) {
         return cacheRoot().child(name);
     }
-    /** 声场衰减参考半径（格）：>1200 基本听不见（UI可闻度平衡） */
+    /** 声场衰减参考半径（格）：>1200 基本听不见 */
     static final float FALLOFF_RADIUS = 1200f;
 
     private static final Seq<MusicTrack> tracks = new Seq<>();
