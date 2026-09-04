@@ -845,8 +845,12 @@ public class MusicPlayerDialog extends BaseDialog {
         return (total / 60) + ":" + (total % 60 < 10 ? "0" : "") + (total % 60);
     }
 
-    /** 曲目文件大小文本（未知显示占位符） */
+    /** 曲目文件大小文本（未知显示占位符），接收中时同步显示进度 */
     private static String trackSizeText(MusicTrack t) {
+        if (t != null && MusicNetwork.isReceiving(t.cacheHash)) {
+            int p = MusicNetwork.receiveProgress(t.cacheHash);
+            return p >= 0 ? p + "%" : "--";
+        }
         long size = MusicPlayer.trackSizeOf(t);
         if (size <= 0) return "--";
         if (size > 1048576) return String.format(java.util.Locale.US, "%.1fM", size / 1048576.0);
