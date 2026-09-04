@@ -15,6 +15,7 @@ import arc.scene.event.InputListener;
 import arc.scene.style.Drawable;
 import arc.scene.ui.ImageButton;
 import arc.scene.ui.TextButton;
+import arc.scene.ui.Tooltip;
 import arc.scene.ui.layout.Cell;
 import arc.scene.ui.layout.Table;
 import arc.scene.ui.layout.Scl;
@@ -75,13 +76,14 @@ public class MusicBar {
         bar.margin(4f);
 
         if (collapsed) {
-            // 收起态：播放中显示暂停、暂停中显示播放，颜色随状态高亮
+            // 收起态：播放中显示暂停、暂停中显示播放，颜色随状态高亮，悬停显示曲名
             ImageButton btn = new ImageButton(MusicPlayer.isPlaying() ? Icon.pause : Icon.play, Styles.cleari);
             btn.resizeImage(Scl.scl(26f));
             btn.update(() -> {
                 btn.getImage().setDrawable(MusicPlayer.isPlaying() ? Icon.pause : Icon.play);
                 btn.getImage().setColor(MusicPlayer.isPlaying() ? Pal.accent : Color.white);
             });
+            btn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add(trackLabel())));
             bar.add(btn).size(Scl.scl(44f));
             makeDraggable(btn, () -> {
                 collapsed = false;
