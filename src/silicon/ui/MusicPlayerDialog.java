@@ -303,7 +303,9 @@ public class MusicPlayerDialog extends BaseDialog {
 
         // —— 底部：循环模式 / 倒放 / 停止 / 添加曲目（图标点缀提升可识别性） ——
         cont.table(bottom -> {
-            bottom.image(Icon.music).size(Scl.scl(14f)).padRight(4f);
+            arc.scene.ui.Image botIcon = new arc.scene.ui.Image(Icon.music);
+            botIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("播放控制")));
+            bottom.add(botIcon).size(Scl.scl(14f)).padRight(4f);
             TextButton loop = new TextButton(loopModeText(), Styles.flatBordert);
             loop.getLabel().setWrap(false);
             loop.getLabel().setEllipsis(false);
