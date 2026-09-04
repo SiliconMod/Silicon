@@ -8,6 +8,7 @@ import arc.math.Mathf;
 import arc.util.Time;
 import mindustry.Vars;
 import mindustry.gen.Unit;
+import mindustry.graphics.Drawf;
 import mindustry.graphics.Layer;
 import mindustry.type.UnitType;
 import silicon.world.blocks.satellite.SatelliteConsole;
@@ -97,9 +98,13 @@ public class SatelliteUnits {
                 // 作者后续补 sprite（atlas 键 = 机型名）后自动切换为原版贴图绘制
                 if (!region.found()) {
                     drawFallback(unit);
-                    return;
+                } else {
+                    super.draw(unit);
                 }
-                super.draw(unit);
+                // 名字标签：卫星本体无 sprite、且不显示在小地图，上空常驻机型名（信号卫星·LEO 等）便于识别
+                Draw.z(Layer.flyingUnit + 1f);
+                Drawf.text(localizedName, unit.x, unit.y + hitSize + 8f, Color.white, 0.5f);
+                Draw.reset();
             }
 
             void drawFallback(Unit unit) {

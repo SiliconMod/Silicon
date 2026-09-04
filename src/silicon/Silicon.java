@@ -21,7 +21,6 @@ import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog;
 import silicon.content.SatelliteUnits;
-import silicon.content.Statuses;
 import silicon.content.block.Blocks;
 import silicon.content.item.Items;
 import silicon.util.SatelliteManager;
@@ -74,7 +73,6 @@ public class Silicon extends Mod {
     public void loadContent() {
         Items.load();
         Blocks.load();
-        Statuses.load();
         SatelliteUnits.load();
         SiliconLog.info("Loading contents.");
     }
@@ -96,11 +94,8 @@ public class Silicon extends Mod {
         });
         // 卫星实体被击落（伤害仅可能来自 scripted unit.damage()）→ 名册除名并广播
         Events.on(EventType.UnitDestroyEvent.class, e -> SatelliteManager.onUnitDestroyed(e.unit));
-        // 玩家中途加入时同步「卫星在轨」buff 显示（按队伍）；主机向新玩家补发卫星状态 + 中继器激活状态
+        // 玩家中途加入时：主机向新玩家补发卫星状态 + 中继器激活状态
         Events.on(EventType.PlayerJoin.class, e -> {
-            if (SatelliteManager.launchedCount(e.player.team()) > 0 && e.player.unit() != null) {
-                e.player.unit().apply(Statuses.satelliteBuff, 999999f);
-            }
             if (net.server()) {
                 SatelliteManager.broadcastState(e.player.team());
                 // 补发该队所有中继器当前 active（active 是自定义字段不随实体同步；新玩家加入时已稳定的

@@ -25,7 +25,6 @@ import mindustry.graphics.Pal;
 import mindustry.type.UnitType;
 import mindustry.Vars;
 import silicon.content.SatelliteUnits;
-import silicon.content.Statuses;
 import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.satellite.SatelliteLauncher;
 import silicon.world.blocks.signal.SignalChannel;
@@ -511,12 +510,6 @@ public class SatelliteManager {
         Call.effect(Fx.bigShockwave, launcher.x, launcher.y, 0f, null);
         // 发射音效（核心发射音，全图可听）
         Call.soundAt(Sounds.coreLaunch, launcher.x, launcher.y, 1f, 1f);
-        // 给发射队伍的全图玩家应用卫星 buff（显示用，无属性；其他队伍的玩家不显示）
-        for (Player p : Groups.player) {
-            if (p.team() == team && p.unit() != null) {
-                p.unit().apply(Statuses.satelliteBuff, 999999f);
-            }
-        }
         // 全图播报：xx队发射了一颗xx卫星到xx轨道
         String teamName = Core.bundle.get("team." + team.name + ".name", team.name);
         String typeKey;

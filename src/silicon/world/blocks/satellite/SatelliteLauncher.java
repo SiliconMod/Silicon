@@ -34,7 +34,6 @@ import mindustry.Vars;
 import mindustry.world.Block;
 import mindustry.world.meta.Stat;
 import mindustry.world.meta.StatUnit;
-import silicon.content.Statuses;
 import silicon.util.SatelliteManager;
 
 import static mindustry.type.ItemStack.with;
@@ -353,8 +352,14 @@ public class SatelliteLauncher extends Block {
                 }
             }
             if (produced) {
+                // 「可发射」提示：程序化标记（脉冲圆点+上指三角，accent 色），不依赖任何贴图/状态图标
                 Draw.z(35f);
-                Draw.rect(Statuses.satelliteBuff.uiIcon, x, y + 16f + Mathf.sin(Time.time / 24f, 3f), 16f, 16f);
+                float bob = y + 16f + Mathf.sin(Time.time / 24f, 3f);
+                Draw.color(Pal.accent, 0.9f);
+                Fill.circle(x, bob, 3.5f);
+                Fill.poly(x, bob + 9f, 3, 4f, 90f);
+                Draw.color(Pal.accent, 0.3f);
+                Fill.circle(x, bob, 7f);
                 Draw.reset();
             }
         }
