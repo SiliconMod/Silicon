@@ -503,6 +503,7 @@ public class MusicPlayerDialog extends BaseDialog {
             // 专辑归属按钮：点击弹出「加入/移出专辑」菜单
             ImageButton albumBtn = new ImageButton(Icon.folder, Styles.cleari);
             albumBtn.resizeImage(Scl.scl(16f));
+            albumBtn.addListener(new Tooltip(tbl -> tbl.background(Styles.black6).margin(4f).add("专辑")));
             albumBtn.clicked(() -> albumAssignDialog(idx));
             row.add(albumBtn).size(Scl.scl(32f)).padLeft(4f);
             ImageButton del = new ImageButton(Icon.trash, Styles.cleari);
