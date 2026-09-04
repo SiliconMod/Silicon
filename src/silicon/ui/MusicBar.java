@@ -98,11 +98,17 @@ public class MusicBar {
             grip.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("拖动移动")) );
             bar.add(grip).size(Scl.scl(32f)).pad(1f);
             makeDraggable(grip);
-
-            iconBtn(bar, Icon.leftOpen, MusicPlayer::prev).pad(1f);
-
+            ImageButton prevBtn = new ImageButton(Icon.leftOpen, Styles.cleari);
+            prevBtn.resizeImage(Scl.scl(18f));
+            prevBtn.clicked(MusicPlayer::prev);
+            prevBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("上一曲")));
+            bar.add(prevBtn).size(Scl.scl(32f)).pad(1f);
             // 快退（相对 -10s）
-            iconBtn(bar, Icon.leftSmall, () -> MusicPlayer.seekRelative(-10f)).pad(1f);
+            ImageButton rewindBtn = new ImageButton(Icon.leftSmall, Styles.cleari);
+            rewindBtn.resizeImage(Scl.scl(18f));
+            rewindBtn.clicked(() -> MusicPlayer.seekRelative(-10f));
+            rewindBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("快退10秒")));
+            bar.add(rewindBtn).size(Scl.scl(32f)).pad(1f);
 
             // 播放/暂停
             ImageButton play = new ImageButton(MusicPlayer.isPlaying() ? Icon.pause : Icon.play, Styles.flati);
@@ -119,9 +125,16 @@ public class MusicBar {
             bar.add(play).size(Scl.scl(40f)).pad(1f);
 
             // 快进（相对 +10s）
-            iconBtn(bar, Icon.rightSmall, () -> MusicPlayer.seekRelative(10f)).pad(1f);
-
-            iconBtn(bar, Icon.rightOpen, MusicPlayer::next).pad(1f);
+            ImageButton forwardBtn = new ImageButton(Icon.rightSmall, Styles.cleari);
+            forwardBtn.resizeImage(Scl.scl(18f));
+            forwardBtn.clicked(() -> MusicPlayer.seekRelative(10f));
+            forwardBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("快进10秒")));
+            bar.add(forwardBtn).size(Scl.scl(32f)).pad(1f);
+            ImageButton nextBtn = new ImageButton(Icon.rightOpen, Styles.cleari);
+            nextBtn.resizeImage(Scl.scl(18f));
+            nextBtn.clicked(MusicPlayer::next);
+            nextBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("下一曲")));
+            bar.add(nextBtn).size(Scl.scl(32f)).pad(1f);
 
             // 倍速快捷循环按钮（覆盖 1/16–16x 对数档的常用子集）：0.25 / 0.5 / 1 / 1.5 / 2 / 4 / 8；固定宽度完整显示
             final float[] speeds = {0.25f, 0.5f, 1f, 1.5f, 2f, 4f, 8f};
