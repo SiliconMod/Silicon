@@ -145,18 +145,12 @@ public class SatelliteManager {
         producingTypeMirror.clear();
     }
 
-    /** 世界加载完成（WorldLoadEvent，在实体/建筑读入之后）：名册与卫星实体对账——
-     *  记录的实体已不存在的丢弃；实体存在但无记录的（名册丢失兜底）补建"未绑定"记录；
-     *  然后向在场队伍广播镜像 */
+    /** 世界加载完成后对账（WorldLoadEvent + app.post 延迟一拍 + 控制器节流兜底）：
+     *  给"有实体无名册"的卫星补建未绑定记录（名册丢失兜底，如旧版本存档），然后向在场队伍广播镜像。
+     *  注意：不剪除"无实体"的名册记录——存档两侧 unitId 均保留、击落由 UnitDestroyEvent 除名、
+     *  跨局由 ResetEvent 清空；且存档读入时 WorldLoadEvent 早于单位读入（units 在 entities 区域），
+     *  此刻按 getByID 剪除只会误杀刚从控制台恢复的名册（卫星冻结+无信号的读档 bug） */
     public static void onWorldLoaded() {
-        // 先快照键再改表（arc ObjectMap.keys() 是活视图，边遍历边 remove 会漏项）
-        Seq<Team> teams = new Seq<>();
-        satRecords.each((t, l) -> teams.add(t));
-        for (Team team : teams) {
-            Seq<SatelliteRecord> list = satRecords.get(team);
-            list.removeAll(r -> Groups.unit.getByID(r.unitId) == null);
-            if (list.isEmpty()) satRecords.remove(team);
-        }
         for (Unit u : Groups.unit) {
             if (u.controller() instanceof OrbitSatelliteController && recordOf(u.id) == null) {
                 SatelliteRecord r = new SatelliteRecord();
@@ -176,6 +170,16 @@ public class SatelliteManager {
             seen.add(p.team());
             broadcastState(p.team());
         }
+    }
+
+    /** 对账节流计数（控制器兜底用） */
+    private static int reconcileTick = 0;
+
+    /** 控制器兜底：卫星实体找不到名册记录时调用（读档时序/旧档名册丢失），节流 60 帧做一次全局对账 */
+    public static void reconcileMissing() {
+        if (++reconcileTick < 60) return;
+        reconcileTick = 0;
+        onWorldLoaded();
     }
 
     /** 卫星实体被击落（UnitDestroyEvent；伤害仅可能来自 scripted 伤害）：名册除名并广播 */

@@ -84,12 +84,16 @@ public class Silicon extends Mod {
         // 覆盖→WorldLoadEvent,reset 反而制造撞号;现由 ItemTransferHubBuild.read() 调
         // ItemTransferHubNetwork.updateCounterAfterLoad 按 max 推进。
         // 卫星名册的清空挂在 ResetEvent（存档读入前/返回主菜单/新开局都会触发）——
-        // 读档流程是 ResetEvent 清空 → 控制台存档块读入重建名册 → WorldLoadEvent 对账。
+        // 读档流程是 ResetEvent 清空 → 控制台存档块（map 区域）读入重建名册 → WorldLoadEvent
+        // （此时单位实体尚未读入！）→ entities 区域读入单位 → app.post 延迟一拍做真正生效的对账。
         Events.on(EventType.ResetEvent.class, e -> SatelliteManager.reset());
         Events.on(EventType.WorldLoadEvent.class, e -> {
             SignalSource.markDirty();
             SignalRelay.markDirty();
-            SatelliteManager.onWorldLoaded(); // 名册↔卫星实体对账（丢弃死 id/补建未绑定记录）+ 广播
+            // 名册↔卫星实体对账：存档读入时 WorldLoadEvent 早于单位读入（readMap→endMapLoad→readEntities），
+            // 此刻 Groups.unit 还没有卫星，这里的调用只覆盖"实体先于事件"的路径（如直接进新图）
+            SatelliteManager.onWorldLoaded();
+            Core.app.post(SatelliteManager::onWorldLoaded); // 存档读档真正生效的对账：entities 区域已读完
             SignalOverlay.reset(); // 清颜色缓存/色相分配/显示状态，防跨世界累积
         });
         // 卫星实体被击落（伤害仅可能来自 scripted unit.damage()）→ 名册除名并广播

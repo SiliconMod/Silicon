@@ -42,9 +42,12 @@ public class OrbitSatelliteController implements UnitController {
     public void updateUnit() {
         Unit u = unit;
         if (u == null) return;
-        // 名册未就绪（读档窗口/极端时序）：原地悬停，等 onWorldLoaded 对账补建记录
+        // 名册未就绪（读档时序/旧档名册丢失）：本帧悬停，节流触发全局对账补建记录后恢复运动
         SatelliteManager.SatelliteRecord rec = SatelliteManager.recordOf(u.id);
-        if (rec == null) return;
+        if (rec == null) {
+            SatelliteManager.reconcileMissing();
+            return;
+        }
 
         float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;
         float pathR = SatelliteManager.orbitPathRadius(orbit, cx, cy);
