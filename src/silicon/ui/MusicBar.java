@@ -170,6 +170,7 @@ public class MusicBar {
             loopBtn.getLabel().setEllipsis(false);
             loopBtn.getLabel().setFontScale(Scl.scl(0.9f));
             loopBtn.setColor(Pal.accent);
+            loopBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("点击切换循环模式")));
             final String[] lastLoop = {loopModeLabel()};
             loopBtn.update(() -> {
                 String lbl = loopModeLabel();
