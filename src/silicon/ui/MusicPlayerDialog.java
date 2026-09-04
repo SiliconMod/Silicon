@@ -338,12 +338,16 @@ public class MusicPlayerDialog extends BaseDialog {
             more.background(Styles.grayPanel);
             more.margin(4f, 8f, 4f, 8f);
             more.defaults().pad(2f);
-            more.image(Icon.chat).size(Scl.scl(12f)).padRight(2f);
+            arc.scene.ui.Image shareIcon = new arc.scene.ui.Image(Icon.chat);
+            shareIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("共享给他人")));
+            more.add(shareIcon).size(Scl.scl(12f)).padRight(2f);
             CheckBox share = new CheckBox(Core.bundle.get("musicplayer.share"));
             share.setChecked(MusicPlayer.isShareEnabled());
             share.changed(() -> MusicPlayer.setShareEnabled(share.isChecked()));
             more.add(share).left().growX();
-            more.image(Icon.ok).size(Scl.scl(12f)).padRight(2f);
+            arc.scene.ui.Image enIcon = new arc.scene.ui.Image(Icon.ok);
+            enIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("总开关")));
+            more.add(enIcon).size(Scl.scl(12f)).padRight(2f);
             CheckBox enable = new CheckBox(Core.bundle.get("musicplayer.enable"));
             enable.setChecked(MusicPlayer.isEnabled());
             enable.changed(() -> MusicPlayer.setEnabled(enable.isChecked()));
