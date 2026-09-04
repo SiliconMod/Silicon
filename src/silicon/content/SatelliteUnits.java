@@ -152,6 +152,8 @@ public class SatelliteUnits {
                 Draw.color(tc);
                 Fill.circle(unit.x, unit.y, r * 0.45f);
                 Fill.circle(unit.x, unit.y, r * 0.2f + (float) Math.abs(Mathf.sin(unit.id + Time.time / 40f)) * r * 0.15f);
+                // 复位笔画宽度（Draw.reset 只复位颜色,Lines.stroke 是独立静态值,残留会影响后续 Lines 绘制）
+                Lines.stroke(1f);
                 Draw.reset();
             }
         };

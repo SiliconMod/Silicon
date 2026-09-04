@@ -117,9 +117,18 @@ public class Silicon extends Mod {
             netServer.addPacketHandler("sat-launch", (p, data) -> {
                 try {
                     String[] parts = data.split("\\|", -1);
-                    if (parts.length != 3) return;
+                    if (parts.length != 3) {
+                        // 所有失败路径都必须回包,否则请求方 UI 一直等待
+                        Call.clientPacketReliable(p.con, "sat-result", "fail");
+                        SiliconLog.info("sat-launch: malformed packet (fields) from " + p.name);
+                        return;
+                    }
                     String[] xy = parts[0].split(",");
-                    if (xy.length != 2) return;
+                    if (xy.length != 2) {
+                        Call.clientPacketReliable(p.con, "sat-result", "fail");
+                        SiliconLog.info("sat-launch: malformed packet (coords) from " + p.name);
+                        return;
+                    }
                     mindustry.world.Tile tile = world.tile(
                             Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
                     if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
@@ -131,8 +140,9 @@ public class Silicon extends Mod {
                     silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
                             (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
                     if (cb.team != p.team()) {
-                        // 只能操作本队控制台;越权请求记日志(可能是修改客户端)
+                        // 只能操作本队控制台;越权请求回笼统 fail(细节只进日志,不向可疑客户端透露原因)
                         SiliconLog.info("sat-launch: team mismatch from " + p.name);
+                        Call.clientPacketReliable(p.con, "sat-result", "fail");
                         return;
                     }
                     if (!cb.enabled) {
@@ -150,7 +160,7 @@ public class Silicon extends Mod {
                         }
                     } catch (NumberFormatException e) {
                         Call.clientPacketReliable(p.con, "sat-result", "fail");
-                        SiliconLog.info("sat-launch: malformed packet from " + p.name);
+                        SiliconLog.info("sat-launch: malformed packet (orbit) from " + p.name);
                         return;
                     }
                     int result = SatelliteManager.launch(p.team(), parts[1].isEmpty() ? null : parts[1], orbit, cb.x, cb.y);
@@ -159,6 +169,11 @@ public class Silicon extends Mod {
                     }
                 } catch (Exception e) {
                     SiliconLog.info("sat-launch: handler error: " + e);
+                    // 异常路径也必须回包;再兜一层防止回包本身抛异常
+                    try {
+                        Call.clientPacketReliable(p.con, "sat-result", "fail");
+                    } catch (Throwable ignored) {
+                    }
                 }
             });
         }
@@ -277,6 +292,11 @@ public class Silicon extends Mod {
             netClient.addPacketHandler("sat-result", (s) -> {
                 if (s.equals("disabled")) {
                     ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.disabled"), 3f);
+                    return;
+                }
+                if (s.equals("fail")) {
+                    // 服务端通用失败（包格式/越权/控制台失效/处理异常等，细节只留在服务器日志）
+                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.fail"), 3f);
                     return;
                 }
                 try {

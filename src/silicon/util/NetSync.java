@@ -21,6 +21,7 @@ public class NetSync {
     /** 把建筑配置下发到该建筑所属队伍的所有客户端(主机本地同步执行,幂等) */
     public static void sendTeamConfig(Building build, Object value) {
         for (Player p : Groups.player) {
+            if (p == null) continue; // 防御性空判:玩家断开清理间隙不抛 NPE
             if (p.team() == build.team) {
                 Call.tileConfig(p, build, value);
             }
