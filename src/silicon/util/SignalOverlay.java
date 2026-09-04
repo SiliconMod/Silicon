@@ -322,7 +322,7 @@ public class SignalOverlay {
     private static final String[] bestCodeTmp = new String[1];
 
     /** 每格最大有效信号（一次遍历所有信道，与卫星层取 max）；返回有效强度、最强来源与最强卫星编码。
-     *  卫星层模型与绑定/中继一致：覆盖该格的卫星各自按固化信道扣干扰后求和、再扣底噪 */
+     *  卫星层模型与绑定/中继一致：覆盖该格的卫星各自按固化信道扣干扰后对数叠加（stackEff）、再扣底噪 */
     static float bestSignal(Team team, float wx, float wy, Building[] bestSrcOut, String[] bestCodeOut) {
         // 批量计算所有信道（一次遍历全部源，按信道分摊——比逐信道调用快约 5 倍）
         SignalChannel.effectiveAll(team, wx, wy, effBuf, srcBuf);
@@ -334,19 +334,19 @@ public class SignalOverlay {
                 bestSrc = srcBuf[ch];
             }
         }
-        // 卫星层：覆盖该格的在轨卫星按各自固化信道扣干扰、求和扣底噪；记录最强贡献者的编码用于着色
-        float satTotal = 0f, satBest = 0f;
+        // 卫星层：覆盖该格的在轨卫星按各自固化信道扣干扰、对数叠加扣底噪；记录最强贡献者的编码用于着色
+        float satSum = 0f, satBest = 0f;
         String satTop = null;
         for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
             float e = SatelliteManager.satelliteEffAt(r, wx, wy);
             if (e <= 0f) continue;
-            satTotal += e;
+            satSum += e;
             if (e > satBest) {
                 satBest = e;
                 satTop = r.code;
             }
         }
-        float satStr = Math.max(0f, satTotal - SignalChannel.NOISE_FLOOR);
+        float satStr = Math.max(0f, SatelliteManager.stackEff(satSum, satBest) - SignalChannel.NOISE_FLOOR);
         if (satStr > bestStr) {
             bestStr = satStr;
             bestSrc = null; // 卫星层

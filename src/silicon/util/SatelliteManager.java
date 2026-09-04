@@ -82,7 +82,7 @@ public class SatelliteManager {
     /** 状态广播字段分隔符（编码：teamId|sigC|testC|名册|readyC|readyType|producingType；
      *  名册条目 "unitId:code:channel:orbit:phaseBits"，条目间 ';'，空名册为空字段） */
     static final String SEP = "|";
-    /** 每星信号强度（覆盖圆内、未被压制时的原始强度；多星叠加后扣底噪）——轨道越高覆盖越大、强度越低：
+    /** 每星信号强度（覆盖圆内、未被压制时的原始强度；多星对数叠加后扣底噪）——轨道越高覆盖越大、强度越低：
      *  LEO 1.5 / MEO 1.3 / GEO 1.1（首颗扣底噪后 1.0/0.8/0.6，均足以激活中继器转发），SSO 特例 1.5（小覆盖强信号） */
     public static float satelliteStrength(int orbit) {
         switch (orbit) {
@@ -303,20 +303,32 @@ public class SatelliteManager {
         return Math.max(0f, satelliteStrength(r.orbit) - jam);
     }
 
+    /** 对数叠加：最强一星全额计入，其余星合并贡献 ln(1+Σ其余)——叠星仍有收益但边际递减；
+     *  单星时 rest=0 → ln(1)=0，语义与线性时代完全一致（首星激活阈值不变） */
+    public static float stackEff(float sumEff, float maxEff) {
+        float rest = sumEff - maxEff;
+        if (rest <= 0f) return maxEff;
+        return maxEff + (float)Math.log(1.0 + rest);
+    }
+
     /**
      * 指定编码的卫星信号在 (wx,wy) 处的有效强度：覆盖该点且编码匹配的卫星各自扣同信道干扰后
-     * 求和，再扣底噪（NOISE_FLOOR）——首颗卫星有效强度按轨道 1.0/0.8/0.6（LEO/MEO/GEO），
-     * 均超过中继器激活阈值（>0.5），单星即可让覆盖圆内的中继器转发；叠星线性提升抗干扰裕度。
-     * code 必须 non-null（中继器按编码判定；全量聚合在绘制层内联）。
+     * 按对数叠加（最强一星全额，其余合并贡献 ln(1+Σ其余)），再扣底噪（NOISE_FLOOR）——
+     * 首颗卫星有效强度按轨道 1.0/0.8/0.6（LEO/MEO/GEO），均超过中继器激活阈值（>0.5），
+     * 单星即可让覆盖圆内的中继器转发；叠星按对数提升抗干扰裕度（边际递减，堆星收益不再是线性）。
+     * code 必须 non-null（中继器按编码判定；全量聚合在绘制层内联，共用 {@link #stackEff}）。
      */
     public static float satelliteStrengthAt(Team team, String code, float wx, float wy) {
         if (code == null || code.isEmpty()) return 0f;
-        float total = 0f;
+        float sum = 0f, max = 0f;
         for (SatelliteRecord r : satellites(team)) {
             if (r.code == null || !code.equals(r.code)) continue;
-            total += satelliteEffAt(r, wx, wy);
+            float e = satelliteEffAt(r, wx, wy);
+            if (e <= 0f) continue;
+            sum += e;
+            if (e > max) max = e;
         }
-        return Math.max(0f, total - SignalChannel.NOISE_FLOOR);
+        return Math.max(0f, stackEff(sum, max) - SignalChannel.NOISE_FLOOR);
     }
 
     /** 某队伍待发射卫星数（客机读广播镜像，权威端读登记列表） */
