@@ -1,0 +1,19 @@
+name: 'Voting'
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  democracy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Evaluate vote
+        uses: myyk/git-democracy@v2
+        with:
+          configPath: .github/workflows

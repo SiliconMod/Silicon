@@ -35,14 +35,14 @@ jobs:
             echo "::warning::GH_PAT secret 未配置，无法自动触发审查。请用仓库 Secrets 配置 GH_PAT（repo scope）+ 设置 LLM 三件套；或手动在 PR 内评论 /robin。"
             exit 0
           fi
-          # 去重：检查是否已存在 /review 评论
+          # 去重：检查是否已存在 /review 或 /robin 触发评论（任意用户，避免重复刷屏）
           existing=$(gh api "repos/$REPO/issues/$NUMBER/comments" \
-            --jq '[.[]|select(.user.login=="github-actions[bot]" and (.body|startswith("/review")))]|length')
+            --jq '[.[]|select(.body|test("^/(review|robin)\\b"))]|length')
           if [ "$existing" -eq 0 ]; then
             gh pr comment "$NUMBER" --repo "$REPO" --body "/review"
             echo "Posted /review comment via PAT"
           else
-            echo "Bootstrap comment already present, skipping"
+            echo "Bootstrap trigger already present ($existing), skipping"
           fi
 
   # ② 秘钥探测：LLM 三件套配置齐全才继续
@@ -55,9 +55,11 @@ jobs:
       - id: check
         env:
           _BASE: ${{ secrets.LLM_BASE_URL }}
+          _KEY: ${{ secrets.LLM_API_KEY }}
+          _MODEL: ${{ secrets.LLM_MODEL }}
         run: |
-          if [ -n "$_BASE" ]; then echo "configured=true" >> "$GITHUB_OUTPUT";
-          else echo "configured=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$_BASE" ] && [ -n "$_KEY" ] && [ -n "$_MODEL" ]; then echo "configured=true" >> "$GITHUB_OUTPUT";
+          else echo "configured=false" >> "$GITHUB_OUTPUT"; echo "::warning::LLM 三件套未齐全（需 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL），跳过审查"; fi
 
   # ③ 真实审查：允许维护者手动命令与 github-actions[bot] 自动命令
   review:
