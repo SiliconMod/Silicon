@@ -129,6 +129,7 @@ public class MusicBar {
             speedBtn.getLabel().setEllipsis(false);
             speedBtn.getLabel().setFontScale(Scl.scl(0.9f));
             speedBtn.setColor(Pal.accent);
+            speedBtn.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("点击切换倍速")));
             final String[] lastSpeed = {speedLabel()};
             speedBtn.update(() -> {
                 String lbl = speedLabel();
