@@ -1,6 +1,5 @@
 package silicon.content;
 
-import arc.Core;
 import arc.graphics.Color;
 import arc.graphics.Pixmap;
 import arc.graphics.Texture;
@@ -12,7 +11,6 @@ import arc.math.Mathf;
 import arc.util.Time;
 import mindustry.Vars;
 import mindustry.gen.Unit;
-import mindustry.graphics.Drawf;
 import mindustry.graphics.Layer;
 import mindustry.type.UnitType;
 import silicon.world.blocks.satellite.SatelliteConsole;
@@ -137,14 +135,6 @@ public class SatelliteUnits {
                     drawFallback(unit);
                 } else {
                     super.draw(unit);
-                }
-                // 名字标签：鼠标悬停卫星附近时在其上方显示机型名——与右下角信息面板互补
-                // （面板触发窗 = 5 + hitSize/2，这里放宽到 +12，鼠标稍偏也能看到名字）
-                if (!Core.scene.hasMouse(Core.input.mouseX(), Core.input.mouseY())
-                    && Core.input.mouseWorld().within(unit.x, unit.y, hitSize / 2f + 12f)) {
-                    Draw.z(Layer.flyingUnit + 1f);
-                    Drawf.text(localizedName, unit.x, unit.y + hitSize / 2f + 8f, Color.white, 0.5f);
-                    Draw.reset();
                 }
             }
 
