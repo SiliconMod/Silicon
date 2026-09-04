@@ -55,6 +55,11 @@
 
 | 版本 | 变更 |
 |------|------|
+| （待定版） | **倒放速率修正**：倒放步长此前把 `Time.delta`（tick 单位，≈1.0/帧）当秒用，实际以约 60 倍速回退；现换算 `Time.delta/60` 为真实 1x 速率 |
+| （待定版） | **seek 结果校验**：Soloud 对部分流式外部声源（mp3 流）`idSeek` 会落到错误位置（跳极高进度→误判播完自动跳下一首，或归零）。现对每次同步 seek 安排 0.35s 读回校验（两次不匹配判失败）：失败即停播+toast，不再自动跳曲；`seekUnreliable` 曲目禁用拖动/±10s，换曲重置。修复「外部曲拖进度跳 game2」「暂停恢复进度归零」 |
+| （待定版） | **界面抖动根治**：弹窗进度行/音量/倍速/A-B 状态标签每帧无条件 `setText` 触发整弹窗重排（进度条抖动+按钮抖动根因），改为仅内容变化时更新；进度行时间标签固定宽 120 |
+| （待定版） | **设置界面歌名显示**：「现在播放」MarqueeLabel 列宽泄漏（maxPref 900）致长曲名撑爆面板右端裁切，改 520 并对 cell 显式钳制宽度 |
+| （待定版） | **播放失败 toast 反馈**：文件缺失、不可解码格式（仅 ogg/mp3/wav）、建源异常三类失败此前静默，现经 hudfrag.showToast 提示（双语键 seekFail/undecodable/cannotPlay/playFail）；`resume()` 在未选曲时回退第一首 |
 | （待定版） | **专辑名大小写去重**：`addAlbum` 此前仅判空，同名不同大小写（如 `MyMix/mymix`）会建两个专辑致筛选歧义；现 `equalsIgnoreCase` 去重 |
 | （待定版） | **远程声源不随本机倍速联动**：`applyRate` 此前对所有 `voices` 变速，本机调倍速会让别人的音乐也变速；改为仅本机 `localVoiceId/isLocalOwner`，`playRemoteVoice` 初始以 `1f` 固定原速创建 |
 | （待定版） | **分块接收性能与编码一致**：`onChunk` 免二次拷贝直接 `out.write(payload,HEADER,dataLen)`，并统一 `UTF_8` 编解码与 `buildHeader` 一致，减少大文件共享时额外 24KB/块分配 |

@@ -449,3 +449,39 @@ owner 恢复时 `resumeRemoteVoice` 只 `setPaused(id,false)`，声源早已不�
 **问题**：`addAlbum` 仅判空，大小写不同同名（如 `Rock/rock`）会建重复专辑，筛选与 `cycleAlbumScope` 出现歧义。
 **修复**：`equalsIgnoreCase` 去重，已存在则直接返回。
 **产物校验**：`gradlew deploy` BUILD SUCCESSFUL；MD5=c8853e4c0e7bb592a70df6616b5305bc。未升版。
+
+## 第 28 轮（2026-09-04）修复：倒放速度 / 外部曲 seek 不可靠 / 界面抖动 / 失败静默
+
+用户复检反馈清单（1 倒放快、2 进度、4 外部曲进度跳极高、5/6 进度条与按钮抖动、7 设置界面歌名循环显示、
+6b 停止按键、8 游戏暂停不播放、9 悬浮窗播放按钮不切换、13 悬浮窗歌名拉长、14 外部曲改进度跳 game2、
+15 部分歌曲无时长且不能播放、16 暂停重开进度归零），逐条代码层定位并修复：
+
+1. **倒放速度（问题1）**：`tickLocal()` 倒放步长 `Math.max(0.02f, Time.delta)`——`Time.delta` 单位是 tick
+   （60 tick/s，60fps 下每帧 ≈1.0），而声源位置单位是秒，倒放实际以约 **60 倍速**回退。改为
+   `Time.delta / 60f`（tick→秒换算），下限 1/120s 仅防异常帧计时。倒放现为真实 1x 速率。
+2. **seek 不可靠校验（问题 4/14/16 根因）**：Soloud 对部分流式外部声源（典型 mp3 流）的 `idSeek` 会落到
+   错误位置——跳到极高进度（随即「播完」被误判自然结束 → 自动跳下一首 = 「外部曲拖进度跳到 game2」）
+   或归零（「暂停恢复后进度跳回开头」）。新增 seek 结果校验状态机：每次同步 `idSeek` 后 0.35s 读回真实
+   位置比对（容差 3s+5%目标），不匹配再等 0.5s 复查，两次不匹配判 `seekUnreliable` → **立即停播 + toast
+   提示，绝不留在错误位置或自动跳曲**；「播完检测」新增守卫：seek 校验未完成且声源 2.5s 内结束同样判失败
+   停播。`seekUnreliable` 期间该曲禁用拖动/±10s（两处滑杆 changed/update 均接入），resume 不再尝试 seek，
+   换曲自动重置。内部/正常外部曲校验恒通过，行为不变。
+3. **进度条抖动 + 按钮抖动（问题 5/6）**：弹窗进度行 `time.setText(...)` 每帧无条件调用（哪怕文本没变），
+   触发整弹窗逐帧重排——同一行的进度条被逐秒挤压/回弹（抖动），底部按钮整体位移（抖动）。全部改为
+   **仅内容变化时 setText**（时间标签/A-B 状态/音量百分比/倍速百分比四处）；时间标签改固定宽 120
+   （arc `Cell.width` 钳制 min/max，m:ss 字宽变化不再挤压同行滑杆）。
+4. **设置界面歌名循环显示（问题 7）**：「现在播放」曲名 `MarqueeLabel.getPrefWidth` 泄漏真实文本宽
+   （上限 900），长曲名把面板列撑到超出弹窗宽度，右端被裁切 =「名字不全/有空间仍循环」。`maxPref`
+   900→520 并对 cell 显式 `width(520)` 钳制列宽；曲目列表行原本已 `width(250)` 钳制、行为正确。
+5. **失败静默 → toast 反馈（问题 6b/15 观感）**：`beginPlayback` 三条失败路径（文件缺失不可读、不可解码
+   格式、createStream 异常）此前只写日志，UI 完全无反应（「按钮没反应/停止有用吗」的观感来源）。新增
+   `toast()` 助手（`ui.hudfrag.showToast`，服务端/无 UI 安全），并补双语键 `musicplayer.seekFail/
+   undecodable/cannotPlay/playFail`。`resume()` 在 `current=-1` 时回退到第一首（按播放不再静默无效）。
+6. **游戏暂停不播放（问题 8）核验**：代码层已正确——声源挂 `musicBus`，ESC 暂停仅 `setPaused(soundBus)`
+   （SoundControl.java:151），且 `Trigger.update` 在暂停期间仍每帧触发（Logic.java:501 先于 isPaused 检查），
+   暂停菜单下音乐应照常播放/推进；如旧包仍复现请先确认运行的是本轮新构建。
+7. **悬浮窗播放按钮切换（9）/歌名拉长（13）核验**：帧同步 `playButtonFrameSync`、固定整条宽 600、
+   `maxPref=476` 均已在位，行为正确；「按钮不切换」的残余场景是**播放启动失败静默**（本轮 toast 覆盖）。
+
+**产物校验**：`gradlew jar` BUILD SUCCESSFUL；Silicon09Desktop.jar MD5=bf47bb41252b65eaeaf4dcb57211decf
+（本机无 Android SDK，`deploy` 的 jarAndroid 子任务跳过，桌面产物不受影响）。未升版。

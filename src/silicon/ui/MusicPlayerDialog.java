@@ -89,11 +89,12 @@ public class MusicPlayerDialog extends BaseDialog {
                 info.row();
                 nameLbl[0] = new MusicBar.MarqueeLabel(nowPlayingLabel(), Styles.outlineLabel);
                 nameLbl[0].setColor(MusicPlayer.isPlaying() ? Color.white : Color.lightGray);
-                // 自适应宽度：占满「现在播放」面板剩余空间；maxPref 是滚动触发的上限（需 > 实际可用宽，
-                // 否则 growX 后 this.width>pref 永不滚动），文本真正超过可用宽才开始循环显示。
+                // 列宽必须显式封顶（arc Cell.width 同时钳制 min/max）：MarqueeLabel.getPrefWidth 会泄漏
+                // 真实文本宽（上限 maxPref=520），若不钳制，长曲名会把「现在播放」面板撑到超出弹窗宽度，
+                // 行右端被裁切 →「名字不全/有空间仍循环」。520 为弹窗宽度减去圆盘/边距后的可用宽。
                 // 给足高度 + MarqueeLabel 内部垂直居中，避免名称上半部分被裁切
-                nameLbl[0].maxPref = Scl.scl(900f);
-                info.add(nameLbl[0]).growX().height(Scl.scl(36f)).padRight(6f);
+                nameLbl[0].maxPref = Scl.scl(520f);
+                info.add(nameLbl[0]).growX().width(Scl.scl(520f)).height(Scl.scl(36f)).padRight(6f);
             }).growX();
             // 每帧刷新状态与曲名（悬浮条/自动推进切换曲目时这里也跟着变）；仅内容变化时 setText 避免反复重排
             final String[] lastNow = {""};
@@ -118,20 +119,25 @@ public class MusicPlayerDialog extends BaseDialog {
             seek.defaults().left();
             final arc.scene.ui.Label time = new arc.scene.ui.Label("0:00 / 0:00", Styles.outlineLabel);
             time.setColor(Color.white);
-            seek.add(time).growX();
+            // 时间标签固定宽度（arc Cell.width 钳制 min/max）：m:ss 每秒变化字宽不同，若随内容伸缩，
+            // 同行的进度条每秒被挤压/回弹（「进度条抖动」根因之一），且 setText 触发整表重排。
+            seek.add(time).width(Scl.scl(120f)).left();
             Slider seekBar = new MusicBar.AbSlider();
             seekBar.setDisabled(true);
             final boolean[] userSeek = {false};
             final float[] lastShown = {Float.NEGATIVE_INFINITY};
             seekBar.update(() -> {
                 float len = MusicPlayer.trackLength();
-                // 修复：未知长度(-1)或异常大值(>12h)均禁用拖动，防止外部歌曲进度跳到超高值
-                boolean hasLen = len > 0f && len < 12f * 3600f;
+                // 修复：未知长度(-1)、异常大值(>12h)或该声源 seek 已被判不可靠时禁用拖动
+                boolean hasLen = len > 0f && len < 12f * 3600f && !MusicPlayer.isSeekUnreliable();
                 // 已知时长即可拖动（播放/暂停皆可）；拖动中不刷新值避免回跳摇动，拖动时时间标签预览拖动位置
                 seekBar.setDisabled(!hasLen);
                 if (hasLen) {
                     float cur = seekBar.isDragging() ? seekBar.getValue() * len : MusicPlayer.currentTime();
-                    time.setText(formatTime(cur, len));
+                    // 抖动修复：仅内容变化时 setText（每帧无条件 setText 会触发整弹窗逐帧重排，
+                    // 造成进度条/按钮集体抖动）
+                    String s = formatTime(cur, len);
+                    if (!s.equals(time.getText().toString())) time.setText(s);
                     // 抖动修复：非拖动且与上次显示值差异超过阈值才重设，避免每帧原地重设导致指针抖动
                     if (!userSeek[0] && !seekBar.isDragging()) {
                         float target = cur / len;
@@ -146,12 +152,13 @@ public class MusicPlayerDialog extends BaseDialog {
                     }
                 } else {
                     // 未知/超大时长：显示当前进度 / --:--，与悬浮条文案一致，避免 0:00/0:00 误导
-                    time.setText(formatTime(MusicPlayer.currentTime(), len));
+                    String s = formatTime(MusicPlayer.currentTime(), len);
+                    if (!s.equals(time.getText().toString())) time.setText(s);
                 }
             });
             seekBar.changed(() -> {
                 float len = MusicPlayer.trackLength();
-                if (!userSeek[0] && len > 0f && len < 12f * 3600f) {
+                if (!userSeek[0] && len > 0f && len < 12f * 3600f && !MusicPlayer.isSeekUnreliable()) {
                     userSeek[0] = true;
                     MusicPlayer.seek(seekBar.getValue() * len);
                     lastShown[0] = seekBar.getValue();
@@ -240,7 +247,9 @@ public class MusicPlayerDialog extends BaseDialog {
                     if (!vol.isDragging() && Math.abs(vol.getValue() - target) > 1f) {
                         vol.setValue(target);
                     }
-                    volVal.setText(pctText(volToPct(vol.getValue())));
+                    // 仅内容变化时 setText（每帧 setText 触发整弹窗重排=按钮抖动）
+                    String s = pctText(volToPct(vol.getValue()));
+                    if (!s.equals(volVal.getText().toString())) volVal.setText(s);
                 });
                 vol.changed(() -> MusicPlayer.setVolume(pctToGain(volToPct(vol.getValue()))));
                 vp.add(vol).growX().width(Scl.scl(170f));
@@ -263,7 +272,9 @@ public class MusicPlayerDialog extends BaseDialog {
                     if (!spd.isDragging() && Math.abs(cursorToSpeed(spd.getValue()) - MusicPlayer.speed()) > 0.001f) {
                         spd.setValue(speedToCursor(MusicPlayer.speed()));
                     }
-                    spdVal.setText(formatSpeed(cursorToSpeed(spd.getValue())));
+                    // 仅内容变化时 setText（每帧 setText 触发整弹窗重排=按钮抖动）
+                    String s = formatSpeed(cursorToSpeed(spd.getValue()));
+                    if (!s.equals(spdVal.getText().toString())) spdVal.setText(s);
                 });
                 spd.changed(() -> MusicPlayer.setSpeed(cursorToSpeed(spd.getValue())));
                 sp.add(spd).growX().width(Scl.scl(120f));
@@ -282,9 +293,15 @@ public class MusicPlayerDialog extends BaseDialog {
             abRow.add(Core.bundle.get("musicplayer.ab")).left().width(Scl.scl(76f));
             final arc.scene.ui.Label abStatus = new arc.scene.ui.Label(abStatusText(), Styles.outlineLabel);
             abStatus.setColor(MusicPlayer.hasAb() ? Pal.accent : Color.lightGray);
+            final String[] lastAbTxt = {abStatusText()};
             abStatus.update(() -> {
-                abStatus.setText(abStatusText());
-                abStatus.setColor(MusicPlayer.hasAb() ? Pal.accent : Color.lightGray);
+                // 仅内容/状态变化时更新（每帧 setText 触发整弹窗重排=按钮抖动）
+                String t = abStatusText();
+                if (!t.equals(lastAbTxt[0])) {
+                    lastAbTxt[0] = t;
+                    abStatus.setText(t);
+                    abStatus.setColor(MusicPlayer.hasAb() ? Pal.accent : Color.lightGray);
+                }
             });
             abRow.add(abStatus).growX().left().padLeft(2f);
             abRow.button(Core.bundle.get("musicplayer.abSetA"), Styles.flatBordert, () -> {

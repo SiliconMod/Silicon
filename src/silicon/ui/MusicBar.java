@@ -306,8 +306,9 @@ public class MusicBar {
         final float[] lastShown = {Float.NEGATIVE_INFINITY};
         seekBar.update(() -> {
             float len = MusicPlayer.trackLength();
-            // 修复：未知长度(-1)或异常大值(>12h)均禁用拖动，防止外部歌曲进度跳到超高值
-            boolean ok = len > 0f && len < 12f * 3600f;
+            // 修复：未知长度(-1)、异常大值(>12h)或该声源 seek 已被判不可靠时禁用拖动，
+            // 防止外部歌曲进度跳到超高值/触发「播完→自动跳下一首」
+            boolean ok = len > 0f && len < 12f * 3600f && !MusicPlayer.isSeekUnreliable();
             seekBar.setDisabled(!ok);
             if (ok && !userSeek[0] && !seekBar.isDragging()) {
                 float target = MusicPlayer.currentTime() / len;

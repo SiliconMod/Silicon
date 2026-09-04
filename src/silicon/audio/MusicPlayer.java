@@ -160,6 +160,18 @@ public class MusicPlayer {
     /** 倒放抽稀计数（每 N 帧才 seek 一次） */
     private static int reverseTick = 0;
 
+    /** seek 结果校验：目标位置（秒）。Soloud 对部分流式外部声源（典型：mp3 流）的 idSeek 可能落到
+     *  错误位置——跳到极高进度（随即「播完」被误判自然结束而自动跳下一首，表现为「外部曲拖进度跳到 game2」）
+     *  或归零（表现为「暂停恢复后进度跳回开头」）。对每次实际下发的同步 seek 安排校验：
+     *  0.35s 后读回真实位置，与目标差超过容差则再等 0.5s 复查，两次都不匹配判失败。 */
+    private static float seekVerifyTarget = -1f;
+    /** 下次 seek 校验检查时刻（秒）；<0 表示无待校验 seek */
+    private static float seekVerifyAt = -1f;
+    /** seek 校验连续不匹配次数（≥2 判失败） */
+    private static int seekVerifyFails = 0;
+    /** 当前声源 seek 已被判定不可靠（校验失败置位）：该曲禁用拖动/±10s，resume 不再尝试 seek，播完不再推进 */
+    private static boolean seekUnreliable = false;
+
     /** 当前本机声源是否曾确认进入播放态（用于区分「自然播完可推进」与「新声源启动即失败」：
      *  后者不得静默跳到别的曲目（曾因误判把本地曲跳成内置曲），应停播并留日志 */
     private static boolean voiceEverPlayed = false;
@@ -508,6 +520,38 @@ public class MusicPlayer {
             pendingResumeSeek = -1f;
             seek(s);
         }
+        // seek 结果校验（修外部曲「拖进度跳到极高进度/归零→跳 game2/恢复进度归零」）：
+        // 对同步下发的 idSeek，在 0.35s 后读回声源真实位置比对目标；不匹配再等 0.5s 复查一次，
+        // 两次都不匹配判「该声源 seek 不可靠」→ 立即停播并提示，绝不留在错误位置继续播。
+        if (seekVerifyAt > 0f && Time.time >= seekVerifyAt && localVoiceId >= 0 && !reverse) {
+            if (Core.audio.isPlaying(localVoiceId)) {
+                float pos = SoloudBridge.getPosition(localVoiceId);
+                float tol = 3f + Math.abs(seekVerifyTarget) * 0.05f;
+                if (!Float.isNaN(pos) && !Float.isInfinite(pos) && Math.abs(pos - seekVerifyTarget) <= tol) {
+                    // 校验通过：清空校验状态
+                    seekVerifyAt = -1f;
+                    seekVerifyTarget = -1f;
+                } else {
+                    seekVerifyFails++;
+                    if (seekVerifyFails >= 2) {
+                        Log.warn("[SiliconMusic] seek verify failed (target=" + seekVerifyTarget + "s, pos=" + pos + "s) - stream seek unreliable, stopping");
+                        seekUnreliable = true;
+                        seekVerifyAt = -1f;
+                        seekVerifyTarget = -1f;
+                        pendingResumeSeek = -1f;
+                        stopLocal();
+                        bcast("stop");
+                        toast("musicplayer.seekFail", null);
+                    } else {
+                        seekVerifyAt = Time.time + 0.5f; // 解码器可能仍在缓冲/回同步，给 0.5s 复查
+                    }
+                }
+            } else {
+                // 声源尚未回到播放态（外部流缓冲中）：推迟复查；若 seek 已过去 1s 仍未播放态，
+                // 交由下方「播完检测」的新增守卫处理（seek 落到末尾之外的典型表现）
+                seekVerifyAt = Time.time + 0.5f;
+            }
+        }
         // 倒放：进度按「帧时长 × 实际速率」反向回退（近似倒着播放）；回退到开头则停播（保留开关状态）。
         // 修复（2026-09-03 rev2）：此前倒放分支开头有 `!Core.audio.isPlaying(id)` 守卫——Soloud 流式声源
         // 在 idSeek 跳转瞬间会短暂返回非播放态，导致每帧都被跳过，从未真正 seek →「完全不能倒放」。
@@ -523,9 +567,10 @@ public class MusicPlayer {
             // 用 currentTime()（本帧若为 resume 已被 pendingResumeSeek 应用，返回目标位置）作起点，
             // 让倒放从实际位置继续回退；新播起点为 0 时仍符合「到开头自动停止」语义。
             if (lastReversePos <= 0f) lastReversePos = currentTime();
-            // 修复：Time.delta 已被游戏引擎按 speed 缩放，再乘 pitch*speed 导致二次缩放
-            // （2x speed → reverse 4x 快）。去掉 speed 乘子，让倒放速度与正放一致。
-            float step = Math.max(0.02f, Time.delta);
+            // 修复（倒放速度）：Time.delta 单位是 tick（60 tick/s，60fps 下每帧 ≈1.0），而声源位置/进度单位是
+            // 秒——此前直接把 Time.delta 当秒用，倒放以约 60 倍速回退（「倒放速度快」根因）。换算 /60 才是
+            // 真实 1x 速率；下限 1/120s 仅防御异常帧计时（正常 60fps 为 1/60s，不触发）。
+            float step = Math.max(1f / 120f, Time.delta / 60f);
             float target = lastReversePos - step;
             lastReversePos = target;
             lastSeekAt = Time.time;
@@ -565,6 +610,18 @@ public class MusicPlayer {
         // 声音已结束（非循环播完或已 stop）
         if (autoAdvancing) return; // 上一条刚触发推进，等新声源就绪，避免重复推进/跳曲
         if (Time.time - lastSeekAt < 1.0f) return; // seek 后声源可能瞬时未就绪，误判已播完会跳歌
+        // seek 校验未完成且声源在 seek 后 2.5s 内就结束——典型为「不可靠 seek 落到曲末之外」立即播完：
+        // 判定该声源 seek 不可靠并停播，绝不自动推进下一首（「外部曲拖进度跳到 game2」根因）。
+        // 正常拖动到曲末附近时校验会在 0.35s 内通过（还剩 ≥0.5s 尾音），不会进入此分支。
+        if (seekVerifyAt > 0f && Time.time - lastSeekAt < 2.5f) {
+            Log.warn("[SiliconMusic] voice ended right after seek with verify pending - stream seek unreliable, stopped without advance");
+            seekUnreliable = true;
+            seekVerifyAt = -1f;
+            seekVerifyTarget = -1f;
+            stopLocal();
+            toast("musicplayer.seekFail", null);
+            return;
+        }
         if (Time.time - lastBlip < ADVANCE_DELAY) return; // 新声源流式加载未就绪的静默窗口
         if (resumeGraceUntil > Time.time) return; // 恢复播放（pause→resume）的延长加载确认窗口：慢速 URL/流式外部声源
         if (!voiceEverPlayed) {
@@ -878,6 +935,11 @@ public class MusicPlayer {
 
     private static void beginPlayback(int index) {
         MusicTrack t = tracks.get(index);
+        // 新声源重置 seek 可靠性判定（换曲/重播给新的机会）
+        seekUnreliable = false;
+        seekVerifyAt = -1f;
+        seekVerifyTarget = -1f;
+        seekVerifyFails = 0;
         Fi file = resolveToPlayableFile(t);
         if (file == null || !file.exists()) {
             if (t != null && t.isUrl()) {
@@ -892,6 +954,8 @@ public class MusicPlayer {
                 return;
             }
             SiliconLog.log("Cannot resolve " + (t == null ? "?" : t.name) + " to a local file");
+            // UI 反馈：此前失败完全静默，用户以为「播放按钮没反应/坏了」（问题6b/15）
+            toast("musicplayer.cannotPlay", t == null ? "?" : t.name);
             return;
         }
         // flac/m4a/wma/aac/opus 等 Soloud 无内置解码器：以「最终可播放文件」的扩展名判定（缓存文件已按真实内容头落盘），
@@ -901,6 +965,8 @@ public class MusicPlayer {
                 Log.warn("Blocked play of undecodable " + t.name + " (Soloud only decodes ogg/mp3/wav)");
                 playing = false;
                 localVoiceId = -1;
+                // UI 反馈：不可解码格式此前静默无反应（问题15「不能播放」无任何提示）
+                toast("musicplayer.undecodable", t.name);
                 return;
             }
         }
@@ -953,6 +1019,7 @@ public class MusicPlayer {
             SiliconLog.log("Failed to play " + t.name + ": " + e.getMessage());
             playing = false;
             localVoiceId = -1;
+            toast("musicplayer.playFail", t.name);
         }
     }
 
@@ -988,6 +1055,8 @@ public class MusicPlayer {
     public static void resume() {
         if (playing) return;
         // 不再 gated by enabled：enabled 只控制网络收发，本地恢复播放随时可用
+        // 从未选曲（current=-1，如刚打开游戏直接按播放）时从第一首开始，而非静默无响应
+        if (current < 0 && tracks.size > 0) current = 0;
         if (current >= 0) {
             float seekTo = pausedPosition;
             pausedPosition = 0f;
@@ -997,10 +1066,11 @@ public class MusicPlayer {
             // 「外部暂停再播放立即停止/跳走」）。窗口过期仍未恢复则停（不自动跳内置/其它曲）。
             if (wasPlayingBeforePause) resumeGraceUntil = Time.time + RESUME_GRACE;
             beginPlayback(current);
-            if (playing && seekTo > 0.05f) {
+            if (playing && seekTo > 0.05f && !seekUnreliable) {
                 // 恢复播放通常要 seek 到暂停位置，但刚创建的新流式声源可能尚未就绪；
                 // 实测此时立刻 idSeek 会在原生 arc64.dll 崩溃（Soloud 内部锁断言，见 hs_err_pid*）。
                 // 推迟到声源确认存活后应用（tickLocal 内 pendingResumeSeek 处理）。
+                // seek 不可靠的声源不尝试恢复进度（校验已判失败，seek 会落到错误位置）。
                 deferSeek(seekTo);
             }
             wasPlayingBeforePause = false;
@@ -1039,6 +1109,10 @@ public class MusicPlayer {
         lastReversePos = 0f;
         lastReverseSeekAt = 0f;
         reverseTick = 0;
+        // 清理 seek 校验状态（停播后无需再校验旧 seek）
+        seekVerifyAt = -1f;
+        seekVerifyTarget = -1f;
+        seekVerifyFails = 0;
         if (localVoiceId >= 0) {
             Core.audio.stop(localVoiceId);
             localVoiceId = -1;
@@ -1344,6 +1418,8 @@ public class MusicPlayer {
     public static void seek(float seconds) {
         if (Float.isNaN(seconds) || Float.isInfinite(seconds)) seconds = 0f;
         if (seconds < 0f) seconds = 0f;
+        // 该声源 seek 已被判不可靠（此前校验失败）：忽略一切拖动/快进快退，避免反复落入错误位置
+        if (seekUnreliable) return;
         // 夹取在轨道末尾前 0.5 秒内，防止 seek 到末尾导致流立即结束触发跳歌
         float len = trackLength();
         // 修复：对「真实时长未知(-1)」或「异常大值(>12h)」的外部歌曲，不按假长度夹取，
@@ -1368,9 +1444,38 @@ public class MusicPlayer {
         if (localVoiceId >= 0) {
             if (Core.audio.isPlaying(localVoiceId) && Time.time - lastBlip >= 0.3f) {
                 SoloudBridge.seek(localVoiceId, seconds);
+                // 对实际下发的同步 seek 安排结果校验（倒放分支直接操作声源不走这里，倒放时不校验）
+                if (!reverse) scheduleSeekVerify(seconds);
             } else {
                 deferSeek(seconds);
             }
+        }
+    }
+
+    /** 记录待校验的 seek：0.35s 后由 tickLocal 读回真实位置比对（两次不匹配判不可靠） */
+    private static void scheduleSeekVerify(float target) {
+        seekVerifyTarget = target;
+        seekVerifyAt = Time.time + 0.35f;
+        seekVerifyFails = 0;
+    }
+
+    /** 当前声源的进度定位（seek）是否已被判定不可靠（UI 据此禁用拖动/快进快退） */
+    public static boolean isSeekUnreliable() {
+        return seekUnreliable;
+    }
+
+    /** 游戏内 UI 提示（音频层无场景依赖，仅在客户端且 UI 就绪时弹出；失败静默） */
+    private static void toast(String bundleKey, String arg) {
+        try {
+            if (mindustry.Vars.ui == null) return;
+            String msg;
+            if (arg != null) msg = Core.bundle.format(bundleKey, arg);
+            else {
+                msg = Core.bundle.get(bundleKey);
+                if (msg == null || msg.contains("??")) msg = bundleKey;
+            }
+            mindustry.Vars.ui.hudfrag.showToast(msg);
+        } catch (Exception ignored) {
         }
     }
 
