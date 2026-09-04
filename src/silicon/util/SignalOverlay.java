@@ -18,7 +18,6 @@ import mindustry.game.EventType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
 import mindustry.gen.Player;
-import mindustry.gen.Unit;
 import mindustry.ui.Fonts;
 import mindustry.ui.Styles;
 import silicon.world.blocks.signal.SignalChannel;
@@ -275,43 +274,14 @@ public class SignalOverlay {
             displayAlpha = 0f;
         }
         if (rangeMode) {
-            // 范围模式：先画各在轨卫星的星下点覆盖盘（按各自编码着色、固化信道干扰可压制），
-            // 再逐格绘制各信道有效信号
-            drawSatelliteRange(team, alpha);
+            // 范围模式：逐格合成绘制（地面信号源与在轨卫星同一模型）——每格只画最强一路，
+            // 卫星信号与信号源共用同一透明度公式与强度标度，不再有独立的卫星覆盖盘二次叠画
             drawRangeComposite(team, alpha);
         } else {
             // 数字模式：逐格取各信道最大有效信号（含底噪/CCI/ACI/干扰器），每格只绘制一次
             drawNumbersOverlay(team, alpha);
         }
         Draw.reset();
-    }
-
-    /** 卫星覆盖层（范围模式）：每颗在轨卫星按其星下点覆盖圆绘制（编码专属色，未绑定兜底记录为
-     *  蓝色强度渐变——与数字模式的强度聚合口径一致）；被固化信道干扰器压到 0 的格子不画
-     *  （与绑定判定同一模型）。只扫视口与覆盖圆的交集 */
-    static void drawSatelliteRange(Team team, float alpha) {
-        Rect view = Core.camera.bounds(Tmp.r1);
-        float rangeAlpha = Core.settings.getInt("signal.rangeAlpha", 45) / 100f;
-        int vx0 = (int) (view.x / 8f) - 1, vx1 = (int) ((view.x + view.width) / 8f) + 1;
-        int vy0 = (int) (view.y / 8f) - 1, vy1 = (int) ((view.y + view.height) / 8f) + 1;
-        for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
-            Unit u = mindustry.gen.Groups.unit.getByID(r.unitId);
-            if (u == null) continue;
-            float rad = SatelliteManager.coverageRadius(r.orbit);
-            int x0 = Math.max(vx0, (int) ((u.x - rad) / 8f) - 1), x1 = Math.min(vx1, (int) ((u.x + rad) / 8f) + 1);
-            int y0 = Math.max(vy0, (int) ((u.y - rad) / 8f) - 1), y1 = Math.min(vy1, (int) ((u.y + rad) / 8f) + 1);
-            for (int gx = x0; gx <= x1; gx++) {
-                for (int gy = y0; gy <= y1; gy++) {
-                    float wx = gx * 8f, wy = gy * 8f;
-                    float e = SatelliteManager.satelliteEffAt(r, wx, wy);
-                    if (e <= 0f) continue;
-                    float t = Math.min(1f, e / 2f); // 亮度按强度/2 归一化：LEO 单星 0.75、MEO 0.65、GEO 0.55（轨道越高越暗），叠星饱和
-                    satelliteColor(r.code, t, Tmp.c1);
-                    Draw.color(Tmp.c1, (0.45f + 0.35f * t) * rangeAlpha * alpha);
-                    Fill.rect(wx, wy, 8f, 8f);
-                }
-            }
-        }
     }
 
     /** 每信道有效强度/最强源缓冲（静态复用） */
@@ -403,7 +373,10 @@ public class SignalOverlay {
         }
     }
 
-    /** 范围模式（逐格合成）：每格取各信道最大有效信号，用最强来源的专属颜色绘制（重叠/干扰区显示最强或空白） */
+    /** 范围模式（逐格合成）：每格取各信道最大有效信号，与卫星层（对数叠加扣底噪）取 max，用最强来源的
+     *  专属颜色绘制（重叠/干扰区显示最强或空白）。卫星信号与地面信号源共用同一透明度公式
+     *  (0.45+0.35t)·rangeAlpha·alpha 与同一强度标度（t = 强度/MAX_STRENGTH），每格只绘制一次——
+     *  卫星覆盖透明度与信号源完全一致 */
     static void drawRangeComposite(Team team, float alpha) {
         Rect view = Core.camera.bounds(Tmp.r1);
         float rpx = SignalSource.RADIUS * 8f;
