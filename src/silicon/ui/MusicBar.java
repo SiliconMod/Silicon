@@ -219,7 +219,7 @@ public class MusicBar {
             Table infoRow = new Table();
             MarqueeLabel track = new MarqueeLabel(trackLabel(), Styles.outlineLabel);
             track.setColor(Color.white);
-            track.maxPref = Scl.scl(500f);
+            track.maxPref = Scl.scl(460f);
             track.clicked(() -> MusicPlayerDialog.open());
             final String[] lastTrack = {trackLabel()};
             track.update(() -> {
