@@ -380,6 +380,7 @@ public class MusicPlayerDialog extends BaseDialog {
         cont.table(h -> {
             h.image(Icon.book).size(Scl.scl(12f)).padRight(4f);
             h.add("[gray]曲目列表 (" + MusicPlayer.tracks().size + ")[]").left();
+            h.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("共 " + MusicPlayer.tracks().size + " 首")));
         }).left().padBottom(2f).row();
         ScrollPane pane = new ScrollPane(trackTable, Styles.defaultPane);
         pane.setScrollingDisabled(true, false);
