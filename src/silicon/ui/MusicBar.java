@@ -95,6 +95,7 @@ public class MusicBar {
             // 展开态：紧凑图标控制排 + 曲名 + 进度条；拖动把手移动整条
             ImageButton grip = new ImageButton(Icon.move, Styles.flati);
             grip.resizeImage(Scl.scl(20f));
+            grip.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("拖动移动")) );
             bar.add(grip).size(Scl.scl(32f)).pad(1f);
             makeDraggable(grip);
 
