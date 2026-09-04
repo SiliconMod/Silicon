@@ -108,6 +108,7 @@ public class MusicBar {
             ImageButton play = new ImageButton(MusicPlayer.isPlaying() ? Icon.pause : Icon.play, Styles.flati);
             play.resizeImage(Scl.scl(22f));
             play.getImage().setColor(MusicPlayer.isPlaying() ? Pal.accent : Color.white);
+            play.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("播放/暂停")));
             play.clicked(() -> {
                 if (MusicPlayer.isPlaying()) MusicPlayer.pause(); else MusicPlayer.resume();
                 // 点击即同步图标/颜色（不依赖下一帧 update 才切换）
