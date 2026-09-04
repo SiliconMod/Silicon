@@ -1,8 +1,8 @@
 name: Robin
 
 on:
-  # 直接激活：PR 打开/同步时自动审查，无需额外 /review 评论转发
-  pull_request:
+  # 直接激活：PR 打开/同步时自动审查（支持 fork PR，需 pull_request_target 以获取 secrets）
+  pull_request_target:
     types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   # ① 秘钥探测：LLM 三件套配置齐全才继续
   config-check:
-    if: github.event_name == 'pull_request' || (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    if: github.event_name == 'pull_request_target' || (github.event_name == 'issue_comment' && github.event.issue.pull_request)
     runs-on: ubuntu-latest
     outputs:
       configured: ${{ steps.check.outputs.configured }}
@@ -38,7 +38,7 @@ jobs:
     if: >-
       needs.config-check.outputs.configured == 'true' &&
       (
-        github.event_name == 'pull_request' ||
+        github.event_name == 'pull_request_target' ||
         (
           startsWith(github.event.comment.body, '/review') ||
           startsWith(github.event.comment.body, '/robin')
