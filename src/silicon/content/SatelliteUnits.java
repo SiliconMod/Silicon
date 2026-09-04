@@ -53,10 +53,12 @@ public class SatelliteUnits {
     public static UnitType signalLeo, signalMeo, signalGeo, testSso;
 
     public static void load() {
-        signalLeo = orbitSatellite("silicon-satellite-leo", SatelliteConsole.ORBIT_LEO);
-        signalMeo = orbitSatellite("silicon-satellite-meo", SatelliteConsole.ORBIT_MEO);
-        signalGeo = orbitSatellite("silicon-satellite-geo", SatelliteConsole.ORBIT_GEO);
-        testSso = orbitSatellite("silicon-satellite-sso", SatelliteConsole.ORBIT_SSO);
+        // 名字不带 mod 前缀：MappableContent 构造时会经 content.transformName 无条件加 "silicon-" 前缀
+        // （与 Blocks 同一惯例）；带前缀传入会变成 silicon-silicon-*，导致 bundle/贴图键全部落空
+        signalLeo = orbitSatellite("satellite-leo", SatelliteConsole.ORBIT_LEO);
+        signalMeo = orbitSatellite("satellite-meo", SatelliteConsole.ORBIT_MEO);
+        signalGeo = orbitSatellite("satellite-geo", SatelliteConsole.ORBIT_GEO);
+        testSso = orbitSatellite("satellite-sso", SatelliteConsole.ORBIT_SSO);
     }
 
     /** 按轨道取机型 */
