@@ -10,6 +10,7 @@ import arc.util.io.Reads;
 import arc.util.io.Writes;
 import mindustry.gen.Building;
 import mindustry.gen.Groups;
+import mindustry.game.Team;
 import mindustry.ui.Styles;
 import mindustry.world.Block;
 import mindustry.world.meta.Stat;
@@ -93,6 +94,13 @@ public class SignalJammer extends Block {
         @Override
         public void onRemoved() {
             super.onRemoved();
+            SignalJammer.markDirty();
+        }
+
+        @Override
+        public void changeTeam(Team next) {
+            super.changeTeam(next);
+            // 夺取/换队：干扰信道归属变化，立即失效缓存（与增删同理）
             SignalJammer.markDirty();
         }
 

@@ -198,6 +198,14 @@ public class SignalSource extends Block {
             markDirty();
         }
 
+        @Override
+        public void changeTeam(Team next) {
+            super.changeTeam(next);
+            // 夺取/换队：旧队的 (team, code) 缓存必须失效，否则旧队中继器/卫星
+            // 依据残留缓存继续广播一个已不属于它的编码，直到下一次增删源才纠正
+            markDirty();
+        }
+
         /** 供电是否充足（power.status：0=无电，1=满电） */
         private boolean hasPower() {
             return power != null && power.status > 0.001f;
