@@ -2,8 +2,11 @@ package silicon.world.blocks.satellite;
 
 import arc.Core;
 import arc.func.Boolp;
+import arc.graphics.Blending;
+import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
+import arc.graphics.g2d.Lines;
 import arc.math.Angles;
 import arc.math.Mathf;
 import arc.scene.Element;
@@ -342,19 +345,60 @@ public class SatelliteLauncher extends Block {
                 } else {
                     float t = Math.min(1f, launchAnim / 90f);
                     Draw.z(Layer.effect);
-                    // 底部光柱
-                    Draw.color(Pal.lightOrange, Pal.ammo, t);
-                    Fill.circle(x, y, 5f + Mathf.pow(t, 0.5f) * 12f);
-                    // 向上喷射粒子
-                    for (int i = 0; i < 12; i++) {
-                        float ang = 90f + Mathf.range(25f);
-                        float len = t * 55f;
-                        Draw.color(Pal.ammo, Pal.lightOrange, t);
-                        Fill.circle(x + Angles.trnsx(ang, len) * 0.7f, y + Angles.trnsy(ang, len) * 0.8f, (1f - t) * 6f);
+
+                    // —— 地面段：起喷白闪 + 扩散冲击环（前 45%，加色混合）——
+                    if (t < 0.45f) {
+                        float rt = t / 0.45f;
+                        Draw.blend(Blending.additive);
+                        Draw.color(Color.white, 0.55f * (1f - rt));
+                        Fill.circle(x, y, 4f + rt * 16f);
+                        Draw.color(Pal.lightOrange, 0.7f * (1f - rt));
+                        Lines.stroke(0.5f + 3f * (1f - rt));
+                        Lines.circle(x, y, 6f + rt * 36f);
+                        Draw.blend(Blending.normal);
                     }
-                    // 烟柱
-                    Draw.color(arc.graphics.Color.gray, arc.graphics.Color.lightGray, t);
-                    Fill.circle(x + Mathf.range(2f), y + t * 45f, (1f - t) * 8f);
+
+                    // —— 垂直光柱：外层辉光 → 橙色主体 → 白色内核，底宽顶窄、随时间收束（加色混合）——
+                    float bh = 130f * Mathf.pow(t, 0.3f);          // 柱高快速长成
+                    float bw = 5.5f * (1f - t * 0.55f);            // 底半宽随时间收束
+                    Draw.blend(Blending.additive);
+                    Draw.color(Pal.lightOrange, 0.22f * (1f - t * 0.35f));
+                    Fill.quad(x - bw, y, x + bw, y, x + bw * 0.55f, y + bh, x - bw * 0.55f, y + bh);
+                    Draw.color(Pal.lightOrange, 0.65f * (1f - t * 0.45f));
+                    Fill.quad(x - bw * 0.42f, y, x + bw * 0.42f, y, x + bw * 0.16f, y + bh, x - bw * 0.16f, y + bh);
+                    Draw.color(Color.white, 0.5f * (1f - t));
+                    Fill.quad(x - bw * 0.14f, y, x + bw * 0.14f, y, x + bw * 0.05f, y + bh * 0.9f, x - bw * 0.05f, y + bh * 0.9f);
+
+                    // —— 上升粒子流：种子化确定性轨迹（初相错落 + 正弦横漂 + 升高缩小），替代逐帧随机抖动 ——
+                    for (int i = 0; i < 14; i++) {
+                        float pt = (t * 1.7f + i * 0.37f) % 1f;    // 粒子生命周期 0..1（初相错落）
+                        float px = x + Mathf.sin((pt * 7f + i * 1.9f) * Mathf.pi) * (1.5f + pt * 4.5f);
+                        float py = y + 2f + pt * bh;
+                        float pr = 0.6f + (1f - pt) * 2.8f;
+                        float pa = (pt < 0.1f ? pt / 0.1f : 1f) * (1f - pt);
+                        Draw.color(i % 3 == 0 ? Pal.ammo : Pal.lightOrange, pa * 0.8f);
+                        Fill.circle(px, py, pr);
+                    }
+                    Draw.blend(Blending.normal);
+
+                    // —— 上升卫星体（15%~85%）：星体+双太阳翼剪影沿柱升空，渐远渐小渐淡，带锥形尾迹 ——
+                    if (t > 0.15f && t < 0.85f) {
+                        float st = (t - 0.15f) / 0.7f;
+                        float sy = y + 10f + st * (bh + 26f);
+                        float ss = 1.25f - st * 0.65f;             // 渐小=升远
+                        float sa = st < 0.18f ? st / 0.18f : 1f - (st - 0.18f) / 0.82f; // 淡出于天际
+                        Draw.color(Pal.lightOrange, sa * 0.45f);
+                        Fill.quad(x - 1.8f * ss, y + 8f, x + 1.8f * ss, y + 8f, x + 0.5f * ss, sy, x - 0.5f * ss, sy);
+                        Draw.color(Color.lightGray, sa);
+                        Fill.square(x, sy, 3.2f * ss, 0f);                  // 星体
+                        Fill.rect(x - 5.6f * ss, sy, 4.2f * ss, 1.6f * ss); // 左太阳翼
+                        Fill.rect(x + 5.6f * ss, sy, 4.2f * ss, 1.6f * ss); // 右太阳翼
+                    }
+
+                    // —— 贴地喷射云（全程，普通混合）：两侧翻腾扩张 ——
+                    Draw.color(Color.lightGray, 0.45f * (1f - t));
+                    Fill.circle(x - 5f, y + 1f, 3f + t * 10f);
+                    Fill.circle(x + 5f, y + 1f, 2.5f + t * 8f);
                     Draw.reset();
                 }
             }
