@@ -592,8 +592,9 @@ public class SatelliteManager {
             rec.phase = best - Time.time / orbitPeriod(orbit);
         }
         satRecords.get(team, Seq::new).add(rec);
-        // 发射特效（在发射中枢位置，全图广播）：原版火箭发射喷发 + 自定义尾焰 + 冲击波/烟雾
+        // 发射特效（在发射中枢位置，全图广播）：原版火箭发射喷发 + 原版发射舱升空 + 自定义尾焰 + 冲击波/烟雾
         Call.effect(Fx.padlaunch, launcher.x, launcher.y, 0f, null);
+        Call.effect(Fx.launchPod, launcher.x, launcher.y, 0f, null); // 原版发射舱上升（舱体+烟迹升空）
         Call.effect(launchFx, launcher.x, launcher.y + 10f, 0f, null);
         Call.effect(Fx.shockwave, launcher.x, launcher.y, 0f, null);
         Call.effect(Fx.explosion, launcher.x, launcher.y, 0f, null);
