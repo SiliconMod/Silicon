@@ -376,7 +376,7 @@ public class SatelliteConsole extends Block {
             write.i(selectedOrbit);
             // v2:追加本队卫星名册快照。卫星实体的编码/信道/相位无处随单位持久化（无自定义实体组件），
             // 由控制台代存——所有控制台写同一份全局快照，读侧按 unitId 去重并集，任一存活控制台即可恢复。
-            // 相位在保存时推进到当前时刻（currentAngle）：读档后 Time.time 归零，轨道位置以存档相位续接，卫星不跳位
+            // 相位在保存时推进到当前时刻（扫描进度 u，GEO 为定点方位角）：读档后 Time.time 归零，轨迹位置以存档进度续接，卫星不跳位
             arc.struct.Seq<SatelliteManager.SatelliteRecord> list = SatelliteManager.satellites(team);
             write.i(list.size);
             for (SatelliteManager.SatelliteRecord r : list) {
@@ -384,7 +384,7 @@ public class SatelliteConsole extends Block {
                 write.i(r.channel);
                 write.i(r.orbit);
                 write.str(r.code == null ? "" : r.code);
-                write.i(Float.floatToIntBits(SatelliteManager.currentAngle(r)));
+                write.i(Float.floatToIntBits(SatelliteManager.phaseForSave(r)));
             }
         }
 

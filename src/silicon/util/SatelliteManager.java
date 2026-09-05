@@ -159,7 +159,14 @@ public class SatelliteManager {
                 r.channel = -1;
                 r.orbit = ((OrbitSatelliteController) u.controller()).orbit;
                 float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;
-                r.phase = Mathf.atan2(u.y - cy, u.x - cx); // 从当前位置续接轨道
+                // 从当前位置近似续接轨迹：主轴对齐（EW=经度，SSO=纬度，GEO=定点方位角）
+                if (r.orbit == SatelliteConsole.ORBIT_GEO) {
+                    r.phase = Mathf.atan2(u.y - cy, u.x - cx) / Mathf.PI2;
+                } else if (r.orbit == SatelliteConsole.ORBIT_SSO) {
+                    r.phase = u.y / Vars.world.unitHeight() - Time.time / orbitPeriod(r.orbit);
+                } else {
+                    r.phase = u.x / Vars.world.unitWidth() - Time.time / orbitPeriod(r.orbit);
+                }
                 satRecords.get(u.team, Seq::new).add(r);
             }
         }
@@ -246,7 +253,7 @@ public class SatelliteManager {
         satRecords.get(team, Seq::new).add(r);
     }
 
-    // —— 轨道几何（确定性：位置 = 相位 + 时间/周期 的纯函数，读档/联机两端一致）——
+    // —— 星下点轨迹（拟真模型，确定性：位置 = 进度+时间的纯函数，读档/联机两端一致）——
 
     /** 地图短半轴（世界像素）：轨道飞行圆与覆盖圆共用的几何锚点 = min(宽,高)/2；
      *  无地图（菜单/预览期）回退 1000px，即 250×250 地图基准 */
@@ -255,44 +262,86 @@ public class SatelliteManager {
         return Math.min(Vars.world.unitWidth(), Vars.world.unitHeight()) / 2f;
     }
 
-    /** 星下点覆盖半径（世界像素）：随地图短半轴等比缩放——轨道越高覆盖越大，任意图幅下「约 10 颗覆盖全图」均成立；
-     *  比例（×短半轴）：LEO 0.32 / MEO 0.48 / GEO 0.64 / SSO 0.20——250×250 地图（短半轴 1000px）即
-     *  LEO 40 / MEO 60 / GEO 80 / SSO 25 格；10 颗 GEO 均布联合覆盖约 98%，角落由轨道扫掠周期性覆盖。
-     *  与 {@link #orbitPathRadius} 共用短半轴锚点，覆盖圆/轨道圆的几何关系在任何图幅下恒定 */
+    /** 星下点覆盖半径（世界像素）：LEO/MEO/SSO 随地图短半轴等比缩放（×短半轴：LEO 0.32 / MEO 0.48 / SSO 0.20，
+     *  250×250 地图即 40/60/25 格），轨迹全域扫描下覆盖几何在任何图幅恒定；
+     *  GEO 定点全图——半径 = 图心到最远角点的距离 + 定点环偏移，单颗即恒定覆盖整个地图（弱强度、易被干扰压制） */
     public static float coverageRadius(int orbit) {
         float half = mapHalfPx();
         switch (orbit) {
+            case SatelliteConsole.ORBIT_GEO:
+                if (Vars.world == null || Vars.world.unitWidth() <= 0 || Vars.world.unitHeight() <= 0)
+                    return 1.47f * half; // 无地图（菜单/预览期）按方形对角线回退
+                float w = Vars.world.unitWidth() / 2f, h = Vars.world.unitHeight() / 2f;
+                return (float)Math.sqrt(w * w + h * h) + 0.05f * half;
             case SatelliteConsole.ORBIT_MEO: return 0.48f * half;
-            case SatelliteConsole.ORBIT_GEO: return 0.64f * half;
             case SatelliteConsole.ORBIT_SSO: return 0.20f * half;
             default: return 0.32f * half;
         }
     }
 
-    /** 轨道周期（tick/圈）：轨道越高越慢（LEO 100s / MEO 160s / GEO 240s / SSO 60s） */
+    /** 扫描周期（tick/圈）：卫星沿主轴横穿全图一圈（回绕）的时长——LEO 90s / MEO 150s / SSO 70s；
+     *  GEO 定点不用时基（占位 1：其星下点与时间无关） */
     public static float orbitPeriod(int orbit) {
         switch (orbit) {
-            case SatelliteConsole.ORBIT_MEO: return 60f * 160f;
-            case SatelliteConsole.ORBIT_GEO: return 60f * 240f;
-            case SatelliteConsole.ORBIT_SSO: return 60f * 60f;
-            default: return 60f * 100f;
+            case SatelliteConsole.ORBIT_MEO: return 60f * 150f;
+            case SatelliteConsole.ORBIT_SSO: return 60f * 70f;
+            case SatelliteConsole.ORBIT_GEO: return 1f;
+            default: return 60f * 90f;
         }
     }
 
-    /** 轨道飞行圆半径（世界像素）：地图短半轴的比例，轨道越高越外层（与覆盖半径共用短半轴锚点，随图幅等比缩放） */
-    public static float orbitPathRadius(int orbit, float centerX, float centerY) {
-        float half = Math.min(centerX, centerY);
-        switch (orbit) {
-            case SatelliteConsole.ORBIT_MEO: return half * 0.48f;
-            case SatelliteConsole.ORBIT_GEO: return half * 0.64f;
-            case SatelliteConsole.ORBIT_SSO: return half * 0.2f;
-            default: return half * 0.32f;
-        }
+    /** 轨迹漂移比（无理化）：波形相位按 (1+δ) 失谐推进，相邻两圈星下点错开 2πδ——
+     *  轨迹族随时间铺满全图（含现行圆轨道永远扫不到的四角）；δ 取黄金比×0.1，永不严格重复 */
+    public static final float SCAN_DRIFT = 0.0618034f;
+
+    /** 轨迹边缘内缩（px）：卫星扫过全部图幅但不越界 */
+    public static final float SCAN_MARGIN = 8f;
+
+    /** 扫描进度 u：phase + Time.time/周期，1.0 = 沿主轴横穿全图一圈（回绕）；
+     *  位置/保存/发射初始化共用的唯一时间换算入口（读档 Time.time 归零后从存档 u 无缝续接） */
+    public static float scanU(SatelliteRecord r) {
+        return r.phase + Time.time / orbitPeriod(r.orbit);
     }
 
-    /** 记录的当前轨道角（rad）：位置/保存相位共用的唯一时间换算入口 */
-    public static float currentAngle(SatelliteRecord r) {
-        return r.phase + Time.time / orbitPeriod(r.orbit) * Mathf.PI2;
+    /** 指定轨道与进度 u 的星下点 X：LEO/MEO = 经度回绕（东西向匀速），SSO = 正弦摆动（极轨） */
+    public static float scanXAt(int orbit, float u) {
+        if (orbit == SatelliteConsole.ORBIT_SSO) {
+            float amp = Vars.world.unitWidth() / 2f - SCAN_MARGIN;
+            return Vars.world.unitWidth() / 2f + amp * Mathf.sin((1f + SCAN_DRIFT) * u * Mathf.PI2);
+        }
+        return (u - (float)Math.floor(u)) * Vars.world.unitWidth();
+    }
+
+    /** 指定轨道与进度 u 的星下点 Y：LEO/MEO = 正弦摆动（真实 LEO 地面轨迹形态），SSO = 纬度回绕（南北向） */
+    public static float scanYAt(int orbit, float u) {
+        if (orbit == SatelliteConsole.ORBIT_SSO) {
+            return (u - (float)Math.floor(u)) * Vars.world.unitHeight();
+        }
+        float amp = Vars.world.unitHeight() / 2f - SCAN_MARGIN;
+        return Vars.world.unitHeight() / 2f + amp * Mathf.sin((1f + SCAN_DRIFT) * u * Mathf.PI2);
+    }
+
+    /** 卫星当前星下点 X（纯函数）：GEO = 定点悬停（发射方位角，距图心 0.05 短半轴），其余 = 扫描轨迹 */
+    public static float scanX(SatelliteRecord r) {
+        if (r.orbit == SatelliteConsole.ORBIT_GEO) {
+            float az = r.phase * Mathf.PI2, r0 = mapHalfPx() * 0.05f;
+            return Vars.world.unitWidth() / 2f + Mathf.cos(az) * r0;
+        }
+        return scanXAt(r.orbit, scanU(r));
+    }
+
+    /** 卫星当前星下点 Y（纯函数）：GEO = 定点悬停，其余 = 扫描轨迹 */
+    public static float scanY(SatelliteRecord r) {
+        if (r.orbit == SatelliteConsole.ORBIT_GEO) {
+            float az = r.phase * Mathf.PI2, r0 = mapHalfPx() * 0.05f;
+            return Vars.world.unitHeight() / 2f + Mathf.sin(az) * r0;
+        }
+        return scanYAt(r.orbit, scanU(r));
+    }
+
+    /** 保存用相位：GEO 存定点方位角（与时间无关），其余存当前扫描进度 u（读档从该进度续接，卫星不跳位） */
+    public static float phaseForSave(SatelliteRecord r) {
+        return r.orbit == SatelliteConsole.ORBIT_GEO ? r.phase : scanU(r);
     }
 
     // —— 卫星信号语义（覆盖/强度/干扰）——
@@ -525,10 +574,23 @@ public class SatelliteManager {
         unit.set(launcher.x, launcher.y);
         unit.add();
         rec.unitId = unit.id;
-        // 初始相位：让卫星出现在轨道圆上中枢所在方位（与发射特效衔接）；相位式保证当前时刻恰好在该点
+        // 初始相位：取星下点轨迹上距中枢最近的点作为出生点（与发射特效衔接）；
+        // GEO 定点于中枢方位角（距图心 0.05 短半轴的定点环，多颗自然散开）
         float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;
-        float hubAng = Mathf.atan2(launcher.y - cy, launcher.x - cx);
-        rec.phase = hubAng - Time.time / orbitPeriod(orbit) * Mathf.PI2;
+        if (orbit == SatelliteConsole.ORBIT_GEO) {
+            rec.phase = Mathf.atan2(launcher.y - cy, launcher.x - cx) / Mathf.PI2;
+        } else {
+            float best = 0f, bestD = Float.MAX_VALUE;
+            for (int i = 0; i < 96; i++) {
+                float u = i / 96f;
+                float d = Mathf.dst(scanXAt(orbit, u), scanYAt(orbit, u), launcher.x, launcher.y);
+                if (d < bestD) {
+                    bestD = d;
+                    best = u;
+                }
+            }
+            rec.phase = best - Time.time / orbitPeriod(orbit);
+        }
         satRecords.get(team, Seq::new).add(rec);
         // 发射特效（在发射中枢位置，全图广播）：原版火箭发射喷发 + 自定义尾焰 + 冲击波/烟雾
         Call.effect(Fx.padlaunch, launcher.x, launcher.y, 0f, null);
