@@ -16,7 +16,10 @@ import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.sandbox.PowerSource;
+import silicon.world.blocks.satellite.SatelliteConsole;
+import silicon.world.blocks.satellite.SatelliteLauncher;
 import silicon.world.blocks.signal.DimensionAnchor;
+import silicon.world.blocks.signal.SignalJammer;
 import silicon.world.blocks.signal.SignalRelay;
 import silicon.world.blocks.signal.SignalSource;
 
@@ -25,7 +28,8 @@ import static mindustry.type.ItemStack.with;
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            dimensionAnchor, signalSource, universalJunction, signalRelay;
+            dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
+            satelliteLauncher, satelliteConsole;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -130,6 +134,27 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 1;
             health = 100;
+        }};
+        signalJammer = new SignalJammer("signal-jammer") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 30, Items.lead, 20, Items.silicon, 25, Items.thorium, 10));
+            alwaysUnlocked = true;
+            size = 1;
+            health = 120;
+        }};
+        satelliteLauncher = new SatelliteLauncher("satellite-launcher") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 300, Items.lead, 200, Items.silicon, 250, Items.thorium, 100, Items.titanium, 150));
+            alwaysUnlocked = true;
+            size = 3;
+            health = 1200;
+        }};
+        satelliteConsole = new SatelliteConsole("satellite-console") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 120, Items.lead, 80, Items.silicon, 100, Items.thorium, 40));
+            alwaysUnlocked = true;
+            size = 3;
+            health = 400;
         }};
     }
 }

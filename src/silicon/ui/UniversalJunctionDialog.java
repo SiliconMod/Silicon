@@ -113,7 +113,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                                 rs.redButtons.add(d);
                             }
                         }
-                        build.configure(build.weightsString());
                         rs.rebuildRed();
                         rs.pruneEmptySlots();
                         rs.rebuildSlots();
@@ -126,8 +125,11 @@ public class UniversalJunctionDialog extends BaseDialog {
                         for (int out = 0; out < 4; out++) {
                             build.weights[input][out] = 2;
                         }
-                        build.configure(build.weightsString());
                     }
+                    // 注意:开面板不写 configure——此前每个方向各发一次全量 weightsString()
+                    // (4 包/次开面板),内容与建筑现有配置完全相同,纯浪费;且 applyConfig 的
+                    // 瞬态重置副作用会让查看面板本身打断轮询/降级状态。真正的写回只在
+                    // 拖拽放行、剪贴板载入、清零等实际变更时发生。
                 }).growX().grow().uniformX().pad(8f);
             }
         }).grow();
@@ -155,6 +157,8 @@ public class UniversalJunctionDialog extends BaseDialog {
                 t.button("@clear", Icon.cancel, Styles.flatt, () -> {
                     ui.showConfirm("", () -> {
                         build.setAll(0);
+                        // 清零后必须经 configure 同步:直改字段在联机下到不了服务器
+                        build.configure(build.weightsString());
                         cont.clearChildren();
                         buttons.clearChildren();
                         hide();
@@ -182,11 +186,12 @@ public class UniversalJunctionDialog extends BaseDialog {
     }
 
     public void loadFromClipboard() {
-        try {
-            build.applyConfig(Core.app.getClipboardText());
-        } catch (Throwable e) {
-            ui.showException(e);
-        }
+        String text = Core.app.getClipboardText();
+        if (text == null || text.isEmpty()) return;
+        // 必须走 configure(tileConfig 双向通道):此前直改字段绕过同步,
+        // 联机下该配置永远到不了服务器,客户端与主机路由分叉。
+        // 畸形数据由 applyConfig 的解析校验安全忽略。
+        build.configure(text);
     }
 
     public void show(UniversalJunction.UniversalJunctionBuild build) {

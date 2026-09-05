@@ -32,15 +32,14 @@ public class Switch extends Block {
         super(name);
         update = true;
         solid = true;
-//        configurable = true; // 可配置：支持按钮式切换
+        // 可配置:点击经 configTapped→configure 切换,联机下由服务器权威处理
+        // (原先 tapped() 只翻转本地字段,客户端的开关操作在服务器上从未发生)
+        configurable = true;
         rotate = true;
         group = BlockGroup.logic;
-        config(Boolean.class, (building, enabled) -> {
-            Building front = building.front();
-            // #28 只允许控制同队建筑
-            if (front == null || front.team != building.team) return;
-            front.enabled = !enabled;
-        });
+        // config 只改开关自身状态;对 front 的传播由 updateTile 在两端统一执行
+        // (#28 同队校验在 updateTile 内),两端状态自然收敛
+        config(Boolean.class, (SwitchBuild building, Boolean on) -> building.fE = on);
         state = new TextureRegion[2];
     }
 
@@ -102,25 +101,21 @@ public class Switch extends Block {
             if (front() != null && front().team == team && front().enabled != fE) front().enabled = fE;
         }
 
+        /** 点击方块=直接切换(与原版 SwitchBlock 同款):经 configure 走 tileConfig,
+         *  客户端本地预测+服务器权威执行;返回 false 不打开配置面板。 */
         @Override
-        public void tapped() {
-            // #28 同队校验
-            if (front() != null && front().team == team && !(front() instanceof SwitchBuild)) fE = !fE;
+        public boolean configTapped() {
+            if (front() != null && front().team == team && !(front() instanceof SwitchBuild)) {
+                configure(!fE);
+            }
+            return false;
         }
 
-//        /**
-//         * 切换式按钮配置界面：按一次切换 front 建筑启用状态并持续保持。
-//         * 按钮尺寸 80×40（与原版开关按钮一致）。
-//         */
+        /** 面板按钮(仅当配置面板被外部打开时可见):同样走 configure。 */
         @Override
         public void buildConfiguration(Table table) {
-//            table.button(Core.bundle.get("block.silicon-switch.name"), Styles.flatTogglet, () -> {
-            Building front = front();
-            if (front != null && front.team == team && !(front instanceof SwitchBuild)) {
-                fE = !fE;
-                configure(fE);
-            }
-//            }).checked(fE).size(80f, 40f).pad(4f);
+            table.button(Core.bundle.get("block.silicon-switch.name"), Styles.flatTogglet, () -> configure(!fE))
+                .size(80f, 40f).pad(4f);
         }
 
         /**
@@ -148,7 +143,7 @@ public class Switch extends Block {
 
         @Override
         public Boolean config() {
-            return front() != null && front().enabled;
+            return fE;
         }
     }
 }
