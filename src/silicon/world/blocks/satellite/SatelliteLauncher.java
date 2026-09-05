@@ -358,17 +358,6 @@ public class SatelliteLauncher extends Block {
                     Draw.reset();
                 }
             }
-            if (produced) {
-                // 「可发射」提示：程序化标记（脉冲圆点+上指三角，accent 色），不依赖任何贴图/状态图标
-                Draw.z(35f);
-                float bob = y + 16f + Mathf.sin(Time.time / 24f, 3f);
-                Draw.color(Pal.accent, 0.9f);
-                Fill.circle(x, bob, 3.5f);
-                Fill.poly(x, bob + 9f, 3, 4f, 90f);
-                Draw.color(Pal.accent, 0.3f);
-                Fill.circle(x, bob, 7f);
-                Draw.reset();
-            }
         }
 
         /** 配置面板：选择卫星种类（生产所需种类） */
