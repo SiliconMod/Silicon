@@ -205,6 +205,7 @@ public class SignalRelay extends Block {
             Seq<SignalSource.SignalSourceBuild> srcs = SignalSource.allSources(team);
             boolean any = false;
             arc.scene.ui.ButtonGroup<arc.scene.ui.TextButton> group = new arc.scene.ui.ButtonGroup<>();
+            group.setMinCheckCount(0); // 允许全不选（默认 1 会在 add() 时强制勾选第一个按钮，且无法取消）
             int perRow = 5, count = 0;
             for (SignalSource.SignalSourceBuild sb : srcs) {
                 String code = sb.signal == null ? "----" : sb.signal.name;

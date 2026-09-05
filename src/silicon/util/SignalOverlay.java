@@ -197,8 +197,9 @@ public class SignalOverlay {
     public static void init() {
         // 无头服务器跳过（无渲染循环/无 UI），避免访问 Vars.ui.hudGroup 崩溃
         if (Vars.headless) return;
-        // 渲染循环方块层绘制后触发（每帧）
-        Events.run(EventType.Trigger.draw, SignalOverlay::update);
+        // 渲染循环最末段绘制（drawOver：全部世界渲染——方块/单位/子弹/特效——之后触发），
+        // 覆盖层画在子弹与枪口加色光之上，避免射击时被冲淡
+        Events.run(EventType.Trigger.drawOver, SignalOverlay::update);
         // 客户端加载完成后创建底部提示标签
         Events.on(EventType.ClientLoadEvent.class, e -> {
             // 模组重载等场景重复触发时先移除旧标签，避免泄漏
@@ -266,6 +267,8 @@ public class SignalOverlay {
     }
 
     static void drawOverlay(Team team, float alpha) {
+        // 显式抬高绘制层级：drawOver 时点当前 z 不确定，锁定在 overlayUI 之上保证压过所有世界内容
+        Draw.z(mindustry.graphics.Layer.overlayUI + 1f);
         // 视野宽（缩小视角）显示蓝色范围；视野窄（放大视角）显示数字
         boolean rangeMode = Core.camera.width >= ZOOM_THRESHOLD_WIDTH;
         // 模式切换时重新淡入（数字 ↔ 范围淡入淡出）
