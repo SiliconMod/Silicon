@@ -137,7 +137,8 @@ public class SignalRelay extends Block {
         }
 
         /** 发射信道：绑定信号源后与其保持一致；绑定卫星编码时用在轨卫星发射时固化的信道
-         *  （源被拆不影响卫星信道），未绑定用自身 channel */
+         *  （源被拆不影响卫星信道的固化值；但卫星广播有上行门控——编码无存活地面源时卫星静默，
+         *  本中继器也会随之去活，此方法仅在激活状态下被广播路径调用）；未绑定用自身 channel */
         public int signalChannel() {
             SignalSource.SignalSourceBuild src = findSource();
             if (src != null) return src.channel;
@@ -172,7 +173,8 @@ public class SignalRelay extends Block {
                 }
                 // 卫星中继：所选编码存在在轨卫星，且卫星信号在中继器位置有效
                 // （星下点覆盖圆内、未被其固化信道干扰压制；总和扣底噪后需 >0.5——
-                // 首颗卫星有效强度 1.0 达标，覆盖圆内中继器即可被激活转发，叠星提升抗干扰裕度）
+                // 首颗卫星有效强度 1.0 达标，覆盖圆内中继器即可被激活转发，叠星提升抗干扰裕度）。
+                // 上行门控在 satelliteStrengthAt 内部：编码无存活地面源（如源被拆）时返回 0 → 中继器去活
                 if (!newActive) {
                     float satEff = silicon.util.SatelliteManager.satelliteStrengthAt(team, selectedSource, x, y);
                     if (satEff > 0.5f) newActive = true;

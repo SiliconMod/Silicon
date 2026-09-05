@@ -304,10 +304,12 @@ public class SignalOverlay {
                 bestSrc = srcBuf[ch];
             }
         }
-        // 卫星层：覆盖该格的在轨卫星按各自固化信道扣干扰、对数叠加扣底噪；记录最强贡献者的编码用于着色
+        // 卫星层：覆盖该格的在轨卫星按各自固化信道扣干扰、对数叠加扣底噪；记录最强贡献者的编码用于着色。
+        // 上行门控：有编码的卫星在其地面源全部消失后停止广播（未绑定记录无编码语义，仍提供原始覆盖）
         float satSum = 0f, satBest = 0f;
         String satTop = null;
         for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
+            if (r.code != null && !SignalChannel.hasLiveSource(team, r.code)) continue;
             float e = SatelliteManager.satelliteEffAt(r, wx, wy);
             if (e <= 0f) continue;
             satSum += e;

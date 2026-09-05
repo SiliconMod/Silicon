@@ -1,6 +1,7 @@
 package silicon.world.blocks.signal;
 
 import arc.math.Mathf;
+import arc.struct.ObjectMap;
 import mindustry.game.Team;
 import mindustry.gen.Building;
 import silicon.util.SatelliteManager;
@@ -40,13 +41,18 @@ public class SignalChannel {
      * 同一编码视为同一信号：在轨卫星的星下点覆盖圆（未被同信道干扰完全压制）、
      * 信号源自身覆盖、同编码激活中继器的级联延伸，三者广播的有效范围取并集。
      * 供卫星控制台 ↔ 卫星发射中枢绑定判定（控制台与中枢必须同处该信号范围内）。
+     * 卫星层有上行门控（{@link #hasLiveSource}）：该编码的地面源全部消失后，
+     * 在轨卫星停止广播该编码——删源即断链，重放同编码源即恢复。
      */
     public static boolean inSignalRange(Team team, String name, float wx, float wy) {
         if (name == null || name.isEmpty()) return false;
-        // 在轨卫星：编码匹配的卫星，其星下点覆盖圆含该点且有效强度 > 0（同信道干扰可打断卫星绑定）
-        for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
-            if (r.code != null && name.equals(r.code) && SatelliteManager.satelliteEffAt(r, wx, wy) > 0f) {
-                return true;
+        // 在轨卫星：编码匹配的卫星，其星下点覆盖圆含该点且有效强度 > 0（同信道干扰可打断卫星绑定）。
+        // 上行门控：编码无存活地面源时卫星层整体静默（卫星只是地面信号的转发者）
+        if (hasLiveSource(team, name)) {
+            for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
+                if (r.code != null && name.equals(r.code) && SatelliteManager.satelliteEffAt(r, wx, wy) > 0f) {
+                    return true;
+                }
             }
         }
         return inGroundSignalRange(team, name, wx, wy);
@@ -72,6 +78,42 @@ public class SignalChannel {
             }
         }
         return false;
+    }
+
+    // —— 卫星上行门控：卫星广播编码 X 的前提是本队存在存活的地面信号源 X ——
+
+    /** (team, code) → 是否存在存活地面源；SignalSource.markDirty 时整体失效（增删/世界加载/编码下发） */
+    private static final ObjectMap<Team, ObjectMap<String, Boolean>> liveSrcCache = new ObjectMap<>();
+
+    /** 失效上行门控缓存（信号源增删、世界加载、编码经 tileConfig 下发时调用） */
+    public static void invalidateLiveSources() {
+        liveSrcCache.clear();
+    }
+
+    /**
+     * 指定编码当前是否存在本队存活的地面信号源（删除最后一个该编码源 → false）。
+     * 卫星广播的上行门控：卫星只是地面信号的转发者，地面源全部消失后该编码卫星停止广播，
+     * 绑定该编码的中继器随之去活；重放同编码源后自动恢复（名册不动，语义与"源被拆不影响卫星信道"的编码固化正交）。
+     * 结果按 (team, code) 缓存，失效时机由 {@link silicon.world.blocks.signal.SignalSource#markDirty} 驱动。
+     */
+    public static boolean hasLiveSource(Team team, String code) {
+        if (team == null || code == null || code.isEmpty()) return false;
+        ObjectMap<String, Boolean> m = liveSrcCache.get(team);
+        if (m == null) {
+            m = new ObjectMap<>();
+            liveSrcCache.put(team, m);
+        }
+        Boolean v = m.get(code);
+        if (v != null) return v;
+        boolean found = false;
+        for (SignalSource.SignalSourceBuild sb : SignalSource.allSources(team)) {
+            if (sb.signal != null && code.equals(sb.signal.name)) {
+                found = true;
+                break;
+            }
+        }
+        m.put(code, found);
+        return found;
     }
 
     // —— 每信道批量计算（覆盖绘制用）：静态缓冲，一次遍历全部源按信道分摊 ——

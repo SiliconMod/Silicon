@@ -324,6 +324,9 @@ public class SatelliteManager {
      */
     public static float satelliteStrengthAt(Team team, String code, float wx, float wy) {
         if (code == null || code.isEmpty()) return 0f;
+        // 上行门控：该编码的存活地面源全部消失 → 卫星停止广播（删源即断链：绑定该编码的
+        // 中继器随之去活，覆盖绘制同步消失；重放同编码源自动恢复）。名册与编码固化不动。
+        if (!silicon.world.blocks.signal.SignalChannel.hasLiveSource(team, code)) return 0f;
         float sum = 0f, max = 0f;
         for (SatelliteRecord r : satellites(team)) {
             if (r.code == null || !code.equals(r.code)) continue;

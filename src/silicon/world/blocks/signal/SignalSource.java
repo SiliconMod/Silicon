@@ -58,6 +58,8 @@ public class SignalSource extends Block {
                 if (!ok) return;
             }
             b.signal = new Signal(value);
+            // 客机编码经 tileConfig 到位会改变上行门控判定（placed 时 signal 还是 null，缓存可能已记 false）
+            SignalChannel.invalidateLiveSources();
         });
         // 信道（1~5）
         config(Integer.class, (SignalSourceBuild b, Integer v) -> b.channel = Math.max(1, Math.min(SignalJammer.CHANNEL_MAX, v)));
@@ -84,9 +86,10 @@ public class SignalSource extends Block {
     private static final ObjectMap<Team, Seq<SignalSourceBuild>> sourceCache = new ObjectMap<>();
     private static boolean dirty = true;
 
-    /** 标记缓存失效（建筑增删时调用） */
+    /** 标记缓存失效（建筑增删时调用）；同步失效卫星上行门控缓存（SignalChannel.hasLiveSource） */
     public static void markDirty() {
         dirty = true;
+        SignalChannel.invalidateLiveSources();
     }
 
     static void rebuildCache() {
