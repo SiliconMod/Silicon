@@ -223,6 +223,7 @@ public class SatelliteConsole extends Block {
             table.row();
             Table row = new Table();
             ButtonGroup<TextButton> group = new ButtonGroup<>();
+            group.setMinCheckCount(0); // 允许全不选（默认 1 会在 add() 时强制勾选第一个按钮，且无法取消）
             ssoBtn = null;
             for (int o = ORBIT_LEO; o < ORBIT_COUNT; o++) {
                 final int orbit = o;
@@ -335,6 +336,7 @@ public class SatelliteConsole extends Block {
             Seq<SignalSource.SignalSourceBuild> srcs = SignalSource.allSources(team);
             boolean any = false;
             ButtonGroup<TextButton> group = new ButtonGroup<>();
+            group.setMinCheckCount(0); // 允许未选择信号（默认 1 会在 add() 时强制勾选第一个按钮，清除后依然残留）
             int perRow = 5, count = 0;
             for (SignalSource.SignalSourceBuild sb : srcs) {
                 String code = sb.signal == null ? "----" : sb.signal.name;
