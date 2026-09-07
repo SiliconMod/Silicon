@@ -55,6 +55,8 @@ public class UniversalJunctionDialog extends BaseDialog {
     /** 方向按钮尺寸基准值：红框与白框内一致，保证按钮大小不变 */
     private static final float BTN_W = 140f;
     private static final float BTN_H = 100f;
+    /** 方向按钮上的白字放大倍数（arc Label 默认 fontScale=1.0，统一放大便于辨识） */
+    private static final float BTN_TEXT_SCALE = 1.5f;
     /** 方向按钮配色：亮黄色不透明内面 + 深棕金边框（自绘填充，不依赖半透明面板纹理） */
     private static final Color BTN_BORDER = Color.valueOf("8a5a00");
     private static final Color BTN_FACE = Color.valueOf("ffd500");
@@ -368,9 +370,9 @@ public class UniversalJunctionDialog extends BaseDialog {
             return slotBoxes.get(0).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y + slotHeight(0);
         }
 
-        /** 整框拖动的落点索引：基于「基准堆叠」几何推算每个槽的中心（stage y），
-         * 不会受拖动期间手工置位影响；与 insertIndexFor 语义一致（光标落在槽中心上方即插入其前，否则 append）。
-         * @param baseTop 基准布局最顶框顶边的 stage y（拖动开始瞬间快照） */
+        /** 落点索引：基于「从 baseTop 起连续排布」的堆叠几何推算每个槽的中心（stage y），
+         * 与 insertIndexFor 语义一致（光标落在槽中心上方即插入其前，否则 append）。
+         * 整框换位时传入的是拖拽快照 baseTop（在去除被拖框后的折叠堆叠上计算，与拖动预览同口径）。 */
         int computeInsert(float sx, float sy, float baseTop) {
             float y = baseTop;
             for (int i = 0; i < slotBoxes.size; i++) {
@@ -432,13 +434,13 @@ public class UniversalJunctionDialog extends BaseDialog {
             box.rebuildButtons(slotContents.get(i));
         }
 
-        /** 整框换位：把 srcIdx 的白框整体移动到落点位置（拖动手柄触发） */
-        void reorderBox(int srcIdx, float sx, float sy) {
-            int insert = computeInsert(sx, sy, pristineTopOfStack()); // 基准堆叠几何，与拖动预览同口径
+        /** 整框换位：把 srcIdx 的白框整体移动到落点位置（拖动手柄触发）。
+         * 落点索引基于「去掉被拖框后从 baseTop 起的折叠收拢堆叠」计算（与拖动预览同口径）：
+         * 先移除被拖框，再对剩余可见框做与 insertIndexFor/computeInsert 一致的中心比较。 */
+        void reorderBox(int srcIdx, float sx, float sy, float baseTop) {
             SlotBox box = slotBoxes.remove(srcIdx);
             Seq<Direction> contents = slotContents.remove(srcIdx);
-            if (insert > srcIdx) insert--; // 移除后索引前移
-            insert = Mathf.clamp(insert, 0, slotBoxes.size);
+            int insert = Mathf.clamp(computeInsert(sx, sy, baseTop), 0, slotBoxes.size);
             slotBoxes.insert(insert, box);
             slotContents.insert(insert, contents);
             rebuildSlotContents(insert);
@@ -470,6 +472,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                     private float[] baseBottoms; // 基准布局下各白框底边的 stage y（拖动开始瞬刻快照）
                     private float baseTop; // 基准布局下最顶白框顶边的 stage y
                     private Vec2 slotBase; // slotLayer 原点(stage)坐标，用于把 stage 几何转局部坐标置位
+                    private float selfH; // 被拖框的真实配额高度 slotHeight(srcIdx)（灰框占位用，勿用 ghostH：差了 14px）
 
                     @Override
                     public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button) {
@@ -510,6 +513,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                             }
                             baseTop = baseBottoms[0] + rs.slotHeight(0);
                             slotBase = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).cpy();
+                            selfH = rs.slotHeight(srcIdx);
 
                             Table gh = buildGhost();
                             gh.touchable = Touchable.disabled;
@@ -520,7 +524,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                             ghost = gh;
                             SlotBox.this.visible = false;
                             dragging = true;
-                            Log.info("[UJ] whole-drag start, boxes=" + rs.slotBoxes.size);
                         }
 
                         Table gh = ghost;
@@ -544,11 +547,10 @@ public class UniversalJunctionDialog extends BaseDialog {
                         }
                         removePlaceGhost();
                         SlotBox.this.visible = true;
-                        // 恢复基准布局后执行换位（此时本框触摸焦点已被 Scene.touchUp 移除，
-                        // reorderBox 内 rebuildSlots 的 clearChildren 不会触发 unfocus 重入）
-                        applyPristine();
+                        // 落点判定直接基于拖拽快照 baseTop 的折叠堆叠（与拖动预览同口径），无需先还原基准布局；
+                        // reorderBox 内 rebuildSlots 的 clearChildren 不会触发 unfocus 重入
                         int src = rs.slotBoxes.indexOf(SlotBox.this);
-                        if (src >= 0) rs.reorderBox(src, sx, sy);
+                        if (src >= 0) rs.reorderBox(src, sx, sy, baseTop);
                     }
 
                     /** 构造整框拖拽影：白框底 + 左侧灰手柄 + 内部黄按钮（与真实框同样式），可整体拖动 */
@@ -584,7 +586,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                                 t.margin(6f);
                                 t.touchable = Touchable.disabled;
                                 t.add("@universal-junction.dir" + d.dir).style(Styles.outlineLabel).color(Color.white)
-                                        .grow().labelAlign(Align.center);
+                                        .update(l -> l.setFontScale(BTN_TEXT_SCALE)).grow().labelAlign(Align.center);
                             }).grow().pad(2f);
                             g.add(btn).growX().height(BTN_H).pad(4f).row();
                         }
@@ -606,38 +608,65 @@ public class UniversalJunctionDialog extends BaseDialog {
                         }
                     }
 
-                    /** 整框拖拽预览：把「换位后的最终布局」手工置位到真实白框上（让位、收拢空隙），
-                     * 并在落点绘制灰色占位框；几何口径与松手时的 reorderBox 完全一致，保证提示即实际落点 */
+                    /** 整框拖拽预览：与按钮拖拽同一套「折叠收拢 + 本地让位」模型——
+                     * 被拖框一旦抓起，其余白框立即折叠收拢（不保留来源空位），灰框作为一个整框大小的占位
+                     * 在收拢堆叠的间隙里随指针上下移动（最上/两白框之间/最下），只把插入点之下的白框整体下移，
+                     * 其余不动——没有来源空坑、没有灰框被钉在别处，灰框永远在指针所指的间隙处。
+                     * ins 与松手时 reorderBox（在去除被拖框后的折叠堆叠上做中心比较）同口径。 */
                     private void layoutDragPreview(float sx, float sy) {
-                        int ins = rs.computeInsert(sx, sy, baseTop);
-                        int drop = ins > srcIdx ? ins - 1 : ins;
-                        drop = Mathf.clamp(drop, 0, rs.slotBoxes.size - 1);
-                        if (drop == srcIdx) {
-                            // 落回原位：恢复基准布局，在原位绘制灰色占位框（提示当前落点）
-                            applyPristine();
-                            float grayY = baseTop;
-                            for (int i = 0; i < srcIdx; i++) {
-                                grayY -= rs.slotHeight(i) + 40f;
-                            }
-                            drawPlaceGhost(grayY - ghostH, sx);
+                        int nFull = rs.slotBoxes.size;
+                        if (nFull == 0) return;
+                        float GAP = 40f;
+                        if (nFull == 1) {
+                            // 唯一框：灰框画在自身 cell（拖动必落回原位）
+                            drawPlaceGhost(baseTop - selfH, sx);
                             return;
                         }
-                        Seq<SlotBox> order = new Seq<>();
-                        for (SlotBox b : rs.slotBoxes) {
-                            if (b != SlotBox.this) order.add(b);
-                        }
-                        order.insert(drop, SlotBox.this);
+                        int phantIdx = srcIdx;
+                        // 可见框（去掉被拖框）在「折叠收拢堆叠」下的 top(stage)：从 baseTop 起连续排布
+                        float[] top = new float[nFull];
+                        int[] vis = new int[nFull];
+                        int m = 0;
                         float y = baseTop;
-                        float grayBottom = 0f;
-                        for (SlotBox b : order) {
-                            if (b == SlotBox.this) {
-                                grayBottom = y - ghostH;
-                                y -= ghostH + 40f;
-                                continue;
+                        for (int j = 0; j < nFull; j++) {
+                            if (j == phantIdx) continue;
+                            vis[m++] = j;
+                            top[j] = y;
+                            y -= rs.slotHeight(j) + GAP;
+                        }
+                        int n = m; // 可见框数（>=1）
+                        // 插入索引（与 reorderBox/computeInsert 同口径：光标落在可见框中心上方即插其前）
+                        int ins = 0;
+                        for (int j = 0; j < n; j++) {
+                            int vi = vis[j];
+                            float center = top[vi] - rs.slotHeight(vi) / 2f;
+                            if (sy > center) { ins = j; break; }
+                            ins = j + 1;
+                        }
+                        float grayBottom;
+                        if (ins >= n) {
+                            // 追加到最下方：白框不动，灰框紧贴最后一个可见框下方（留标准框距 GAP）
+                            int last = vis[n - 1];
+                            float lastBottom = top[last] - rs.slotHeight(last);
+                            grayBottom = lastBottom - GAP - selfH;
+                        } else if (ins == 0) {
+                            // 插到顶部之上：白框不动，灰框浮在最顶可见框上方（留标准框距 GAP）
+                            grayBottom = baseTop + GAP;
+                        } else {
+                            // 两可见框之间：上方不动，自 ins 起整体下移，使灰框上下各留标准框距 GAP
+                            int upper = vis[ins - 1];
+                            float shift = GAP + selfH;
+                            for (int j = ins; j < n; j++) {
+                                top[vis[j]] -= shift;
                             }
-                            float hh = rs.slotHeight(rs.slotBoxes.indexOf(b));
-                            b.setPosition(b.x, y - hh - slotBase.y);
-                            y -= hh + 40f;
+                            grayBottom = top[upper] - rs.slotHeight(upper) - GAP - selfH;
+                        }
+                        // 置位全部可见白框（隐藏的被拖框不碰）
+                        for (int j = 0; j < n; j++) {
+                            int vi = vis[j];
+                            RegionState.SlotBox b = rs.slotBoxes.get(vi);
+                            float hh = rs.slotHeight(vi);
+                            b.setPosition(b.x, (top[vi] - hh) - slotBase.y);
                         }
                         drawPlaceGhost(grayBottom, sx);
                     }
@@ -645,7 +674,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                     /** 绘制灰色落点占位框到最终落点位置（stage 坐标，水平跟随鼠标但限制在大白框列内） */
                     private void drawPlaceGhost(float bottomStageY, float sx) {
                         float boxW = ghostW > 0 ? ghostW : SlotBox.this.getWidth();
-                        float ph = ghostH > 0 ? ghostH : PLACE_H;
+                        float ph = selfH > 0 ? selfH : PLACE_H;
                         Vec2 cb = rs.column.localToStageCoordinates(Tmp.v1.set(0f, 0f));
                         float colLeft = cb.x;
                         float colRight = cb.x + rs.column.getWidth();
@@ -746,7 +775,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                 t.margin(6f);
                 t.touchable = Touchable.enabled;
                 t.add("@universal-junction.dir" + dir).style(Styles.outlineLabel).name("statement-name")
-                        .color(Color.white).grow().labelAlign(Align.center);
+                        .color(Color.white).update(l -> l.setFontScale(BTN_TEXT_SCALE)).grow().labelAlign(Align.center);
             }).grow();
 
             row();
@@ -993,20 +1022,14 @@ addListener(new InputListener() {
                     if (ghost != null) ghost.toFront();
                 }
 
-                /** 白框序列的新建槽位预览：手动把各白框重排，在落点处推开一个「按钮等大」的槽位并绘制灰色占位。
-                 * 采用紧凑间距（只把落点处的 40 间隙扩到能容纳按钮），避免把相邻白框挤得太开。
-                 * 若来源框已被隐藏成空框（srcSlotBox），一律把它从可见序列与插入索引中剔除，
-                 * 与落下时的 pruneEmptySlots 口径一致，保证预览与真实落点吻合。 */
+                /** 白框序列的新建槽位预览：依据「实时/显示几何」手动把各白框重排并绘制灰色占位。
+                 * 关键：几何口径与 inBaseBox / 落下时的 pruneEmptySlots+insertIndexFor 完全一致——
+                 * 来源框被拖成空框（srcSlotBox）后仍占据其 cell 空间（视觉上就是两白框之间的空白/空槽位），
+                 * 预览不对它做「折叠」：否则下方白框会整体上跳一个整框高度，灰框与指针错位并出现交错。
+                 * 灰框画在 phantom 处 = drop 后新框的落点；两可见框之间才用下移扩隙并居中的方式。 */
                 private void drawBoxReflowPreview(float sx, float sy) {
-                    // 可见白框 = 全部白框，剔除隐藏的空来源框 srcSlotBox
                     int nAll = rs.slotBoxes.size;
-                    Seq<RegionState.SlotBox> vis = new Seq<>();
-                    for (int i = 0; i < nAll; i++) {
-                        RegionState.SlotBox b = rs.slotBoxes.get(i);
-                        if (b != srcSlotBox) vis.add(b);
-                    }
-                    int n = vis.size;
-                    if (n == 0) {
+                    if (nAll == 0) {
                         Vec2 cb = rs.column.localToStageCoordinates(Tmp.v1.set(0f, 0f));
                         float cx = cb.x + rs.column.getWidth() / 2f;
                         float cy = cb.y + rs.column.getHeight() / 2f;
@@ -1015,61 +1038,57 @@ addListener(new InputListener() {
                     }
                     boxReflowActive = true;
                     float GAP = 40f;
-                    float MARGIN = 8f;
-                    // 各可见白框在「闭合堆叠」下的 top(stage)：从 boxBaseTop 起向下依次排布（剔除隐藏空框）
-                    float[] top = new float[n];
+                    int phantIdx = srcSlotBox != null ? rs.slotBoxes.indexOf(srcSlotBox) : -1;
+                    // 各白框（含 phantom）在「实时堆叠」下的 top(stage)：从 boxBaseTop 起向下依次排布
+                    float[] top = new float[nAll];
                     float y = boxBaseTop;
-                    for (int j = 0; j < n; j++) {
+                    for (int j = 0; j < nAll; j++) {
                         top[j] = y;
-                        int bi = rs.slotBoxes.indexOf(vis.get(j));
-                        y -= rs.slotHeight(bi) + GAP;
+                        y -= rs.slotHeight(j) + GAP;
                     }
-                    // 插入索引（含预览槽共 n+1 位，0..n）
+                    // 插入索引（含预览槽共 nAll+1 位，0..nAll）
                     int ins = 0;
-                    for (int j = 0; j < n; j++) {
-                        int bi = rs.slotBoxes.indexOf(vis.get(j));
-                        float center = top[j] - rs.slotHeight(bi) / 2f;
+                    for (int j = 0; j < nAll; j++) {
+                        float center = top[j] - rs.slotHeight(j) / 2f;
                         if (sy > center) { ins = j; break; }
                         ins = j + 1;
                     }
-                    ins = Mathf.clamp(ins, 0, n);
-                    float previewBottom = 0f;
-                    if (ins >= n) {
-                        // 追加到最下方：各框不动，灰色框紧贴最后一个白框下方
-                        int lb = rs.slotBoxes.indexOf(vis.get(n - 1));
-                        float lastBottom = top[n - 1] - rs.slotHeight(lb);
-                        previewBottom = lastBottom - MARGIN - BTN_H;
-                        placeVisByTop(vis, top);
+                    ins = Mathf.clamp(ins, 0, nAll);
+                    float previewBottom;
+                    if (phantIdx >= 0 && (ins == phantIdx || ins == phantIdx + 1)) {
+                        // 悬停在来源空槽位区域：灰框画在 phantom 处（drop 后新框的落点），白框一律不动
+                        float ph = rs.slotHeight(phantIdx);
+                        previewBottom = top[phantIdx] - (ph - BTN_H) / 2f - BTN_H;
+                    } else if (ins >= nAll) {
+                        // 追加到最下方：各框不动，灰色框紧贴最后一个白框下方（留标准框距 GAP）
+                        float lastBottom = top[nAll - 1] - rs.slotHeight(nAll - 1);
+                        previewBottom = lastBottom - GAP - BTN_H;
                     } else if (ins == 0) {
-                        // 插到最顶部之上：白框不动，灰色框紧贴在最顶白框上方（留 MARGIN 间隙）。
-                        // 原实现把整叠白框下移 BTN_H+MARGIN，但白框自身高度大于该移动量，
-                        // 下移后的白框会覆盖住灰色框（与内部按钮重叠）——这里改为白框不挪、灰框浮在最上方。
-                        previewBottom = boxBaseTop + MARGIN;
-                        placeVisByTop(vis, top);
+                        // 插到最顶部之上：白框不动，灰色框浮在最顶白框上方（留标准框距 GAP）
+                        previewBottom = boxBaseTop + GAP;
                     } else {
-                        // 两框之间：把下方各框整体下移，把 40 间隙扩到能容纳按钮；灰色框居中于扩大的间隙。
-                        // stage y 向上为增：top 减 shift 才是「向下推」。曾误写成 +=，导致下方白框反而
-                        // 上移 68 与上方白框交错，且 hint 被算到 upperBottom 上方与白框大面积重叠。
-                        int ui = rs.slotBoxes.indexOf(vis.get(ins - 1));
-                        int li = rs.slotBoxes.indexOf(vis.get(ins));
-                        float upperBottom = top[ins - 1] - rs.slotHeight(ui);
-                        float shift = BTN_H + MARGIN - GAP;
-                        for (int j = ins; j < n; j++) {
+                        // 两可见框之间：下方各框整体下移，使灰框上下各留一个「白/白」标准框距(GAP)。
+                        // gray 顶 = upperBottom - GAP，底 = upperBottom - GAP - BTN_H；
+                        // 下框原位于 upperBottom - GAP，让位后应位于 gray 底 - GAP = upperBottom - 2*GAP - BTN_H，
+                        // 故下移量 = (2*GAP + BTN_H) - GAP = GAP + BTN_H。
+                        // stage y 向上为增：top 减 shift 才是「向下推」（曾误写成 += 导致交错）。
+                        float upperBottom = top[ins - 1] - rs.slotHeight(ins - 1);
+                        float shift = GAP + BTN_H;
+                        for (int j = ins; j < nAll; j++) {
                             top[j] -= shift;
                         }
-                        previewBottom = upperBottom - (GAP + shift - BTN_H) / 2f;
-                        placeVisByTop(vis, top);
+                        previewBottom = upperBottom - GAP - BTN_H;
                     }
+                    placeVisByTop(top);
                     showHintBox(fixedHintCenterX(), previewBottom, BTN_H, buttonWidth());
                     if (ghost != null) ghost.toFront();
                 }
 
-                /** 按各可见白框基准 top(stage) 置位（slotLayer 局部坐标） */
-                private void placeVisByTop(Seq<RegionState.SlotBox> vis, float[] top) {
-                    for (int j = 0; j < vis.size; j++) {
-                        RegionState.SlotBox b = vis.get(j);
-                        int bi = rs.slotBoxes.indexOf(b);
-                        float hh = rs.slotHeight(bi);
+                /** 按各白框基准 top(stage) 置位（slotLayer 局部坐标；含 hidden 的 phantom 框，置位无害） */
+                private void placeVisByTop(float[] top) {
+                    for (int j = 0; j < rs.slotBoxes.size; j++) {
+                        RegionState.SlotBox b = rs.slotBoxes.get(j);
+                        float hh = rs.slotHeight(j);
                         b.setPosition(b.x, (top[j] - hh) - slotBase.y);
                     }
                 }
@@ -1165,7 +1184,7 @@ addListener(new InputListener() {
                 t.margin(6f);
                 t.touchable = Touchable.disabled;
                 t.add("@universal-junction.dir" + dir).style(Styles.outlineLabel).color(Color.white)
-                        .grow().labelAlign(Align.center);
+                        .update(l -> l.setFontScale(BTN_TEXT_SCALE)).grow().labelAlign(Align.center);
             }).grow().pad(2f);
             ghost.setSize(getWidth(), getHeight());
             ghost.touchable = Touchable.disabled;
