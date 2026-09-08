@@ -372,7 +372,8 @@ public class UniversalJunctionDialog extends BaseDialog {
 
         /** 落点索引：基于「从 baseTop 起连续排布」的堆叠几何推算每个槽的中心（stage y），
          * 与 insertIndexFor 语义一致（光标落在槽中心上方即插入其前，否则 append）。
-         * 整框换位时传入的是拖拽快照 baseTop（在去除被拖框后的折叠堆叠上计算，与拖动预览同口径）。 */
+         * 整框换位时传入的是拖拽快照 baseTop，在「含来源的完整列表」上计算，
+         * 与整框拖动预览（layoutDragPreview）的 ins 判据一致。 */
         int computeInsert(float sx, float sy, float baseTop) {
             float y = baseTop;
             for (int i = 0; i < slotBoxes.size; i++) {
@@ -435,12 +436,15 @@ public class UniversalJunctionDialog extends BaseDialog {
         }
 
         /** 整框换位：把 srcIdx 的白框整体移动到落点位置（拖动手柄触发）。
-         * 落点索引基于「去掉被拖框后从 baseTop 起的折叠收拢堆叠」计算（与拖动预览同口径）：
-         * 先移除被拖框，再对剩余可见框做与 insertIndexFor/computeInsert 一致的中心比较。 */
+         * 落点索引与拖动预览同口径（full-list 中心比较，含 phantom 来源槽）：
+         * 先在「含来源的完整列表」上算 ins（来源槽区域 ins==srcIdx/srcIdx+1 视为原位落回），
+         * 再映射到去除来源后的插入位置 ins>srcIdx ? ins-1 : ins。 */
         void reorderBox(int srcIdx, float sx, float sy, float baseTop) {
+            int nAll = slotBoxes.size;
+            int ins = Mathf.clamp(computeInsert(sx, sy, baseTop), 0, nAll);
             SlotBox box = slotBoxes.remove(srcIdx);
             Seq<Direction> contents = slotContents.remove(srcIdx);
-            int insert = Mathf.clamp(computeInsert(sx, sy, baseTop), 0, slotBoxes.size);
+            int insert = Mathf.clamp(ins > srcIdx ? ins - 1 : ins, 0, slotBoxes.size);
             slotBoxes.insert(insert, box);
             slotContents.insert(insert, contents);
             rebuildSlotContents(insert);
@@ -603,11 +607,57 @@ public class UniversalJunctionDialog extends BaseDialog {
                         return g;
                     }
 
-                    /** 整框拖拽预览：白框在整段拖动中一律不动（无跳位、无交错、无重叠），灰色落点框跟随指针移动
-                     * （垂直居中于指针、水平限制在大白框列内），与拖动按钮时灰框跟随指针的观感一致。
-                     * 松手由 reorderBox 按「最近槽位」判定落点。 */
+                    /** 整框拖拽预览：灰框移动效果与按钮拖拽（drawBoxReflowPreview）完全一致——
+                     * 来源槽位保留为空（不折叠收拢），灰框只在「来源空槽位 / 最上空白 / 两白框之间 / 最下空白」
+                     * 四种位置间移动，绝不与白框重叠滑过；仅在两可见白框之间时才把下方白框整体让位下移
+                     * GAP+selfH（与按钮版让位 GAP+BTN_H 同一套几何）。落点判据与 reorderBox 的
+                     * full-list 中心比较完全一致。 */
                     private void layoutDragPreview(float sx, float sy) {
-                        drawPlaceGhost(sy - selfH / 2f, sx);
+                        int nAll = rs.slotBoxes.size;
+                        if (nAll == 0) return;
+                        float GAP = 40f;
+                        // 各白框（含 phantom 来源）在「基准堆叠」下的 top(stage)：从 baseTop 起向下依次排布
+                        float[] top = new float[nAll];
+                        float y = baseTop;
+                        for (int j = 0; j < nAll; j++) {
+                            top[j] = y;
+                            y -= rs.slotHeight(j) + GAP;
+                        }
+                        // 插入索引（含来源共 nAll+1 位，0..nAll；与 computeInsert 同口径）
+                        int ins = 0;
+                        for (int j = 0; j < nAll; j++) {
+                            float center = top[j] - rs.slotHeight(j) / 2f;
+                            if (sy > center) { ins = j; break; }
+                            ins = j + 1;
+                        }
+                        ins = Mathf.clamp(ins, 0, nAll);
+                        float previewBottom;
+                        if (ins == srcIdx || ins == srcIdx + 1) {
+                            // 指针在来源槽位区域：灰框画在来源 cell（drop 后原位落点），白框一律不动
+                            previewBottom = top[srcIdx] - selfH;
+                        } else if (ins >= nAll) {
+                            // 追加到最下方：各框不动，灰色框紧贴最后一个白框下方（留标准框距 GAP）
+                            float lastBottom = top[nAll - 1] - rs.slotHeight(nAll - 1);
+                            previewBottom = lastBottom - GAP - selfH;
+                        } else if (ins == 0) {
+                            // 插到最顶部之上：白框不动，灰色框浮在最顶白框上方（留标准框距 GAP）
+                            previewBottom = baseTop + GAP;
+                        } else {
+                            // 两可见框之间：下方各框整体下移 GAP+selfH，使灰框上下各留标准框距 GAP
+                            float upperBottom = top[ins - 1] - rs.slotHeight(ins - 1);
+                            float shift = GAP + selfH;
+                            for (int j = ins; j < nAll; j++) {
+                                top[j] -= shift;
+                            }
+                            previewBottom = upperBottom - GAP - selfH;
+                        }
+                        // 置位各白框（含隐藏的 phantom 来源框，置位无害）
+                        for (int j = 0; j < nAll; j++) {
+                            RegionState.SlotBox b = rs.slotBoxes.get(j);
+                            float hh = rs.slotHeight(j);
+                            b.setPosition(b.x, (top[j] - hh) - slotBase.y);
+                        }
+                        drawPlaceGhost(previewBottom, sx);
                     }
 
                     /** 绘制灰色落点占位框到最终落点位置（stage 坐标，水平跟随鼠标但限制在大白框列内） */
