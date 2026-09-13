@@ -477,6 +477,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                     private float baseTop; // 基准布局下最顶白框顶边的 stage y
                     private Vec2 slotBase; // slotLayer 原点(stage)坐标，用于把 stage 几何转局部坐标置位
                     private float selfH; // 被拖框的真实配额高度 slotHeight(srcIdx)（灰框占位用，勿用 ghostH：差了 14px）
+                    private int lastDbgIns = -1; // [UJDBG] 上次整框预览插入索引（抑制重复日志）
 
                     @Override
                     public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button) {
@@ -657,6 +658,15 @@ public class UniversalJunctionDialog extends BaseDialog {
                             float hh = rs.slotHeight(j);
                             b.setPosition(b.x, (top[j] - hh) - slotBase.y);
                         }
+                        if (lastDbgIns != ins) {
+                            lastDbgIns = ins;
+                            StringBuilder sb = new StringBuilder();
+                            for (int j = 0; j < nAll; j++) {
+                                float ay = rs.slotBoxes.get(j).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
+                                sb.append('b').append(j).append('=').append((int) ay).append('/').append((int) top[j]).append(' ');
+                            }
+                            Log.info("[UJDBG] whole ins=@ src=@ grayBottom=@ | @", ins, srcIdx, (int) previewBottom, sb);
+                        }
                         drawPlaceGhost(previewBottom, sx);
                     }
 
@@ -771,6 +781,7 @@ public class UniversalJunctionDialog extends BaseDialog {
 
 addListener(new InputListener() {
                 private Table hint; // 灰色落点提示框（root 层，按钮大小一致）
+                private int lastDbgRow = -1; // [UJDBG] 上次框内预览行（抑制重复日志）
 
                 @Override
                 public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button) {
@@ -1009,6 +1020,17 @@ addListener(new InputListener() {
                     }
                     // 说明：被拖按钮自身保持 visible=false（占位 row 显示灰色框），stay 原位
                     if (ghost != null) ghost.toFront();
+                    if (lastDbgRow != previewRow) {
+                        lastDbgRow = previewRow;
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < contents.size; i++) {
+                            Direction dd = contents.get(i);
+                            float ay = dd.localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
+                            sb.append(dd == Direction.this ? 'X' : (char) ('0' + i)).append('=').append((int) ay).append(' ');
+                        }
+                        Log.info("[UJDBG] inBox n=@ srcBtn=@ idx=@ row=@ slotTop=@ grayBottom=@ | @",
+                                n, srcBtn, idx, previewRow, (int) slotTop, (int) (slotTop - (previewRow + 1) * pitch), sb);
+                    }
                 }
 
                 /** 白框序列的新建槽位预览：依据「实时/显示几何」手动把各白框重排并绘制灰色占位。
