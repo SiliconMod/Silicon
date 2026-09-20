@@ -536,13 +536,11 @@ public class UniversalJunctionDialog extends BaseDialog {
 
                         Table gh = ghost;
                         if (gh == null) return;
+                        gh.setPosition(event.stageX - gh.getWidth() / 2f, event.stageY - gh.getHeight() / 2f);
                         gh.toFront();
                         layoutDragPreview(event.stageX, event.stageY);
-                        if (placeGhost != null) {
-                            // 拖拽影吸附到落点槽（与灰色占位重合）：白框已让位，拖拽影不再滑过/压住其它白框
-                            gh.setPosition(placeGhost.x, placeGhost.y);
-                            placeGhost.toFront(); // 灰色落点框压过拖拽影，确保可见
-                        }
+                        gh.toFront(); // 白色拖拽影始终在上层
+                        if (placeGhost != null) placeGhost.toFront(); // 但灰色落点框压过拖拽影，确保可见
                     }
 
                     @Override
@@ -1030,7 +1028,7 @@ addListener(new InputListener() {
                         v++;
                     }
                     // 说明：被拖按钮自身保持 visible=false（占位 row 显示灰色框），stay 原位
-                    if (hint != null) hint.toFront(); // 灰色占位框压过拖拽影，确保落点可见
+                    if (ghost != null) ghost.toFront();
                     if (lastDbgRow != previewRow) {
                         lastDbgRow = previewRow;
                         StringBuilder sb = new StringBuilder();
@@ -1113,7 +1111,7 @@ addListener(new InputListener() {
                         Log.info("[UJDBG] boxReflow nAll=@ phant=@ ins=@ previewBottom=@ baseTop=@ | @",
                                 nAll, phantIdx, ins, (int) previewBottom, (int) boxBaseTop, sb);
                     }
-                    if (hint != null) hint.toFront(); // 灰色占位框压过拖拽影，确保落点可见
+                    if (ghost != null) ghost.toFront();
                 }
 
                 /** 按各白框基准 top(stage) 置位（slotLayer 局部坐标；含 hidden 的 phantom 框，置位无害） */
@@ -1178,7 +1176,7 @@ addListener(new InputListener() {
                     hint.touchable = Touchable.disabled;
                     hint.setPosition(centerX - w / 2f, bottomY);
                     Core.scene.root.addChild(hint);
-                    if (hint != null) hint.toFront(); // 灰色占位框压过拖拽影，确保落点可见
+                    if (ghost != null) ghost.toFront();
                 }
 
                 private void clearRootHint() {
