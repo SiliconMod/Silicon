@@ -676,23 +676,13 @@ public class UniversalJunctionDialog extends BaseDialog {
                                 cursor -= rs.slotHeight(vi) + GAP;
                             }
                         }
-                        // 平滑插值：首帧按基准初始化，之后逐帧向目标滑拢
-                        if (dispTop == null || dispTop.length != nAll) {
-                            dispTop = new float[nAll];
-                            for (int j = 0; j < nAll; j++) {
-                                dispTop[j] = baseBottoms[j] + rs.slotHeight(j);
-                            }
-                        }
-                        for (int j = 0; j < n; j++) {
-                            int vi = vis[j];
-                            dispTop[vi] = Mathf.lerp(dispTop[vi], top[vi], 0.28f);
-                        }
-                        // 置位全部可见白框（隐藏的来源框不动，其空位视觉上被收拢覆盖）
+                        // 直接置位（不做逐帧插值）：插值会让白框在过渡中滑过灰框、造成灰框与白框重叠。
+                        // 落点判定仍是离散槽位，白框/灰框一起瞬间跳到目标让位位置，二者始终一致。
                         for (int j = 0; j < n; j++) {
                             int vi = vis[j];
                             RegionState.SlotBox b = rs.slotBoxes.get(vi);
                             float hh = rs.slotHeight(vi);
-                            b.setPosition(b.x, (dispTop[vi] - hh) - slotBase.y);
+                            b.setPosition(b.x, (top[vi] - hh) - slotBase.y);
                         }
                         float grayBottom = grayTop - selfH;
                         if (lastDbgIns != ins) {
