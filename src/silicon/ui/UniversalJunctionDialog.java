@@ -655,20 +655,25 @@ public class UniversalJunctionDialog extends BaseDialog {
                             if (sy > center) { ins = j; break; }
                             ins = j + 1;
                         }
-                        // 灰框中心 = 指针 y（连续跟随鼠标），并被上方白框限制在「其下方 GAP」处，可停到顶部空白
-                        float grayCenter = sy;
-                        if (ins > 0) {
-                            int upper = vis[ins - 1];
-                            float upperBottom = top[upper] - rs.slotHeight(upper);
-                            grayCenter = Math.min(grayCenter, upperBottom - GAP - selfH / 2f);
-                        }
-                        float grayBottom = grayCenter - selfH / 2f;
-                        // 下方白框整体下移，使第一个下方白框顶 = 灰框底 - GAP（向下滑动补位，绝不与灰框重叠）
-                        if (ins < n) {
-                            int lower = vis[ins];
-                            float shift = top[lower] - (grayBottom - GAP);
-                            for (int j = ins; j < n; j++) {
-                                top[vis[j]] -= shift;
+                        // 新整摞 = 折叠后的可见白框 + 灰框（插在 ins 处），整体在区域中保持居中：
+                        // 灰框可到最顶（此时整摞向下滑、白框让位），也可到最底，绝不与白框重叠。
+                        float origTop = baseBottoms[0] + rs.slotHeight(0);
+                        float origBottom = baseBottoms[nAll - 1];
+                        float stackCenter = (origTop + origBottom) / 2f;
+                        float totalH = selfH;
+                        for (int j = 0; j < n; j++) totalH += rs.slotHeight(vis[j]);
+                        totalH += GAP * n; // n+1 项 → n 个间隔
+                        float cursor = stackCenter + totalH / 2f; // 新整摞顶
+                        float grayTop = 0f;
+                        for (int j = 0; j <= n; j++) {
+                            if (j == ins) {
+                                grayTop = cursor;
+                                cursor -= selfH + GAP;
+                            }
+                            if (j < n) {
+                                int vi = vis[j];
+                                top[vi] = cursor;
+                                cursor -= rs.slotHeight(vi) + GAP;
                             }
                         }
                         // 平滑插值：首帧按基准初始化，之后逐帧向目标滑拢
@@ -689,6 +694,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                             float hh = rs.slotHeight(vi);
                             b.setPosition(b.x, (dispTop[vi] - hh) - slotBase.y);
                         }
+                        float grayBottom = grayTop - selfH;
                         if (lastDbgIns != ins) {
                             lastDbgIns = ins;
                             StringBuilder sb = new StringBuilder();
