@@ -544,7 +544,14 @@ public class UniversalJunctionDialog extends BaseDialog {
 
                         Table gh = ghost;
                         if (gh == null) return;
-                        gh.setPosition(event.stageX - gh.getWidth() / 2f, event.stageY - gh.getHeight() / 2f);
+                        // 拖拽影水平限制在来源列内（否则会滑到相邻输入区域的白框上造成"重叠"）
+                        float gw = gh.getWidth();
+                        Vec2 cb = rs.column.localToStageCoordinates(Tmp.v1.set(0f, 0f));
+                        float minCx = cb.x + 10f + gw / 2f;
+                        float maxCx = cb.x + rs.column.getWidth() - 10f - gw / 2f;
+                        if (minCx > maxCx) { minCx = cb.x + rs.column.getWidth() / 2f; maxCx = minCx; }
+                        float gcx = Mathf.clamp(event.stageX, minCx, maxCx);
+                        gh.setPosition(gcx - gw / 2f, event.stageY - gh.getHeight() / 2f);
                         gh.toFront();
                         layoutDragPreview(event.stageX, event.stageY);
                         gh.toFront(); // 白色拖拽影始终在上层
@@ -648,37 +655,23 @@ public class UniversalJunctionDialog extends BaseDialog {
                             if (sy > center) { ins = j; break; }
                             ins = j + 1;
                         }
-                        float grayBottom;
-                        if (ins >= n) {
-                            // 追加到最下方：灰框紧贴最后一个可见框下方
-                            int last = vis[n - 1];
-                            float lastBottom = top[last] - rs.slotHeight(last);
-                            grayBottom = lastBottom - GAP - selfH;
-                        } else if (ins == 0) {
-                            // 插到最顶部之上：灰框浮在最顶可见框上方
-                            grayBottom = baseTop + GAP;
-                        } else {
-                            // 两可见框之间：自 ins 起整体下移 GAP+selfH，灰框上下各留标准框距 GAP
-                            int upper = vis[ins - 1];
-                            float shift = GAP + selfH;
-                            for (int j = ins; j < n; j++) {
-                                top[vis[j]] -= shift;
-                            }
-                            grayBottom = top[upper] - rs.slotHeight(upper) - GAP - selfH;
+                        // 让位：自 ins 起整体下移 GAP+selfH，为灰框腾出一整格。
+                        // ins==0（拖到最顶）时整摞白框一起向下滑动补位，灰框占最顶格——不再"白框不动、灰框浮在上方"。
+                        float shift = GAP + selfH;
+                        for (int j = ins; j < n; j++) {
+                            top[vis[j]] -= shift;
                         }
-                        // 平滑插值：首帧按基准初始化，之后逐帧向目标滑拢（白框/灰框一起滑动排位）
+                        // 平滑插值：首帧按基准初始化，之后逐帧向目标滑拢
                         if (dispTop == null || dispTop.length != nAll) {
                             dispTop = new float[nAll];
                             for (int j = 0; j < nAll; j++) {
                                 dispTop[j] = baseBottoms[j] + rs.slotHeight(j);
                             }
-                            dispGray = grayBottom;
                         }
                         for (int j = 0; j < n; j++) {
                             int vi = vis[j];
                             dispTop[vi] = Mathf.lerp(dispTop[vi], top[vi], 0.28f);
                         }
-                        dispGray = Mathf.lerp(dispGray, grayBottom, 0.30f);
                         // 置位全部可见白框（隐藏的来源框不动，其空位视觉上被收拢覆盖）
                         for (int j = 0; j < n; j++) {
                             int vi = vis[j];
@@ -686,6 +679,18 @@ public class UniversalJunctionDialog extends BaseDialog {
                             float hh = rs.slotHeight(vi);
                             b.setPosition(b.x, (dispTop[vi] - hh) - slotBase.y);
                         }
+                        // 灰框位置由「显示中的白框几何」推导：与白框始终同步，插值过程中也不会错位重叠
+                        float grayTop;
+                        if (ins >= n) {
+                            int last = vis[n - 1];
+                            grayTop = dispTop[last] - rs.slotHeight(last) - GAP;
+                        } else if (ins == 0) {
+                            grayTop = dispTop[vis[0]] + GAP + selfH;
+                        } else {
+                            int upper = vis[ins - 1];
+                            grayTop = dispTop[upper] - rs.slotHeight(upper) - GAP;
+                        }
+                        float grayBottom = grayTop - selfH;
                         if (lastDbgIns != ins) {
                             lastDbgIns = ins;
                             StringBuilder sb = new StringBuilder();
@@ -696,7 +701,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                             }
                             Log.info("[UJDBG] whole ins=@ src=@ grayBottom=@ | @", ins, srcIdx, (int) grayBottom, sb);
                         }
-                        drawPlaceGhost(dispGray, sx);
+                        drawPlaceGhost(grayBottom, sx);
                     }
 
                     /** 绘制灰色落点占位框到最终落点位置（stage 坐标，水平跟随鼠标但限制在大白框列内） */
