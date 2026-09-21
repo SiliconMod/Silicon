@@ -655,11 +655,21 @@ public class UniversalJunctionDialog extends BaseDialog {
                             if (sy > center) { ins = j; break; }
                             ins = j + 1;
                         }
-                        // 让位：自 ins 起整体下移 GAP+selfH，为灰框腾出一整格。
-                        // ins==0（拖到最顶）时整摞白框一起向下滑动补位，灰框占最顶格——不再"白框不动、灰框浮在上方"。
-                        float shift = GAP + selfH;
-                        for (int j = ins; j < n; j++) {
-                            top[vis[j]] -= shift;
+                        // 灰框中心 = 指针 y（连续跟随鼠标），并被上方白框限制在「其下方 GAP」处，可停到顶部空白
+                        float grayCenter = sy;
+                        if (ins > 0) {
+                            int upper = vis[ins - 1];
+                            float upperBottom = top[upper] - rs.slotHeight(upper);
+                            grayCenter = Math.min(grayCenter, upperBottom - GAP - selfH / 2f);
+                        }
+                        float grayBottom = grayCenter - selfH / 2f;
+                        // 下方白框整体下移，使第一个下方白框顶 = 灰框底 - GAP（向下滑动补位，绝不与灰框重叠）
+                        if (ins < n) {
+                            int lower = vis[ins];
+                            float shift = top[lower] - (grayBottom - GAP);
+                            for (int j = ins; j < n; j++) {
+                                top[vis[j]] -= shift;
+                            }
                         }
                         // 平滑插值：首帧按基准初始化，之后逐帧向目标滑拢
                         if (dispTop == null || dispTop.length != nAll) {
@@ -679,18 +689,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                             float hh = rs.slotHeight(vi);
                             b.setPosition(b.x, (dispTop[vi] - hh) - slotBase.y);
                         }
-                        // 灰框位置由「显示中的白框几何」推导：与白框始终同步，插值过程中也不会错位重叠
-                        float grayTop;
-                        if (ins >= n) {
-                            int last = vis[n - 1];
-                            grayTop = dispTop[last] - rs.slotHeight(last) - GAP;
-                        } else if (ins == 0) {
-                            grayTop = dispTop[vis[0]] + GAP + selfH;
-                        } else {
-                            int upper = vis[ins - 1];
-                            grayTop = dispTop[upper] - rs.slotHeight(upper) - GAP;
-                        }
-                        float grayBottom = grayTop - selfH;
                         if (lastDbgIns != ins) {
                             lastDbgIns = ins;
                             StringBuilder sb = new StringBuilder();
