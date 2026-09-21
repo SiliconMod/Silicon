@@ -973,7 +973,7 @@ addListener(new InputListener() {
                 /** 按基准堆叠几何判定指针是否落在框 i 内（不随预览位移变化） */
                 private boolean inBaseBox(int i, float sx, float sy) {
                     if (i < 0 || i >= rs.slotBoxes.size) return false;
-                    float y = boxBaseTop;
+                    float y = currentStackTop();
                     for (int k = 0; k < i; k++) {
                         y -= rs.slotHeightWithPreview(k) + 40f;
                     }
@@ -981,6 +981,14 @@ addListener(new InputListener() {
                     Vec2 v = box.localToStageCoordinates(Tmp.v1.set(0f, 0f));
                     return sx >= v.x && sx <= v.x + box.getWidth()
                             && sy >= y - rs.slotHeightWithPreview(i) && sy <= y;
+                }
+
+                /** 当前堆叠顶的 stage y：来源框收缩会改变 slotLayer 高度并使其重新居中，
+                 * 拖拽开始时的 boxBaseTop 快照会过期，故实时从最顶白框读取。 */
+                private float currentStackTop() {
+                    if (rs.slotBoxes.size == 0) return 0f;
+                    RegionState.SlotBox b0 = rs.slotBoxes.get(0);
+                    return b0.localToStageCoordinates(Tmp.v2.set(0f, b0.getHeight())).y;
                 }
 
                 /** 当前被拖按钮所在的来源框（任意按钮数量），null 表示不在任何白框内 */
@@ -1113,9 +1121,10 @@ addListener(new InputListener() {
                     boxReflowActive = true;
                     float GAP = 40f;
                     int phantIdx = srcSlotBox != null ? rs.slotBoxes.indexOf(srcSlotBox) : -1;
-                    // 各白框（含 phantom）在「实时堆叠」下的 top(stage)：从 boxBaseTop 起向下依次排布
+                    // 各白框（含 phantom）在「实时堆叠」下的 top(stage)：从当前堆叠顶起向下依次排布
                     float[] top = new float[nAll];
-                    float y = boxBaseTop;
+                    float baseTop = currentStackTop();
+                    float y = baseTop;
                     for (int j = 0; j < nAll; j++) {
                         top[j] = y;
                         y -= rs.slotHeightWithPreview(j) + GAP;
@@ -1139,7 +1148,7 @@ addListener(new InputListener() {
                         previewBottom = lastBottom - GAP - BTN_H;
                     } else if (ins == 0) {
                         // 插到最顶部之上：白框不动，灰色框浮在最顶白框上方（留标准框距 GAP）
-                        previewBottom = boxBaseTop + GAP;
+                        previewBottom = baseTop + GAP;
                     } else {
                         // 两可见框之间：下方各框整体下移，使灰框上下各留一个「白/白」标准框距(GAP)。
                         // gray 顶 = upperBottom - GAP，底 = upperBottom - GAP - BTN_H；
@@ -1170,10 +1179,12 @@ addListener(new InputListener() {
 
                 /** 按各白框基准 top(stage) 置位（slotLayer 局部坐标；含 hidden 的 phantom 框，置位无害） */
                 private void placeVisByTop(float[] top) {
+                    // 用当前 slotLayer 原点（来源框收缩后 slotLayer 会重新居中，拖拽快照 slotBase 会过期）
+                    float curSlotY = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).y;
                     for (int j = 0; j < rs.slotBoxes.size; j++) {
                         RegionState.SlotBox b = rs.slotBoxes.get(j);
                         float hh = rs.slotHeightWithPreview(j);
-                        b.setPosition(b.x, (top[j] - hh) - slotBase.y);
+                        b.setPosition(b.x, (top[j] - hh) - curSlotY);
                     }
                 }
 
@@ -1182,11 +1193,12 @@ addListener(new InputListener() {
                     if (!boxReflowActive) return;
                     boxReflowActive = false;
                     if (rs.slotBoxes.size == 0) return;
-                    float y = boxBaseTop;
+                    float curSlotY = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).y;
+                    float y = currentStackTop();
                     for (int i = 0; i < rs.slotBoxes.size; i++) {
                         RegionState.SlotBox b = rs.slotBoxes.get(i);
-                        float hh = rs.slotHeight(i);
-                        b.setPosition(b.x, y - hh - slotBase.y);
+                        float hh = rs.slotHeightWithPreview(i);
+                        b.setPosition(b.x, y - hh - curSlotY);
                         y -= hh + 40f;
                     }
                 }
