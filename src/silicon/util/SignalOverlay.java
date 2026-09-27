@@ -430,10 +430,10 @@ public class SignalOverlay {
             // 于是整格采不到、看起来像"不发射"（实测 off = -0.50,-0.50 定位到此）。采样与绘字都改用
             // gx*8（= tile 索引 × 8）后，数字才落在建筑/地格的格心上。
             // 对齐方式：**自己按度量算锚点**，不依赖 arc 的 Align 语义。
-            // arc 的 Font.draw(str,x,y,align) 把 align 当 halign 用、纵向锚在**基线**上（arc 的 GlyphLayout
-            // 那一层没有 valign 参数），所以 (x,y) 实际是"文字左下角"：只传 Align.center 会让数字整体跑到
-            // 采样点的**右上角**。这里用 GlyphLayout 量出宽度、用 capHeight 当高度，
-            // 把左下角锚点挪到 (采样点 − 尺寸/2)，数字视觉中心才落在格心上。
+            // 实测（探针截图逐像素量）：`Font.draw(str, x, y, Align.left)` 的锚点是文字的**上边缘**
+            // （GlyphLayout/FontCache 那一层把 y 当行顶，内部再按 ascent 折算基线），且水平是左边缘；
+            // 所以要把数字摆到采样点正中，锚点 = (采样点.x − 宽/2, 采样点.y + 字高/2)。
+            // 字高取 capHeight（数字无降部）。方向搞反会让数字整行沉到格心下方约半格（实测过）。
             float cell = 8f;
             final float digitH = Fonts.def.getCapHeight();
             computeCoverBounds(team); // 本帧覆盖包围盒：盒外格子直接跳过，避免每格跑完整 SINR 批算
@@ -458,7 +458,7 @@ public class SignalOverlay {
                     measure.setText(Fonts.def, num);
                     Fonts.def.draw(num,
                             wx - measure.width * 0.5f,
-                            wy - digitH * 0.5f,
+                            wy + digitH * 0.5f,
                             Align.left);
                 }
             }
