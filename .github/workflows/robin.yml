@@ -33,6 +33,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # zen 端点要求带 x-opencode-session；免费档不校验 session 真实性（实测随机/真实/缺失
+      # 对 space-bunny-free 等价），故每次运行随机生成即可，避免把某个会话 id 硬编码进
+      # 仓库后会话失效要改 workflow。生成式：ses_ + 6字节hex + 14位随机字母数字。
+      - name: Generate LLM session id
+        id: session
+        run: |
+          sid="ses_$(openssl rand -hex 6)$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 14)"
+          echo "id=$sid" >> "$GITHUB_OUTPUT"
+          echo "Generated session: $sid"
+
       - name: Robin review
         uses: Xiaobei09/robin-custom-headers@main
         with:
@@ -40,7 +50,7 @@ jobs:
           llm-api-key: ${{ secrets.LLM_API_KEY }}
           llm-base-url: ${{ secrets.LLM_BASE_URL }}
           model: ${{ secrets.LLM_MODEL }}
-          custom-headers: '{"x-opencode-session":"ses_f1f1829d0ffepGs3895RABUUsJ"}'
+          custom-headers: '{"x-opencode-session":"${{ steps.session.outputs.id }}"}'
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
           min-command-permission: none
