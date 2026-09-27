@@ -34,6 +34,10 @@ public class SignalProbe extends SignalSource {
 
     /** 逐字度量（静态复用） */
     private static final GlyphLayout measure = new GlyphLayout();
+    /** {@link SignalChannel#usableAll} 的出参缓冲（静态复用，与 H 覆盖同一函数同一口径） */
+    private static final float[] probeEff = new float[SignalJammer.CHANNEL_MAX + 1];
+    private static final mindustry.gen.Building[] probeSrc = new mindustry.gen.Building[SignalJammer.CHANNEL_MAX + 1];
+    private static final String[] probeCode = new String[SignalJammer.CHANNEL_MAX + 1];
 
     public SignalProbe(String name) {
         super(name);
@@ -88,15 +92,27 @@ public class SignalProbe extends SignalSource {
             Draw.reset();
         }
 
-        /** 常驻自评读数（画在方块上方，不依赖 H 覆盖）：编码/信道/半径/开关/本格原始强度 */
+        /** 常驻自评读数（画在方块上方，不依赖 H 覆盖）：
+         *  编码 / 信道 / 半径 / 开关 / 本格原始强度 / **H 覆盖同一函数在本格的结果** / 与最近采样点的偏移。
+         *  <p>{@code cell} 走 {@link silicon.world.blocks.signal.SignalChannel#usableAll}——就是 H 覆盖逐格
+         *  调用的那个函数；{@code off} 是「本格中心」与「覆盖层采样点」（世界坐标 ≡ 4 (mod 8)）的差，
+         *  单位是格。若 off 不是 0，说明采样网格与建筑中心错位（半径 0.5 格的探针会因此整格采不到）。 */
         @Override
         public void draw() {
             super.draw();
+            SignalChannel.usableAll(team, x, y, probeEff, probeSrc, null, probeCode, null);
+            float best = 0f;
+            for (int ch = 1; ch <= SignalJammer.CHANNEL_MAX; ch++) best = Math.max(best, probeEff[ch]);
+            float sx = Mathf.round((x - 4f) / 8f) * 8f + 4f;
+            float sy = Mathf.round((y - 4f) / 8f) * 8f + 4f;
             String txt = (signal == null ? "code=----" : "code=" + signal.name)
                     + " ch" + channel
                     + " r" + radius()
                     + (emitting() ? " ON" : " OFF")
-                    + " raw" + Mathf.round(strengthAt(x, y));
+                    + " raw" + Mathf.round(strengthAt(x, y))
+                    + " cell" + Mathf.round(best)
+                    + " off" + arc.util.Strings.fixed((x - sx) / 8f, 2)
+                    + "," + arc.util.Strings.fixed((y - sy) / 8f, 2);
             float prevZ = Draw.z();
             Draw.z(Layer.effect);
             float oldScale = Fonts.def.getData().scaleX;
@@ -105,6 +121,10 @@ public class SignalProbe extends SignalSource {
             measure.setText(Fonts.def, txt);
             Fonts.def.setColor(1f, 1f, 1f, 0.95f);
             Fonts.def.draw(txt, x - measure.width * 0.5f, y + 13f, Align.left);
+            // 红色小圈 = 最近的覆盖层采样点（与贴图准星/中心绿点比对，肉眼也能看出错位）
+            Lines.stroke(1f);
+            Draw.color(Color.scarlet, 0.95f);
+            Lines.circle(sx, sy, 2.5f);
             Fonts.def.getData().setScale(oldScale);
             Fonts.def.setColor(oldColor);
             Draw.z(prevZ);
