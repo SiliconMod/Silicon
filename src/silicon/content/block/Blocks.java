@@ -15,7 +15,6 @@ import silicon.world.blocks.power.GeneratorPump;
 import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
-import silicon.world.blocks.production.PetroleumRefinery;
 import silicon.world.blocks.sandbox.PowerSource;
 import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.satellite.SatelliteLauncher;
@@ -32,7 +31,7 @@ public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
             dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
-            satelliteLauncher, satelliteConsole, messageTest, signalDetector, petroleumRefinery;
+            satelliteLauncher, satelliteConsole, messageTest, signalDetector;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -174,14 +173,6 @@ public class Blocks {
             size = 1;
             health = 60;
         }};
-        // 石油炼化厂已暂时禁用注册（润滑油同步禁用）。取消注释即可恢复：
-        // 配方：25 石油 + 50 氢气 -> 25 润滑油 + 1 火石（5s/次，240 功率）
-        //petroleumRefinery = new PetroleumRefinery("petroleum-refinery") {{
-        //    requirements(Category.crafting, BuildVisibility.shown,
-        //            ItemStack.with(Items.copper, 100, Items.lead, 80, Items.graphite, 60, Items.silicon, 60));
-        //    alwaysUnlocked = true;
-        //    size = 2;
-        //    health = 320;
-        //}};
+
     }
 }
