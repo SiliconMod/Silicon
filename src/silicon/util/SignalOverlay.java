@@ -424,18 +424,22 @@ public class SignalOverlay {
         Building[] bestSrc = bestSrcTmp;
         String[] bestCode = bestCodeTmp;
         try {
-            // 格子中心：tile 索引 gx 覆盖世界坐标 [gx*8, gx*8+8)，中心即 +4 —— 采样与绘字都用它。
+            // 采样点 = 建筑所在网格：引擎里 1×1 建筑的 (x,y) 就是 8 的整数倍（tile 索引 × 8），
+            // 多格建筑的中心同样落在 8 的整数倍上。旧代码用 gx*8 + 4 采样，整整偏了半格——普通信号源
+            // 只是"数字向方块右上角偏移"，而半径 0.5 格的调试探针每个采样点距离都是 √2/2 ≈ 0.707 格 > 0.5，
+            // 于是整格采不到、看起来像"不发射"（实测 off = -0.50,-0.50 定位到此）。采样与绘字都改用
+            // gx*8（= tile 索引 × 8）后，数字才落在建筑/地格的格心上。
             // 对齐方式：**自己按度量算锚点**，不依赖 arc 的 Align 语义。
             // arc 的 Font.draw(str,x,y,align) 把 align 当 halign 用、纵向锚在**基线**上（arc 的 GlyphLayout
             // 那一层没有 valign 参数），所以 (x,y) 实际是"文字左下角"：只传 Align.center 会让数字整体跑到
-            // 格子中心的**右上角**（实测如此）。这里用 GlyphLayout 量出宽度、用 capHeight 当高度，
-            // 把左下角锚点挪到 (格子中心 − 尺寸/2)，数字视觉中心才落在格子中心。
-            float cell = 8f, half = cell / 2f;
+            // 采样点的**右上角**。这里用 GlyphLayout 量出宽度、用 capHeight 当高度，
+            // 把左下角锚点挪到 (采样点 − 尺寸/2)，数字视觉中心才落在格心上。
+            float cell = 8f;
             final float digitH = Fonts.def.getCapHeight();
             computeCoverBounds(team); // 本帧覆盖包围盒：盒外格子直接跳过，避免每格跑完整 SINR 批算
             for (int gx = x0; gx <= x1; gx++) {
                 for (int gy = y0; gy <= y1; gy++) {
-                    float wx = gx * cell + half, wy = gy * cell + half; // 格子中心（像素）
+                    float wx = gx * cell, wy = gy * cell; // 建筑网格点（引擎里 tile 索引 × 8）
                     if (!coverBounds.contains(wx, wy)) continue;
                     float s = bestSignal(team, wx, wy, bestSrc, bestCode, viewCode);
                     if (s <= 0f) continue;
@@ -482,8 +486,9 @@ public class SignalOverlay {
         computeCoverBounds(team); // 盒外格子直接跳过
         for (int gx = x0; gx <= x1; gx++) {
             for (int gy = y0; gy <= y1; gy++) {
-                // 格子中心（+4）：Fill.rect 以中心为锚，采样点也取中心，格子与世界格网对齐
-                float wx = gx * 8f + 4f, wy = gy * 8f + 4f;
+                // 采样点 = 建筑网格点（tile 索引 × 8，见 drawNumbersOverlay 里的说明）：
+                // Fill.rect 以中心为锚，采样点与填充中心同一处，格网才与建筑/地格对齐
+                float wx = gx * 8f, wy = gy * 8f;
                 if (!coverBounds.contains(wx, wy)) continue;
                 float s = bestSignal(team, wx, wy, bestSrc, bestCode, viewCode);
                 if (s <= 0f) continue;

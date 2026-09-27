@@ -177,12 +177,14 @@ public class SignalSource extends Block {
         return false;
     }
 
-    /** 放置预览（拖拽放置时）显示信号覆盖范围，同原版电力节点（x/y 为格坐标，转像素） */
+    /** 放置预览（拖拽放置时）显示信号覆盖范围，同原版电力节点（x/y 为格坐标，转像素）：
+     *  官方写法是 {@code x * 8f + offset}（见 PowerNode.drawPlace），**不加 4**——
+     *  引擎里地格的坐标就是「索引 × 8」（建筑中心也在 8 的整数倍上） */
     @Override
     public void drawPlace(int x, int y, int rotation, boolean valid) {
         super.drawPlace(x, y, rotation, valid);
         Draw.color(SignalOverlay.SIGNAL_COLOR, 0.5f);
-        Drawf.circles(x * 8 + 4f, y * 8 + 4f, RADIUS * 8f);
+        Drawf.circles(x * 8f + offset, y * 8f + offset, RADIUS * 8f);
         Draw.reset();
     }
 

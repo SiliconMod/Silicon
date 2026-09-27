@@ -109,7 +109,7 @@ public class SignalRelay extends Block {
     public void drawPlace(int x, int y, int rotation, boolean valid) {
         super.drawPlace(x, y, rotation, valid);
         Draw.color(SignalOverlay.SIGNAL_COLOR, 0.5f);
-        Drawf.circles(x * 8 + 4f, y * 8 + 4f, RADIUS * 8f);
+        Drawf.circles(x * 8f + offset, y * 8f + offset, RADIUS * 8f);
         Draw.reset();
     }
 

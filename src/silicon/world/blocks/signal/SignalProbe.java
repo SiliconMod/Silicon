@@ -49,16 +49,17 @@ public class SignalProbe extends SignalSource {
         enableDrawStatus = false;   // 不画任何状态图标（断电/禁用之类）
     }
 
-    /** 放置预览：真实覆盖 = 本格 8×8 边框（父类画 15 格圆，对 0.5 格半径纯属误导） */
+    /** 放置预览：真实覆盖 = 本格 8×8 边框（父类画 15 格圆，对 0.5 格半径纯属误导）。
+     *  格心 = tile 索引 × 8（建筑所在网格），边框取格心 ±4 */
     @Override
     public void drawPlace(int x, int y, int rotation, boolean valid) {
-        float px = x * 8f, py = y * 8f;
+        float cx = x * 8f, cy = y * 8f;
         Draw.color(valid ? SignalOverlay.SIGNAL_COLOR : SignalOverlay.NO_SIGNAL_COLOR, 0.8f);
         Lines.stroke(1.5f);
-        Lines.line(px, py, px + 8f, py);
-        Lines.line(px, py + 8f, px + 8f, py + 8f);
-        Lines.line(px, py, px, py + 8f);
-        Lines.line(px + 8f, py, px + 8f, py + 8f);
+        Lines.line(cx - 4f, cy - 4f, cx + 4f, cy - 4f);
+        Lines.line(cx - 4f, cy + 4f, cx + 4f, cy + 4f);
+        Lines.line(cx - 4f, cy - 4f, cx - 4f, cy + 4f);
+        Lines.line(cx + 4f, cy - 4f, cx + 4f, cy + 4f);
         Lines.stroke(1f);
         Draw.reset();
     }
@@ -95,16 +96,17 @@ public class SignalProbe extends SignalSource {
         /** 常驻自评读数（画在方块上方，不依赖 H 覆盖）：
          *  编码 / 信道 / 半径 / 开关 / 本格原始强度 / **H 覆盖同一函数在本格的结果** / 与最近采样点的偏移。
          *  <p>{@code cell} 走 {@link silicon.world.blocks.signal.SignalChannel#usableAll}——就是 H 覆盖逐格
-         *  调用的那个函数；{@code off} 是「本格中心」与「覆盖层采样点」（世界坐标 ≡ 4 (mod 8)）的差，
-         *  单位是格。若 off 不是 0，说明采样网格与建筑中心错位（半径 0.5 格的探针会因此整格采不到）。 */
+         *  调用的那个函数；{@code off} 是「本格中心」与「覆盖层采样点」（世界坐标 = 8 的整数倍，
+         *  即建筑所在网格）的差，单位是格。若 off 不是 0，说明采样网格与建筑中心错位
+         *  （半径 0.5 格的探针会因此整格采不到）。 */
         @Override
         public void draw() {
             super.draw();
             SignalChannel.usableAll(team, x, y, probeEff, probeSrc, null, probeCode, null);
             float best = 0f;
             for (int ch = 1; ch <= SignalJammer.CHANNEL_MAX; ch++) best = Math.max(best, probeEff[ch]);
-            float sx = Mathf.round((x - 4f) / 8f) * 8f + 4f;
-            float sy = Mathf.round((y - 4f) / 8f) * 8f + 4f;
+            float sx = Mathf.round(x / 8f) * 8f;
+            float sy = Mathf.round(y / 8f) * 8f;
             String txt = (signal == null ? "code=----" : "code=" + signal.name)
                     + " ch" + channel
                     + " r" + radius()
