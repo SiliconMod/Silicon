@@ -30,6 +30,11 @@ import silicon.world.meta.Signal;
 public class SignalSource extends Block {
     /** 信号覆盖半径（格） */
     public static final float RADIUS = 15f;
+    /**
+     * 本方块的覆盖半径（格）：默认 {@link #RADIUS}。单独做成字段是为了调试方块（SignalProbe，0.5 格 = 恰好 1 格）
+     * ——覆盖判定、范围绘制、H 覆盖包围盒都读它，改小即"单格信号源"。
+     */
+    public float radius = RADIUS;
     /** 信号最大强度（中心原始强度；也是覆盖数字与强度条的标度上限） */
     public static final int MAX_STRENGTH = 99;
     /** 对数衰减的尺度（格）：raw = MAX·(1 − ln(1+d/σ)/ln(1+R/σ))，σ 越大核心区越平缓 */
@@ -73,9 +78,14 @@ public class SignalSource extends Block {
      * 通用方法：信号源、信号中继器、干扰器共用。
      */
     public static float strengthAt(float cx, float cy, float wx, float wy) {
+        return strengthAt(cx, cy, wx, wy, RADIUS);
+    }
+
+    /** {@link #strengthAt(float, float, float, float)} 的指定半径版：R 由调用方给出（信号源见 {@link #radius}） */
+    public static float strengthAt(float cx, float cy, float wx, float wy, float radius) {
         float dist = Mathf.dst(wx, wy, cx, cy) / 8f; // 像素 → 格
-        if (dist >= RADIUS) return 0f; // 无信号区域强度为 0
-        float scale = (float) Math.log(1.0 + RADIUS / LOG_SIGMA);
+        if (dist >= radius) return 0f; // 无信号区域强度为 0
+        float scale = (float) Math.log(1.0 + radius / LOG_SIGMA);
         float loss = (float) Math.log(1.0 + dist / LOG_SIGMA);
         return MAX_STRENGTH * (1f - loss / scale);
     }
@@ -240,7 +250,12 @@ public class SignalSource extends Block {
         /** 本源在指定世界坐标处的原始信号强度（0~99；无信号、断电或被关闭（enabled=false）时为 0；干扰由 SignalChannel 统一计算） */
         public float strengthAt(float wx, float wy) {
             if (signal == null || !hasPower() || !enabled) return 0f;
-            return SignalSource.strengthAt(x, y, wx, wy);
+            return SignalSource.strengthAt(x, y, wx, wy, block instanceof SignalSource s ? s.radius : RADIUS);
+        }
+
+        /** 本方块的覆盖半径（格）：与 strengthAt 同一来源，供范围绘制/包围盒使用 */
+        public float radius() {
+            return block instanceof SignalSource s ? s.radius : RADIUS;
         }
 
         /** 是否正在发射信号（与 strengthAt 的前置条件一致；频谱面板的占用计数以此为准，只数实际发射的源） */

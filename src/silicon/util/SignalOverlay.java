@@ -5,6 +5,7 @@ import arc.Events;
 import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
+import arc.graphics.g2d.GlyphLayout;
 import arc.math.Mathf;
 import arc.math.geom.Rect;
 import arc.scene.ui.Label;
@@ -75,6 +76,8 @@ public class SignalOverlay {
     public static final float ZOOM_THRESHOLD_WIDTH = 600f;
     /** 预计算的强度数字字符串（0~MAX_STRENGTH），避免每帧分配 */
     private static final String[] NUMBER_STRINGS = new String[SignalSource.MAX_STRENGTH + 1];
+    /** 逐格量字用的 GlyphLayout（静态复用，避免每格分配） */
+    private static final GlyphLayout measure = new GlyphLayout();
 
     static {
         for (int i = 0; i < NUMBER_STRINGS.length; i++) {
@@ -345,8 +348,7 @@ public class SignalOverlay {
         return null;
     }
 
-    /** 每格最大有效信号（**与频谱面板同一实现**：SignalChannel.usableAll，逐信道地面 SINR ⊕ 同编码卫星 RSS）。
-     *  返回该格最强信道的可用度、贡献来源建筑与归属编码——因此 H 上的数字必然等于频谱里最高的那一行。
+    /** 每格最大有效信号（**与频谱面板同一实现**：SignalChannel.usableAll，逐信道地面 SINR ⊕ 同编码卫星 RSS）。     *  返回该格最强信道的可用度、贡献来源建筑与归属编码——因此 H 上的数字必然等于频谱里最高的那一行。
      *  <p>viewCode 非 null 时只算该编码（悬停/配置面板打开的建筑）；为 null 时自动：逐信道取该信道地面最强编码，
      *  该信道没有地面信号才取该信道最强卫星编码，绝不跨编码求和。</p> */
     static float bestSignal(Team team, float wx, float wy, Building[] bestSrcOut, String[] bestCodeOut, String viewCode) {
@@ -376,10 +378,11 @@ public class SignalOverlay {
         float minx = Float.MAX_VALUE, miny = Float.MAX_VALUE, maxx = -Float.MAX_VALUE, maxy = -Float.MAX_VALUE;
         for (SignalSourceBuild sb : SignalSource.allSources(team)) {
             if (sb.signal == null) continue;
-            minx = Math.min(minx, sb.x - r);
-            miny = Math.min(miny, sb.y - r);
-            maxx = Math.max(maxx, sb.x + r);
-            maxy = Math.max(maxy, sb.y + r);
+            float sr = sb.radius() * 8f; // 每方块半径（调试探针只有 0.5 格）
+            minx = Math.min(minx, sb.x - sr);
+            miny = Math.min(miny, sb.y - sr);
+            maxx = Math.max(maxx, sb.x + sr);
+            maxy = Math.max(maxy, sb.y + sr);
         }
         for (SignalRelayBuild rb : SignalRelay.allRelays(team)) {
             if (!rb.active) continue;
@@ -422,12 +425,13 @@ public class SignalOverlay {
         String[] bestCode = bestCodeTmp;
         try {
             // 格子中心：tile 索引 gx 覆盖世界坐标 [gx*8, gx*8+8)，中心即 +4 —— 采样与绘字都用它。
-            // 横向与纵向都交给 arc 的 Align.center：arc 的 GlyphLayout 在 valign 分支按 FontData.capHeight
-            // 做垂直居中（GlyphLayout.setText），所以文字**视觉中心**正好落在格子中心——不要再叠加任何
-            // 手工像素偏移。旧代码沿用的 `-1.6f * k` 是切到 Align.center 之前的锚点残留，它把整片数字
-            // 相对地格整体上移（字号越大偏得越多，k=2.5 时达 4px = 半格），看起来就是"数字对不齐格子、
-            // 显示范围跟着偏移"。
+            // 对齐方式：**自己按度量算锚点**，不依赖 arc 的 Align 语义。
+            // arc 的 Font.draw(str,x,y,align) 把 align 当 halign 用、纵向锚在**基线**上（arc 的 GlyphLayout
+            // 那一层没有 valign 参数），所以 (x,y) 实际是"文字左下角"：只传 Align.center 会让数字整体跑到
+            // 格子中心的**右上角**（实测如此）。这里用 GlyphLayout 量出宽度、用 capHeight 当高度，
+            // 把左下角锚点挪到 (格子中心 − 尺寸/2)，数字视觉中心才落在格子中心。
             float cell = 8f, half = cell / 2f;
+            final float digitH = Fonts.def.getCapHeight();
             computeCoverBounds(team); // 本帧覆盖包围盒：盒外格子直接跳过，避免每格跑完整 SINR 批算
             for (int gx = x0; gx <= x1; gx++) {
                 for (int gy = y0; gy <= y1; gy++) {
@@ -447,7 +451,11 @@ public class SignalOverlay {
                     // 复用预计算字符串避免分配
                     String num = NUMBER_STRINGS[Mathf.clamp(val, 0, SignalSource.MAX_STRENGTH)];
                     Fonts.def.setColor(Tmp.c1);
-                    Fonts.def.draw(num, wx, wy, Align.center);
+                    measure.setText(Fonts.def, num);
+                    Fonts.def.draw(num,
+                            wx - measure.width * 0.5f,
+                            wy - digitH * 0.5f,
+                            Align.left);
                 }
             }
         } finally {
