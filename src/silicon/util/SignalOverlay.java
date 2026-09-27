@@ -378,11 +378,10 @@ public class SignalOverlay {
         float minx = Float.MAX_VALUE, miny = Float.MAX_VALUE, maxx = -Float.MAX_VALUE, maxy = -Float.MAX_VALUE;
         for (SignalSourceBuild sb : SignalSource.allSources(team)) {
             if (sb.signal == null) continue;
-            float sr = sb.radius() * 8f; // 每方块半径（调试探针只有 0.5 格）
-            minx = Math.min(minx, sb.x - sr);
-            miny = Math.min(miny, sb.y - sr);
-            maxx = Math.max(maxx, sb.x + sr);
-            maxy = Math.max(maxy, sb.y + sr);
+            minx = Math.min(minx, sb.x - r);
+            miny = Math.min(miny, sb.y - r);
+            maxx = Math.max(maxx, sb.x + r);
+            maxy = Math.max(maxy, sb.y + r);
         }
         for (SignalRelayBuild rb : SignalRelay.allRelays(team)) {
             if (!rb.active) continue;
