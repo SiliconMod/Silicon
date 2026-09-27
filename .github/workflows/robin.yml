@@ -1,6 +1,10 @@
 name: Robin
 
 on:
+  # 自动审查走 pull_request（不带 secrets 上下文给 fork PR，但无需 GH_PAT 中转）。
+  # fork PR 的 secrets 在 pull_request 下不可见（GitHub 安全机制），此时本 job 会
+  # 探测到三件套为空并给出告警；维护者评论 /review 走 issue_comment 链路即可补审
+  # ——该链路在 base 仓上下文运行，secrets 对 fork PR 同样可见。
   pull_request:
     types: [opened, reopened, ready_for_review]
   issue_comment:
@@ -27,16 +31,33 @@ jobs:
           startsWith(github.event.comment.body, '/robin')
         ) && (
           github.event.comment.user.login == 'github-actions[bot]' ||
-          contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "NONE"]'), github.event.comment.author_association)
+          contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
         )
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # zen 端点要求带 x-opencode-session；免费档不校验 session 真实性（实测随机/真实/缺失
-      # 对 space-bunny-free 等价），故每次运行随机生成即可，避免把某个会话 id 硬编码进
-      # 仓库后会话失效要改 workflow。生成式：ses_ + 6字节hex + 14位随机字母数字。
+      # 秘钥探测：缺 LLM 三件套就不跑审查，并说明补审路径。
+      # 典型触发场景 = fork PR 的 pull_request 事件（secrets 不注入）。
+      - name: Check LLM configuration
+        id: llm
+        env:
+          _BASE: ${{ secrets.LLM_BASE_URL }}
+          _KEY: ${{ secrets.LLM_API_KEY }}
+          _MODEL: ${{ secrets.LLM_MODEL }}
+        run: |
+          if [ -n "$_BASE" ] && [ -n "$_KEY" ] && [ -n "$_MODEL" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::LLM 三件套（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）不可见，跳过自动审查。若这是 fork PR：pull_request 事件按 GitHub 安全机制不注入 secrets，请维护者评论 /review 走 issue_comment 链路补审（该链路在 base 仓上下文运行，fork PR 同样可审）。若本仓也缺 secret，请在 Settings → Secrets 补齐。"
+          fi
+
+      # zen 端点要求带 x-opencode-session；免费档不校验 session 真实性（实测随机 / 真实 /
+      # 缺失对 space-bunny-free 三者等价），故每次运行随机生成，避免把某个会话 id 硬编码
+      # 进仓库后会话失效还要改 workflow。生成式：ses_ + 6 字节 hex + 14 位随机字母数字。
       - name: Generate LLM session id
+        if: steps.llm.outputs.ok == 'true'
         id: session
         run: |
           sid="ses_$(openssl rand -hex 6)$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 14)"
@@ -44,6 +65,7 @@ jobs:
           echo "Generated session: $sid"
 
       - name: Robin review
+        if: steps.llm.outputs.ok == 'true'
         uses: Xiaobei09/robin-custom-headers@main
         with:
           github-token: ${{ github.token }}
@@ -53,4 +75,4 @@ jobs:
           custom-headers: '{"x-opencode-session":"${{ steps.session.outputs.id }}"}'
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
-          min-command-permission: none
+          min-command-permission: triage
