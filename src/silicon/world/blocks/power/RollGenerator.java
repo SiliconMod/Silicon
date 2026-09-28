@@ -114,8 +114,10 @@ public class RollGenerator extends PowerGenerator {
         @Override
         public void updateTile() {
             // 提前 return 前必须归零:currentPowerProduction 是上一帧缓存,
-            // getPowerProduction() 无门控直接返回它——禁用/PowerVoid 后若不归零,
-            // 幽灵供电会持续进入电网(联机下还随 sync 快照分发给客户端)。
+            // getPowerProduction() 无门控直接返回它——禁用/PowerVoid 后若不归零,幽灵供电会持续进入电网;
+            // 该值还会随存档读写（见本类 write/read），读档后直接成为电网看到的初值。
+            // 注:断电不等于停止 updateTile（引擎只在 !enabled && block.noUpdateDisabled 时才跳过），
+            // 所以只需覆盖 enabled 与 PowerVoid 这两个显式出口。
             if (!enabled) {
                 currentPowerProduction = 0f;
                 return;

@@ -300,7 +300,10 @@ public class GeneratorPump extends LiquidBlock {
             // 永不泵水 → 永不发电,自举死锁,空电池也无济于事(存量 0 不放电)。
             // 电网尚无任何产出时放行消费让泵转起来,此后正常按 status 门控。
             boolean graphCold = power != null && power.graph != null
-                    && power.graph.getLastPowerProduced() <= 0.0001f;
+                    && power.graph.getLastPowerProduced() <= 0.0001f
+                    // 必须同时看存量：电网里有电池、且唯一产者刚好把产量吃满时 produced 同样是 0——
+                    // 那是"满负荷"不是"冷启动"，只看产量会绕过欠压停转语义、从电池倒抽电
+                    && power.graph.getLastPowerStored() <= 0.0001f;
             return enabled && (amount != 0 || liquids.currentAmount() != 0)
                     && (power.status != 0 || graphCold);
         }

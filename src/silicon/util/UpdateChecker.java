@@ -67,8 +67,11 @@ public class UpdateChecker {
         latestVersion = "";
         downloadUrl = "";
         if (force) {
-            // 手动检查：重置下载与弹窗状态，允许再次弹出提示
-            downloading = false;
+            // 手动检查：重置弹窗状态，允许再次弹出提示。
+            // ⚠ 绝不在这里重置 downloading：在途下载线程仍会写同一个 Silicon.jar.part 与 mods 目录，
+            // 把标志清零会让「下载中」的按钮回到初始态，用户再点一次就起了第二个并发下载
+            //（同一 .part/moveTo/delete 竞争，可能留下截断的 jar 且两边都报成功）。
+            // 下载结束的各条路径（成功/失败/全部源失败）都会自己把 downloading 复位，无需外部代劳。
             downloadDone = false;
             downloadFailed = false;
             dialogShown = false;
@@ -217,10 +220,11 @@ public class UpdateChecker {
                     // 与 Content-Length 比对(未知时为负数,跳过该项)
                     && (res.getContentLength() <= 0 || res.getContentLength() == data.length);
             if (!valid) {
-                SiliconLog.info("Update download invalid (truncated/empty response): " + url);
-                downloading = false;
-                downloadFailed = true;
-                Core.app.post(onError);
+                // 内容不可信（截断/空响应）。第三方反代的典型故障正是「200 + HTML 错误页」，
+                // 若在这里直接判失败，CDN 抽风期间连直连兜底都不会试——与网络错误一样继续下一个源；
+                // 最后一个源也失败时由 index > CDN_PREFIXES.length 那条兜底统一收尾。
+                SiliconLog.info("Update download invalid (truncated/empty response), trying next source: " + url);
+                downloadFrom(index + 1, onDone, onError);
                 return;
             }
             boolean ok = false;

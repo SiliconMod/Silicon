@@ -1111,8 +1111,9 @@ public class ItemTransferHub extends Block {
                     pendingAt.removeIndex(i);
                     if (other == this || !other.isValid() || !linkValid(this, other)) continue;
                     // 联机守卫:同 BlockBuildEndEvent——客户端本地发起 configure 会在服务端
-                    // 撞上 toggle 语义把链接撤销;客户端的挂起项由服务端连接经 tileConfig
-                    // 转发后走上面 hasAnyLink 分支自然消费
+                    // 撞上 toggle 语义把链接撤销;客户端本地状态完全由服务端连接后的 tileConfig 广播
+                    // 更新（那条路径与本挂起项无关），所以这里提前消费掉挂起项是**有意的**：
+                    // 客户端既不执行 configure，每 10 tick 重试对它只是空转。
                     if (!mindustry.Vars.net.client()) configure(other.pos());
                 }
             }
