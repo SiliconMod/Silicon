@@ -163,7 +163,7 @@
 9. **arc API 特殊性不报误用**：`Draw.draw(z, runnable)` 不恢复 z（各渲染段自行管理）；`ObjectMap` 不支持 `merge()`，用 `get(key,default)+put` 手动实现。禁止将这些 arc 特有行为报为 bug。
 10. **Java 静态初始化块前向引用合法**：static{} 中引用声明在其后的静态字段会编译错，但用 `类名.字段` 限定是合法的。禁止将 `类名.字段` 写法报为"非法前向引用"。
 11. **蓝图对话框不渲染连线是结构性限制**：`SchematicsDialog`/`SchematicImage` 全类零处调用 drawPlan 系列钩子，缩略图是预烘焙贴图。禁止报告"蓝图对话框中中枢连接线缺失"为 bug。
-12. **arc API 特殊性不报误用**：`Fi.read()` 返回 `InputStream` 而非 `DataInputStream`；`TextButton` 只有 `(String)` 与 `(String, ButtonStyle)` 两个构造器；`Styles.flatBordert` 是 `ButtonStyle` 不是 `LabelStyle`；`Table`/`BaseDialog` 没有 `minWidth(float)`。禁止将这些 arc 特有行为报为 bug。
+12. **arc 工具类/样式 API 特殊性不报误用**：`Fi.read()` 返回 `InputStream` 而非 `DataInputStream`；`TextButton` 只有 `(String)` 与 `(String, ButtonStyle)` 两个构造器；`Styles.flatBordert` 是 `ButtonStyle` 不是 `LabelStyle`；`Table`/`BaseDialog` 没有 `minWidth(float)`。禁止将这些 arc 特有行为报为 bug。
 13. **SiliconLog 重载抢绑定**：`info(Object)` 与 `warn(String,Object...)` 单参调用会绑定到 `Object` 重载而非 varargs。禁止将这种重载解析行为报为 bug。
 14. **Soloud 生命周期陷阱不报误用**：① `LOOP_ONE` 原生循环曲末回绕到 0 是 Soloud 内部行为，非 bug；② 恢复播放对刚建声源立刻 `idSeek` 会原生崩溃，必须延迟到声源确认存活后；③ `Element.tapped()` 在 touchDown 立即回调并抢触摸焦点，回调里移除元素会 NPE，应用 `clicked()`；④ 在途下载/分块回调触发副作用前必须校验归属快照仍成立。禁止将这些 Soloud/arc 生命周期陷阱报为逻辑错误。
 15. **arc 集合类型不报误用**：`arc.struct.Seq` 不是 `java.util.List`，`java.util.Collections.shuffle(seq)` 编译错——应先拷进 `ArrayList` 再操作。禁止将这种类型差异报为 bug。
