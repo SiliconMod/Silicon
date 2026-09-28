@@ -546,13 +546,27 @@ public class SatelliteLauncher extends Block {
             write.f(battery);
         }
 
+        /**
+         * 存档版本：v0 = 历史（当初未覆写本方法，revision 恒为 0）；v1 = 显式声明。
+         * 与 {@code SatelliteConsole} 的 v2 机制对齐——**将来增删字段必须新增 revision 分支**，
+         * 否则多读/少读的字节会让后续 tile 的 chunk 前缀被当数据读（引擎的 readChunk 不做按长度对齐，
+         * 与 SatelliteConsole 名册那条是同一类问题）。
+         */
+        @Override
+        public byte version() {
+            return 1;
+        }
+
         @Override
         public void read(Reads read, byte revision) {
             super.read(read, revision);
-            selectedType = read.i();
-            progress = read.f();
-            produced = read.bool();
-            battery = read.f();
+            if (revision <= 1) {
+                // v0 与 v1 的字段集相同：selectedType → progress → produced → battery
+                selectedType = Mathf.clamp(read.i(), TYPE_SIGNAL, TYPE_TEST); // 越界档位夹回，避免畸形档污染 UI
+                progress = read.f();
+                produced = read.bool();
+                battery = read.f();
+            }
         }
     }
 }
