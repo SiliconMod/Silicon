@@ -16,10 +16,21 @@ concurrency:
 
 jobs:
   review:
+    # ⚠️ 同仓 PR 与 fork PR 走的是**两条不同的凭据路径**，不要合并成一条：
+    #   - 同仓 PR（本仓维护者的分支）：`pull_request` 事件，github.token 保留 pull-requests: write
+    #     → 自动审查（下面 pull_request 那一支）。
+    #   - fork PR：GitHub 对 fork 来源的 `pull_request` 运行**把 token 降级为只读**
+    #     （实测：授权类报错 `Resource not accessible by integration`；对比同一次提交在
+    #     `pull_request_target` 下零授权错误）。而 robin 必须建一条 review 评论，
+    #     需要 pull-requests: write ⇒ 在 `pull_request` 下**必然 403**。
+    #     所以这里显式把 fork PR 从自动路径排除，改由 issue_comment 的 `/review` 兜底：
+    #     那种运行发生在 base 仓上下文，拿到的是可写 token，且本方案链路不依赖任何 secret。
+    #     去掉下面那个 head.repo.full_name 判断，fork PR 就会红给维护者看。
     if: >-
       (
         github.event_name == 'pull_request' &&
-        github.event.pull_request.draft == false
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository
       ) || (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null && (
@@ -53,13 +64,25 @@ jobs:
 
       - name: Install zengate
         run: |
-          # 固定大版本，避免上游发新版后 CI 行为静默改变；顺带把实际版本打进日志便于排查。
+          # 精确钉版本（不是 ^1 这种范围）。这条改动有实测依据：zengate 于 2026-09-27
+          # 01:47 首发，当天 3 小时内连发 5 个版本（1.0.0→1.0.4），首日之后停更。
+          # 范围写法（^1）意味着上游哪天发个 1.1.0 就会静默换掉本仓的网关行为，
+          # 而 review 结论会随之漂移、事后极难归因。精确钉 = 换行为必须先改本文件、先进 PR。
+          # 升级方式：先查 registry.npmjs.org/zengate 的 dist-tags.latest，改这一行，
+          # 并在本注释里更新上面的实测依据。实际版本打进日志便于排查。
+          ZENGATE_VERSION=1.0.4
+          npm install -g "zengate@${ZENGATE_VERSION}"
           # zengate 自带 opencode-ai 依赖（package.json: "opencode-ai": "^1.18.32"），
           # 且 binary.js 的解析顺序是 OPENCODE_PATH → bundled 包 → PATH。
           # 因此这里**刻意不设 OPENCODE_PATH**——设了反而会屏蔽掉 zengate 自己锁定的那份依赖，
           # 把版本契约从 npm 的 semver 检查挪到"curl 装的 latest 恰好也是 1.x"这种巧合上。
-          npm install -g zengate@^1
-          echo "zengate installed: $(npm ls -g zengate --depth=0 2>/dev/null | tail -1 | tr -s ' ')"
+          #
+          # 回读确认装到的确实是钉住的那一版（registry 语义变化或静默回退时这道会失败）。
+          # 判定必须走显式 [ ... ] + exit：上面这串管道的退出码取自末端的 cut（恒 0），
+          # 只靠 `set -e` 管不到它——与本仓「curl -sf | head 恒 0」是同一个坑。
+          got=$(npm ls -g zengate --depth=0 2>/dev/null | tail -1 | tr -s ' ' | sed -n 's/.*zengate@//p' | cut -d' ' -f1)
+          echo "zengate requested=${ZENGATE_VERSION} installed=${got:-unknown}"
+          [ "$got" = "$ZENGATE_VERSION" ] || { echo "::error::zengate version mismatch: wanted ${ZENGATE_VERSION}, got ${got:-unknown}"; exit 1; }
           echo "opencode bundled with zengate: $(npm ls -g opencode-ai --depth=0 2>/dev/null | tail -1 | tr -s ' ')"
 
       - name: Start zengate gateway
@@ -113,10 +136,19 @@ jobs:
       - name: Robin review
         uses: antongulin/robin@v2.7.2
         with:
-          # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，
-          # **不是 secret**，所以 fork PR 同样拿得到（pull_request 不注入 secrets.* 这条限制
-          # 不影响它）。因此本方案对 fork PR 天然可用，无需 GH_PAT，也无需「配置不可见就跳过」
-          # 那道守卫——原先那道守卫防的正是 secrets 缺失，而现在整条链路已无 secret 依赖。
+          # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，**不是 secret**，
+          # 所以「拿得到」这一点对 fork PR 同样成立（pull_request 不注入 secrets.* 这条限制
+          # 与它无关）。整条链路无 secret 依赖，故不需要 GH_PAT，也不需要原先那道
+          # 「配置不可见就跳过」的守卫。
+          #
+          # ⚠️ 但「拿得到」≠「有写权限」，这正是本注释此前写错的地方：
+          #   fork 来源的 `pull_request` 运行里，GitHub 会把这个 token **降级为只读**，
+          #   而 robin 要发一条 review 评论（需要 pull-requests: write）⇒ 403。
+          #   实测对照见上：同仓 PR 自动审查正常，fork PR 走 /review 评论路径才通。
+          #   因此**不要**在这里开「Send write tokens to workflows from pull requests」来
+          #   试图让 fork PR 获得写权限——该开关只影响同仓 PR，而为它放宽的却是对
+          #   pull_request 运行的整体信任面；且公共 fork 无论开关如何都是只读。
+          #   本方案的取舍：自动审查只覆盖同仓 PR，fork PR 走 issue_comment 的 /review。
           github-token: ${{ github.token }}
           # 网关关闭了鉴权，此处仅占位；Robin 要求 apiKey 非空（空值会被兜底成 "ollama"）。
           llm-api-key: public
