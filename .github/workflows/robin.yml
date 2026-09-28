@@ -78,12 +78,22 @@ jobs:
           # 把版本契约从 npm 的 semver 检查挪到"curl 装的 latest 恰好也是 1.x"这种巧合上。
           #
           # 回读确认装到的确实是钉住的那一版（registry 语义变化或静默回退时这道会失败）。
-          # 判定必须走显式 [ ... ] + exit：上面这串管道的退出码取自末端的 cut（恒 0），
+          # 判定必须走显式 [ ... ] + exit：上面这串管道的退出码取自末端（恒 0），
           # 只靠 `set -e` 管不到它——与本仓「curl -sf | head 恒 0」是同一个坑。
-          got=$(npm ls -g zengate --depth=0 2>/dev/null | tail -1 | tr -s ' ' | sed -n 's/.*zengate@//p' | cut -d' ' -f1)
+          #
+          # ⚠️ 这里**不能加 `tail -1`**。npm 的 `ls` 输出在树之后还会补一个空行，
+          # `tail -1` 取到的是那个空行而不是 `└── pkg@ver`，sed 于是永远匹配不到，
+          # `$got` 恒为空 → 报 unknown → 这道校验**每次必失败**（2026-09-28 实测）。
+          # 正确做法：用 sed -n ... p 打印全部匹配行，再 `head -1` 取第一条。
+          got=$(npm ls -g zengate --depth=0 2>/dev/null | tr -d '\r' | sed -n 's/.*zengate@\([^ ]*\).*/\1/p' | head -1)
           echo "zengate requested=${ZENGATE_VERSION} installed=${got:-unknown}"
           [ "$got" = "$ZENGATE_VERSION" ] || { echo "::error::zengate version mismatch: wanted ${ZENGATE_VERSION}, got ${got:-unknown}"; exit 1; }
-          echo "opencode bundled with zengate: $(npm ls -g opencode-ai --depth=0 2>/dev/null | tail -1 | tr -s ' ')"
+          # 这里要读的是 zengate **内部嵌套**的那份 opencode-ai（binary.js 实际会加载它，
+          # 因为上面刻意不设 OPENCODE_PATH）。npm 安装全局包时**不提升**依赖：实测 onchange
+          # 的 24 个依赖全在 $P/<pkg>/node_modules/ 下，全局根下没有 chokidar。因此
+          # `npm ls -g opencode-ai` 查的是全局顶层，读到的必然是空——问错了地方。
+          # 正确做法：直接读那份 package.json 的 version 字段。
+          echo "opencode bundled with zengate: $(node -p "require('$(npm root -g)/zengate/node_modules/opencode-ai/package.json').version" 2>/dev/null || echo unknown)"
 
       - name: Start zengate gateway
         env:
@@ -144,7 +154,11 @@ jobs:
           # ⚠️ 但「拿得到」≠「有写权限」，这正是本注释此前写错的地方：
           #   fork 来源的 `pull_request` 运行里，GitHub 会把这个 token **降级为只读**，
           #   而 robin 要发一条 review 评论（需要 pull-requests: write）⇒ 403。
-          #   实测对照见上：同仓 PR 自动审查正常，fork PR 走 /review 评论路径才通。
+          #   实测范围（2026-09-28，勿夸大）：在 fork 内开同仓 PR 验证 fork 判定**没有误伤**
+          #   同仓 PR —— 该 PR 的 Robin/pull_request 结论是 failure 而非 skipped，说明条件正确
+          #   放行、确实进了自动路径（**未**验证它最终 review 成功）。
+          #   未验证：fork PR 走 issue_comment 的 /review 是否真能出 review（需维护者实测，
+          #   本账户自 review 自己的 PR 会被 GitHub 422 拒绝）。下面是设计意图，不是实测结论。
           #   因此**不要**在这里开「Send write tokens to workflows from pull requests」来
           #   试图让 fork PR 获得写权限——该开关只影响同仓 PR，而为它放宽的却是对
           #   pull_request 运行的整体信任面；且公共 fork 无论开关如何都是只读。
