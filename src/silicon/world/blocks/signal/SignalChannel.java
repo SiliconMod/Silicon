@@ -371,15 +371,15 @@ public class SignalChannel {
         for (SignalSource.SignalSourceBuild sb : SignalSource.allSources(team)) {
             float s = sb.strengthAt(wx, wy);
             if (s <= 0f) continue;
-            addSource(sb.channel, s, "S" + sb.signal.name, sb, viewId);
+            addSource(sb.channel, s, sb.signal.id, sb, viewId);
         }
         // 激活中继器（级联源；发射信道与所选信号源一致）
         for (SignalRelay.SignalRelayBuild rb : SignalRelay.allRelays(team)) {
             if (!rb.active) continue;
             float s = rb.strengthAt(wx, wy);
             if (s <= 0f) continue;
-            String id = (rb.selectedSource != null && !rb.selectedSource.isEmpty())
-                    ? "S" + rb.selectedSource : "R" + ((int) rb.x * 7 + (int) rb.y * 13);
+            // 身份串走缓存（见 SignalRelayBuild.cacheId / Signal.id）：热路径每格都要取，不能现拼
+            String id = rb.cacheId();
             addSource(rb.signalChannel(), s, id, rb, viewId);
         }
         // 干扰器（全局：敌方干扰器同样压制本信道；同信道 + 邻信道泄漏）

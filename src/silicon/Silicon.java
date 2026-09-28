@@ -183,7 +183,9 @@ public class Silicon extends Mod {
                     // 改造客户端可高频重放刷 CPU；这里按控制台 0.5s 限流（合法双击本来也会因 produced
                     // 已清空而失败，限流只挡重放，不影响正常操作）
                     if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN) {
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
+                        // 限流必须与"真实失败"用不同回包：都回 "fail" 会让合法双击的第二次弹「发射失败」，
+                        // 把"点太快"误导成"配置有问题"
+                        Call.clientPacketReliable(p.con, "sat-result", "busy");
                         return;
                     }
                     cb.lastLaunchRequest = Time.time;
@@ -376,6 +378,11 @@ public class Silicon extends Mod {
                 if (s.equals("fail")) {
                     // 服务端通用失败（包格式/越权/控制台失效/处理异常等，细节只留在服务器日志）
                     ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.fail"), 3f);
+                    return;
+                }
+                if (s.equals("busy")) {
+                    // 请求过快被限流（与真实失败区分，见服务端 sat-launch 的限流分支）
+                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.busy"), 3f);
                     return;
                 }
                 try {

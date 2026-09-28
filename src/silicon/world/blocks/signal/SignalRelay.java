@@ -179,9 +179,26 @@ public class SignalRelay extends Block {
             return power != null && power.status > 0.001f;
         }
 
+        /** 逐格合成用的身份串缓存（热路径每格都要取，不能每格现拼字符串） */
+        private String selfId, boundId, boundSrc;
+
+        /** 本中继器在逐格合成里的身份串：绑定编码时与信号源同身份（"S"+编码），未绑定用坐标派生的稳定 id。
+         *  两者都只在变更时重建——原来是每格拼一次，H 覆盖一帧几十万次临时字符串。 */
+        public String cacheId() {
+            String sel = selectedSource;
+            if (sel != null && !sel.isEmpty()) {
+                if (!sel.equals(boundSrc)) {
+                    boundSrc = sel;
+                    boundId = "S" + sel;
+                }
+                return boundId;
+            }
+            if (selfId == null) selfId = "R" + ((int) x * 7 + (int) y * 13);
+            return selfId;
+        }
+
         /** 查找绑定的信号源（按编号） */
-        public SignalSource.SignalSourceBuild findSource() {
-            if (selectedSource == null || selectedSource.isEmpty()) return null;
+        public SignalSource.SignalSourceBuild findSource() {            if (selectedSource == null || selectedSource.isEmpty()) return null;
             for (SignalSource.SignalSourceBuild sb : SignalSource.allSources(team)) {
                 if (sb.signal != null && selectedSource.equals(sb.signal.name)) return sb;
             }

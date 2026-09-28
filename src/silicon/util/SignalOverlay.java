@@ -171,7 +171,8 @@ public class SignalOverlay {
 
     /** 中继器颜色：基于世界坐标 + 该处区块背景色相生成（标识不同转发来源，稳定） */
     public static Color relayColor(SignalRelayBuild rb) {
-        return signalColor("R" + ((int) rb.x * 7 + (int) rb.y * 13), groundHue(rb.x, rb.y));
+        // 身份串走缓存（SignalRelayBuild.cacheId）：覆盖绘制每帧对每台中继都要取，不能现拼字符串
+        return signalColor(rb.cacheId(), groundHue(rb.x, rb.y));
     }
 
     /** 卫星覆盖颜色：按编码专属色（与所选信号源同色，编码相同命中同一缓存）；

@@ -58,6 +58,9 @@ public class SignalSpectrum {
     private static final String[] codeBuf = new String[SignalJammer.CHANNEL_MAX + 1];
     /** 每信道在轨卫星计数（占用列 = 信道拥挤度） */
     private static final int[] satCnt = new int[SignalJammer.CHANNEL_MAX + 1];
+    /** 占用计数缓冲：在信道循环**外**一次算完（原先每个信道都要各遍历一遍全部源/中继/干扰器，5×全表） */
+    private static final int[] srcCnt = new int[SignalJammer.CHANNEL_MAX + 1];
+    private static final int[] jamCnt = new int[SignalJammer.CHANNEL_MAX + 1];
     private static final LabelRef[] occLabels = new LabelRef[SignalJammer.CHANNEL_MAX + 1];
     private static final LabelRef[] itfLabels = new LabelRef[SignalJammer.CHANNEL_MAX + 1];
     private static final LabelRef[] chLabels = new LabelRef[SignalJammer.CHANNEL_MAX + 1];
@@ -174,25 +177,37 @@ public class SignalSpectrum {
             scopeRef.label.setText(scope == null
                     ? Core.bundle.get("block.silicon-signal.spectrum.scope.auto")
                     : Core.bundle.format("block.silicon-signal.spectrum.scope.code", scope));
+            // 占用计数与实际发射条件一致（signal/供电/enabled），断电或关闭的源不计入；
+            // 占用是"信道拥挤度"（含所有编码与其他队伍的干扰器），与按编码的强度列口径不同。
+            // 计数在信道循环外一次算完：原先每信道都要遍历一遍全部源/中继/干扰器（5×全表），
+            // 且 signalChannel() 会对每台中继重复求值 5 次（其内部还会扫全部源与卫星名册）。
+            for (int ch = 1; ch <= SignalJammer.CHANNEL_MAX; ch++) { srcCnt[ch] = 0; jamCnt[ch] = 0; }
+            for (SignalSource.SignalSourceBuild sb : SignalSource.allSources(at.team)) {
+                if (sb.emitting() && sb.channel >= 1 && sb.channel <= SignalJammer.CHANNEL_MAX) srcCnt[sb.channel]++;
+            }
+            for (SignalRelay.SignalRelayBuild rb : SignalRelay.allRelays(at.team)) {
+                if (!rb.active) continue;
+                int rc = rb.signalChannel();
+                if (rc >= 1 && rc <= SignalJammer.CHANNEL_MAX) srcCnt[rc]++;
+            }
+            for (SignalJammer.SignalJammerBuild jb : SignalJammer.allJammers()) {
+                if (!jb.enabled) continue;
+                if (jb.jamChannel == SignalJammer.ALL) {
+                    for (int ch = 1; ch <= SignalJammer.CHANNEL_MAX; ch++) jamCnt[ch]++;
+                } else if (jb.jamChannel >= 1 && jb.jamChannel <= SignalJammer.CHANNEL_MAX) {
+                    jamCnt[jb.jamChannel]++;
+                }
+            }
             for (int ch = 1; ch <= SignalJammer.CHANNEL_MAX; ch++) {
-                int src = 0, jam = 0;
-                // 占用计数与实际发射条件一致（signal/供电/enabled），断电或关闭的源不计入；
-                // 占用是"信道拥挤度"（含所有编码与其他队伍的干扰器），与按编码的强度列口径不同
-                for (SignalSource.SignalSourceBuild sb : SignalSource.allSources(at.team)) {
-                    if (sb.emitting() && sb.channel == ch) src++;
-                }
-                for (SignalRelay.SignalRelayBuild rb : SignalRelay.allRelays(at.team)) {
-                    if (rb.active && rb.signalChannel() == ch) src++;
-                }
-                for (SignalJammer.SignalJammerBuild jb : SignalJammer.allJammers()) {
-                    if (!jb.enabled) continue;
-                    if (jb.jamChannel == SignalJammer.ALL || jb.jamChannel == ch) jam++;
-                }
                 // 卫星计入占用：与地面源一样占用信道带宽
-                src += satCnt[ch];
+                int src = srcCnt[ch] + satCnt[ch];
+                int jam = jamCnt[ch];
                 // 强度列：usableAll 已把卫星层按同一编码 RSS 合成进 effBuf（H 覆盖用的是同一个函数，
                 // 所以 H 上的数字 = 这里最高的一行，两边不会再出现不一致）
                 occLabels[ch].label.setText(Core.bundle.format("block.silicon-signal.spectrum.src", src, jam));
+                // 注意两列口径不同（有意）：本"占用"列只数「直接打在该信道」的干扰器，
+                // 而下面"干扰"列来自 effectiveAll 的 jamA——它含邻信道泄漏（ACIR）与全信道干扰器。
+                // 因此一台只打信道 2 的干扰器会在信道 1 的干扰列显示非 0、占用列显示 0。
                 // I 标签必须预格式化：bundle.format 吃原始 float 会渲染全精度小数
                 itfLabels[ch].label.setText(Core.bundle.format("block.silicon-signal.spectrum.i",
                         fmtEff(intBuf[ch] - SignalChannel.NOISE_FLOOR)));

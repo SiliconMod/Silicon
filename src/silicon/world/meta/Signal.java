@@ -10,6 +10,9 @@ import arc.math.Mathf;
 public class Signal {
     /** 信号名称：4 个字母或数字 */
     public final String name;
+    /** 逐格合成用的身份串（"S" + 名称）：H 覆盖每帧数万格、每格都要用它做身份比较，
+     *  必须在构造时算一次——原来的实现在热路径里现拼，每帧几十万次临时字符串。 */
+    public final String id;
     /** 信号强度：源强度（0~99），在信号源覆盖半径内随距离对数衰减 */
     public int strength;
 
@@ -19,6 +22,7 @@ public class Signal {
 
     public Signal(String name, int strength) {
         this.name = name;
+        this.id = "S" + name;
         this.strength = Mathf.clamp(strength, 0, silicon.world.blocks.signal.SignalSource.MAX_STRENGTH);
     }
 
