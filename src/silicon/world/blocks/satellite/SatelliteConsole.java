@@ -38,6 +38,13 @@ public class SatelliteConsole extends Block {
     public static final int[] ORBIT_FUEL = {1000, 2500, 5000, 8000};
     /** 最大轨道需求（中枢储油上限按此设计） */
     public static final int ORBIT_MAX_FUEL = 8000;
+
+    /**
+     * 单台控制台在存档里代存的名册条数上限（写侧截断、读侧解析后丢弃超限项）。
+     * 读写两侧必须用同一常量，且**读侧实际消费的字节数必须等于写侧写入的字节数**——
+     * 详见 {@code SatelliteConsoleBuild.read()} 里关于 chunk 流对齐的说明。
+     */
+    public static final int ROSTER_MAX = 64;
     private static final String[] ORBIT_KEYS = {
             "block.silicon-satellite-console.orbit.leo",
             "block.silicon-satellite-console.orbit.meo",
@@ -95,7 +102,10 @@ public class SatelliteConsole extends Block {
         /** 上次渲染的信号源列表签名（窗口实时刷新用） */
         private String lastSrcSignature = "";
         /** 窗口绑定状态缓存刷新节流（tick） */
-        private static final int UI_REFRESH = 8;
+        /** 打开界面期间绑定信息（中枢/控制台 1:1 配对）的刷新间隔：一行 30 tick ≈ 0.5s。
+     *  原先 8 tick 会在每次刷新都跑一遍「遍历全部建筑 × 逐建筑跑信源/中继扫描」，大图下开销明显；
+     *  绑定关系来自玩家操作，0.5s 的滞后完全看不出来。 */
+    private static final int UI_REFRESH = 30;
         private int uiTick = 0;
         /** 绑定状态缓存：信号范围内唯一中枢（多台/未绑定时为 null） */
         private SatelliteLauncher.SatelliteLauncherBuild boundHub = null;
@@ -404,8 +414,11 @@ public class SatelliteConsole extends Block {
             // 由控制台代存——所有控制台写同一份全局快照，读侧按 unitId 去重并集，任一存活控制台即可恢复。
             // 相位在保存时推进到当前时刻（扫描进度 u，GEO 为定点方位角）：读档后 Time.time 归零，轨迹位置以存档进度续接，卫星不跳位
             arc.struct.Seq<SatelliteManager.SatelliteRecord> list = SatelliteManager.satellites(team);
-            write.i(list.size);
-            for (SatelliteManager.SatelliteRecord r : list) {
+            // 条目数上限：与读侧的 ROSTER_MAX 必须是同一个常量（读侧还额外保证消费全部条目，见 read()）。
+            int n = Math.min(list.size, ROSTER_MAX);
+            write.i(n);
+            for (int i = 0; i < n; i++) {
+                SatelliteManager.SatelliteRecord r = list.get(i);
                 write.i(r.unitId);
                 write.i(r.channel);
                 write.i(r.orbit);
@@ -423,14 +436,22 @@ public class SatelliteConsole extends Block {
                 selectedOrbit = Math.max(ORBIT_LEO, Math.min(ORBIT_SSO, read.i()));
             }
             if (revision >= 2) {
-                // 名册条目数上限保护：损坏/被篡改的存档不能让读档陷入长循环
-                int n = Math.min(Math.max(read.i(), 0), 64);
+                int n = Math.max(read.i(), 0);
+                // 读侧必须把写入的 n 条**全部消费**，哪怕超过 ROSTER_MAX：
+                // 引擎的 SaveFileReader.readChunk 是 `int len = readInt(); runner.accept(input, len); return len;`
+                // ——读完 runner 直接返回，不做任何「按声明长度补齐」的对齐；每个 tile 的 chunk 长度前缀
+                // 靠写读两侧字节数严格相等才能对齐。若这里只读 64 条就把剩余条目留在流里，后续所有 tile
+                // 的 chunk 前缀都会被当数据读，整档解析错位（读档失败/存档损坏）。
+                // 因此超限的条目**解析但不恢复**：流位置与写侧一致，名册最多恢复 ROSTER_MAX 条。
+                int restored = 0;
                 for (int i = 0; i < n; i++) {
                     int unitId = read.i();
                     int channel = read.i();
                     int orbit = read.i();
                     String code = read.str();
                     float phase = Float.intBitsToFloat(read.i());
+                    if (restored >= ROSTER_MAX) continue;
+                    restored++;
                     SatelliteManager.restoreRecord(team, unitId, channel, orbit, code, phase);
                 }
             }

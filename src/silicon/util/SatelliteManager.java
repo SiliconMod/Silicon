@@ -175,28 +175,38 @@ public class SatelliteManager {
                 Seq<SatelliteRecord> list = satRecords.get(t);
                 if (list == null) continue;
                 for (int i = list.size - 1; i >= 0; i--) {
-                    if (Groups.unit.getByID(list.get(i).unitId) == null) list.remove(i);
+                    Unit su = Groups.unit.getByID(list.get(i).unitId);
+                    // 只判 null 不够：存档 entity id 重复被引擎重新分配时（本方法注释里记的场景），
+                    // 该 id 可能落到**别的单位**身上——那行记录既不会被剪除，覆盖判定还会改用那个单位的
+                    // 位置（幽灵卫星覆盖 + launchedCount 虚高），且每 30 tick 广播给客机、不会自愈。
+                    // 因此还要求该实体确实是卫星（控制器类型）。
+                    if (su == null || !(su.controller() instanceof OrbitSatelliteController)) list.remove(i);
                 }
                 if (list.isEmpty()) satRecords.remove(t);
             }
         }
-        for (Unit u : Groups.unit) {
-            if (u.controller() instanceof OrbitSatelliteController && recordOf(u.id) == null) {
-                SatelliteRecord r = new SatelliteRecord();
-                r.unitId = u.id;
-                r.code = null; // 未绑定：仅提供覆盖强度，不参与编码绑定
-                r.channel = -1;
-                r.orbit = ((OrbitSatelliteController) u.controller()).orbit;
-                float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;
-                // 从当前位置近似续接轨迹：主轴对齐（EW=经度，SSO=纬度，GEO=定点方位角）
-                if (r.orbit == SatelliteConsole.ORBIT_GEO) {
-                    r.phase = Mathf.atan2(u.y - cy, u.x - cx) / Mathf.PI2;
-                } else if (r.orbit == SatelliteConsole.ORBIT_SSO) {
-                    r.phase = u.y / Vars.world.unitHeight();
-                } else {
-                    r.phase = u.x / Vars.world.unitWidth();
+        // 补建名册只对权威端有意义：客机的名册完全由 sat-state 广播整表替换（applyState），
+        // 客机自己补建会给已同步到的单位塞一批 code=null 的"未绑定"记录，在下一次广播到来前
+        // 短暂显示蓝色未绑定覆盖、并让在轨计数虚高。
+        if (isAuthority()) {
+            for (Unit u : Groups.unit) {
+                if (u.controller() instanceof OrbitSatelliteController && recordOf(u.id) == null) {
+                    SatelliteRecord r = new SatelliteRecord();
+                    r.unitId = u.id;
+                    r.code = null; // 未绑定：仅提供覆盖强度，不参与编码绑定
+                    r.channel = -1;
+                    r.orbit = ((OrbitSatelliteController) u.controller()).orbit;
+                    float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;
+                    // 从当前位置近似续接轨迹：主轴对齐（EW=经度，SSO=纬度，GEO=定点方位角）
+                    if (r.orbit == SatelliteConsole.ORBIT_GEO) {
+                        r.phase = Mathf.atan2(u.y - cy, u.x - cx) / Mathf.PI2;
+                    } else if (r.orbit == SatelliteConsole.ORBIT_SSO) {
+                        r.phase = u.y / Vars.world.unitHeight();
+                    } else {
+                        r.phase = u.x / Vars.world.unitWidth();
+                    }
+                    satRecords.get(u.team, Seq::new).add(r);
                 }
-                satRecords.get(u.team, Seq::new).add(r);
             }
         }
         // 向在场队伍广播（服务端；单机无客户端时为无害调用）
@@ -275,10 +285,15 @@ public class SatelliteManager {
         if (recordOf(unitId) != null) return;
         SatelliteRecord r = new SatelliteRecord();
         r.unitId = unitId;
-        r.code = (code == null || code.isEmpty()) ? null : code;
-        r.channel = channel;
-        r.orbit = orbit;
-        r.phase = phase;
+        // 读档入口同样是"不可信数据"：SatelliteConsole.read 的注释承诺过"损坏/被篡改的存档不能让读档
+        // 陷入长循环"，字段同样要夹取，否则畸形值会经 scanX/scanY → unit.set() 传播（phase = NaN/Inf
+        // 会让该卫星覆盖永久为 0 且绘制异常），或让 code 里的分隔符打断 sat-state 广播串、把客机名册打空。
+        String c = (code == null || code.isEmpty()) ? null : code;
+        if (c != null && !silicon.world.meta.Signal.isValidCode(c)) c = null;
+        r.code = c;
+        r.channel = (channel == -1) ? -1 : Mathf.clamp(channel, 1, SignalJammer.CHANNEL_MAX);
+        r.orbit = (orbit >= 0 && orbit < SatelliteConsole.ORBIT_COUNT) ? orbit : SatelliteConsole.ORBIT_LEO;
+        r.phase = (Float.isFinite(phase)) ? phase - (float) Math.floor(phase) : 0f;
         satRecords.get(team, Seq::new).add(r);
     }
 

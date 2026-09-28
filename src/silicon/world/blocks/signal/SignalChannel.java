@@ -301,6 +301,10 @@ public class SignalChannel {
         if (scopeCode != null) {
             for (silicon.util.SatelliteManager.SatelliteRecord r : silicon.util.SatelliteManager.satellites(team)) {
                 if (!scopeCode.equals(r.code)) continue;
+                // 上行门控：与自动分支（下方 else）、判定端 satelliteStrengthAt、频谱占用计数同一口径。
+                // 缺这一句会让「地面源被拆光后卫星停止广播」的语义只在判定端成立，而 H 覆盖/频谱仍按
+                // scopeCode 把该编码卫星算进显示值——同屏两个数字打架。
+                if (!hasLiveSource(team, r.code)) continue;
                 int rc = r.channel;
                 if (rc < 1 || rc > SignalJammer.CHANNEL_MAX) continue;
                 float e = silicon.util.SatelliteManager.satelliteEffAt(r, wx, wy);

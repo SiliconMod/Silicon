@@ -4,6 +4,7 @@ import arc.Core;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
+import arc.math.Mathf;
 import arc.scene.ui.layout.Table;
 import arc.struct.ObjectMap;
 import arc.struct.Seq;
@@ -26,8 +27,8 @@ import silicon.util.SignalOverlay;
  * {@link silicon.util.SatelliteManager#satelliteStrengthAt}（含上行门控）。级联由"已激活的同编码
  * 中继器本身也是发射机"自然产生（零衰减，仍受 SINR 约束）。转发时自身与信号源同模型广播（半径
  * 15 格、对数衰减 0~99），绑定放置队伍。
- * <p>注意：15 格是**原始**覆盖半径；SINR 阈值下实际可转发/可绑定的半径更小（净空单源约 12.5 格），
- * 覆盖显示与频谱给出的数值才是判定依据。
+ * <p>注意：15 格是**原始**覆盖半径；SINR 阈值下实际可转发/可绑定的半径更小（净空单源约 12.8 格，
+ * 按 raw·sinrQuality(raw, NOISE_FLOOR) > 3.3 解出 d ≈ 12.8），覆盖显示与频谱给出的数值才是判定依据。
  */
 public class SignalRelay extends Block {
     /** 中继器信号半径（格） */
@@ -147,6 +148,14 @@ public class SignalRelay extends Block {
         }
 
         @Override
+        public void changeTeam(Team next) {
+            super.changeTeam(next);
+            // 夺取/换队：recache 按队分桶，不失效会让旧队仍把本中继当发射机（参与信号/CCI）、
+            // 新队列表却漏掉它（级联断一环）。与 SignalSource / SignalJammer 同款防护。
+            SignalRelay.markDirty();
+        }
+
+        @Override
         public void updateTile() {
             // 绑定信号自动失效：绑定的编码在本队已无任何存活信号源（源被拆掉/被打掉）时清除绑定。
             // 编码是随机生成的，源拆掉后无法再建出同名源，留着绑定只会永久显示"信号不足"。
@@ -207,12 +216,14 @@ public class SignalRelay extends Block {
             // 被禁用（如开关控制）或断电时不激活；未绑定编码不转发
             if (enabled && hasPower() && selectedSource != null && !selectedSource.isEmpty()) {
                 inGroundEff = SignalChannel.groundEffAt(team, selectedSource, x, y);
-                if (inGroundEff > FORWARD_THRESHOLD) {
-                    newActive = true;
-                } else {
-                    inSatEff = silicon.util.SatelliteManager.satelliteStrengthAt(team, selectedSource, x, y);
-                    if (inSatEff > FORWARD_THRESHOLD) newActive = true;
-                }
+                // 卫星侧总是取（原先只在「地面不达标」时才取，导致面板的「卫星」列在地面有信号时恒显示 0，
+                // 同一面板两行来自两套算法）
+                inSatEff = silicon.util.SatelliteManager.satelliteStrengthAt(team, selectedSource, x, y);
+                // 判定与显示同一口径：显示端（H 覆盖、频谱"可用度"列）用的是 地面 ⊕ 卫星 的非相干功率合成
+                // √(g² + s²)（SignalChannel.usableAll），这里曾用 max(g, s) 判定 —— 两者恒不相等（合成值 ≥ max），
+                // 于是在阈值 3.3 附近会出现"H 上显示 3.4，中继却不转发"。统一到显示端的合成值。
+                float combined = (float) Math.sqrt((double) inGroundEff * inGroundEff + (double) inSatEff * inSatEff);
+                if (combined > FORWARD_THRESHOLD) newActive = true;
             }
             if (newActive != active) {
                 active = newActive;
@@ -388,11 +399,13 @@ public class SignalRelay extends Block {
             super.read(read, revision);
             active = read.bool();
             if (revision >= 1) {
-                channel = read.i();
+                // 越界信道会让「active 却不发射」（占用列不显示、CCI 里缺席）——读档夹取（与 configure 同口径）
+                channel = Mathf.clamp(read.i(), 1, SignalJammer.CHANNEL_MAX);
             }
             if (revision >= 2) {
                 String s = read.str();
-                selectedSource = s.isEmpty() ? null : s;
+                // 绑定的编码同样校验：畸形串会进 liveSrcCache 键与 UI 文本（Signal.isValidCode 是唯一校验源）
+                selectedSource = (s == null || s.isEmpty() || !silicon.world.meta.Signal.isValidCode(s)) ? null : s;
             }
         }
     }

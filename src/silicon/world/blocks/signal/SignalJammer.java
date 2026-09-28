@@ -17,7 +17,7 @@ import mindustry.world.meta.Stat;
 
 /**
  * 信号干扰器（1×1）：在指定信道（1~5，或全信道 ALL）发射压制噪声。
- * 干扰强度与信号强度同模型（中心 15，随距离高斯衰减），按 SINR 比值制进入信噪比分母：
+ * 干扰强度与信号强度**同一模型**（{@link SignalSource#strengthAt}：半径 15 格、对数衰减 0~99），按 SINR 比值制进入信噪比分母：
  * 干扰抬高 I（底噪 + 同信道 CCI + 邻信道 ACIR + 干扰器功率），目标信号质量因子随之下降；
  * SINR ≤ 1（功率压不过底噪+干扰）时该处无信号（H 覆盖中不显示）。
  * 多台干扰器在同一信道的功率**叠加**（{@link SignalChannel#jammerAt}），单台不再各算各的最大值。
@@ -36,7 +36,11 @@ public class SignalJammer extends Block {
         destructible = true;
         update = true;
         configurable = true;
-        config(Integer.class, (SignalJammerBuild b, Integer v) -> b.jamChannel = Math.max(-1, Math.min(CHANNEL_MAX, v)));
+        // 下界必须是「全信道(-1)」，否则 0 会漏进来：信道 0 不在 1~5 里，占用计数（SignalSpectrum 按
+        // jamChannel == ch 统计）永远看不到它，而 addJammer 会按"信道 0"把 40%/12% 泄漏给信道 1/2
+        // ——静默压制却无法从面板诊断。这里把 -1 之外的值一律夹到 [1, CHANNEL_MAX]。
+        config(Integer.class, (SignalJammerBuild b, Integer v) ->
+                b.jamChannel = (v == ALL) ? ALL : Mathf.clamp(v, 1, CHANNEL_MAX));
     }
 
     @Override
@@ -58,15 +62,20 @@ public class SignalJammer extends Block {
         dirty = false;
         jammerList.clear();
         for (Building b : Groups.build) {
-            if (b instanceof SignalJammerBuild jb) {
+            // removed 过滤：onRemoved 早于建筑离开 Groups.build（引擎里 onRemoved 是 Tile 处理旧建筑的
+            // 第一步），重建若恰好落在那个窗口内，死干扰器会被写进缓存。
+            if (b instanceof SignalJammerBuild jb && !jb.removed) {
                 jammerList.add(jb);
             }
         }
     }
 
-    /** 全部干扰器（走缓存，跨队伍） */
+    /** 全部干扰器（走缓存，跨队伍）。顺带自愈剔除已拆除的（与 SignalSource.allSources 同款防护） */
     public static Seq<SignalJammerBuild> allJammers() {
         rebuildCache();
+        for (int i = jammerList.size - 1; i >= 0; i--) {
+            if (jammerList.get(i).removed) jammerList.remove(i);
+        }
         return jammerList;
     }
 
@@ -81,16 +90,21 @@ public class SignalJammer extends Block {
     public class SignalJammerBuild extends Building {
         /** 干扰信道（1~5，-1=全信道） */
         public int jamChannel = ALL;
+        /** 是否已进入拆除流程（onRemoved 置位）：拆除瞬间重建缓存不得再把本干扰器算进去 */
+        public boolean removed;
 
         @Override
         public void onProximityAdded() {
             super.onProximityAdded();
+            removed = false;
             SignalJammer.markDirty();
         }
 
         @Override
         public void onRemoved() {
             super.onRemoved();
+            removed = true;
+            jammerList.remove(this, true);
             SignalJammer.markDirty();
         }
 
@@ -147,8 +161,10 @@ public class SignalJammer extends Block {
         @Override
         public void read(Reads read, byte revision) {
             super.read(read, revision);
-            // 越界值会让该干扰器永远匹配不到任何信道（静默失效）——读档时夹取到合法范围
-            jamChannel = Mathf.clamp(read.i(), ALL, CHANNEL_MAX);
+            // 越界值会让该干扰器永远匹配不到任何信道（静默失效）——读档时夹取到合法范围；
+            // 0 同样不合法（见 config 的说明），一律归到信道 1 而不是留在 1~5 之外
+            int v = read.i();
+            jamChannel = (v == ALL) ? ALL : Mathf.clamp(v, 1, CHANNEL_MAX);
         }
     }
 }

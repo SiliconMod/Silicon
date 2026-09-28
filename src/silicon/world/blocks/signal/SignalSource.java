@@ -24,7 +24,8 @@ import silicon.world.meta.Signal;
 
 /**
  * 信号源：放置后注册一个信号（名称 4 个字母或数字，绑定放置队伍）。
- * 在半径 15 格的圆内广播信号，强度随距离线性衰减（最大 15，最小 0）。
+ * 在半径 15 格的圆内广播信号，强度随距离**对数衰减**（0~99 标度，中心满值 99、半径处归零，
+ * 见 {@link #strengthAt} 的公式与衰减表）。
  * 按 H 键可查看信号覆盖（缩放视角较小时逐格显示强度数字，较大时显示绿色范围）。
  */
 public class SignalSource extends Block {
@@ -34,6 +35,8 @@ public class SignalSource extends Block {
     public static final int MAX_STRENGTH = 99;
     /** 对数衰减的尺度（格）：raw = MAX·(1 − ln(1+d/σ)/ln(1+R/σ))，σ 越大核心区越平缓 */
     public static final float LOG_SIGMA = 3f;
+    /** 上式里与 d 无关的归一化项 ln(1 + R/σ)：逐格调用时不能每次重算（提为常量） */
+    private static final float LOG_SCALE = (float) Math.log(1.0 + RADIUS / LOG_SIGMA);
     /** 信号名称长度 */
     public static final int NAME_LENGTH = 4;
 
@@ -75,9 +78,8 @@ public class SignalSource extends Block {
     public static float strengthAt(float cx, float cy, float wx, float wy) {
         float dist = Mathf.dst(wx, wy, cx, cy) / 8f; // 像素 → 格
         if (dist >= RADIUS) return 0f; // 无信号区域强度为 0
-        float scale = (float) Math.log(1.0 + RADIUS / LOG_SIGMA);
         float loss = (float) Math.log(1.0 + dist / LOG_SIGMA);
-        return MAX_STRENGTH * (1f - loss / scale);
+        return MAX_STRENGTH * (1f - loss / LOG_SCALE);
     }
 
     /**
@@ -314,7 +316,10 @@ public class SignalSource extends Block {
             // 存档里的编码同样校验（旧档/损坏档里的畸形串不进入缓存与 UI）
             signal = Signal.isValidCode(name) ? new Signal(name) : null;
             if (revision >= 1) {
-                channel = read.i();
+                // 越界信道会被 addSource 的守卫直接丢弃（该源永不发射），而占用计数按 sb.channel == ch
+                // 也数不到它——静默失效且不可诊断。读档时夹取到合法范围（与 configure 同口径）；
+                // 0 同样不合法，归到信道 1（详见 SignalJammer.config 的说明）。
+                channel = Mathf.clamp(read.i(), 1, silicon.world.blocks.signal.SignalJammer.CHANNEL_MAX);
             }
         }
     }

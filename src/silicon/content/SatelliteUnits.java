@@ -185,8 +185,8 @@ public class SatelliteUnits {
                 // 太阳能板横线
                 Lines.stroke(1.2f, tc.cpy().mul(0.7f).a(alpha));
                 Lines.line(unit.x - r * 2f, unit.y, unit.x + r * 2f, unit.y);
-                // 本体环
-                Lines.stroke(1.5f, tc.a(alpha));
+                // 本体环：tc 是 Team.color 的**共享实例**，直接 a(alpha) 会把全队队色改淡且不恢复——必须 cpy
+                Lines.stroke(1.5f, tc.cpy().a(alpha));
                 Lines.circle(unit.x, unit.y, r);
                 // 核心 + 遥测闪烁
                 Draw.color(tc, alpha);

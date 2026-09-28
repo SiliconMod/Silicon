@@ -208,7 +208,13 @@ public class Silicon extends Mod {
                         SiliconLog.info("sat-launch: malformed signal code from " + p.name);
                         return;
                     }
-                    int result = SatelliteManager.launch(p.team(), sig.isEmpty() ? null : sig, orbit, cb.x, cb.y);
+                    // 空编码 = 沿用控制台当前绑定的编码：客机在 tileConfig 到达前的首帧、或本地
+                    // selectedSignal 被 updateTile 清空而主机尚未清时，传空串会让服务端按"未绑定"处理
+                    // （launch 首行即返回 LAUNCH_NO_HUB）——把同步时序问题伪装成"没绑中枢/无信号"。
+                    // cb 就在手里，直接用它的真值。见 SatelliteConsole.launch 的注释（同一个约定）。
+                    String effSig = (sig == null || sig.isEmpty()) ? cb.selectedSignal : sig;
+                    int result = SatelliteManager.launch(p.team(),
+                            (effSig == null || effSig.isEmpty()) ? null : effSig, orbit, cb.x, cb.y);
                     if (result != SatelliteManager.LAUNCH_OK) {
                         Call.clientPacketReliable(p.con, "sat-result", String.valueOf(result));
                     }

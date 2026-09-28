@@ -62,7 +62,7 @@ public class SignalSpectrum {
     private static final LabelRef[] itfLabels = new LabelRef[SignalJammer.CHANNEL_MAX + 1];
     private static final LabelRef[] chLabels = new LabelRef[SignalJammer.CHANNEL_MAX + 1];
 
-    /** 节流相位（面板打开期间递增；15 tick 一轮） */
+    /** 节流相位（面板打开期间递增；5 tick 一轮，见 update() 里的刷新块） */
     private static int tick;
 
     private SignalSpectrum() {
