@@ -58,16 +58,24 @@ jobs:
       - name: Load PR metadata
         run: |
           set -euo pipefail
+          # ⚠️① heredoc 用 <<'PY' 单引号（防 shell 插值），$GITHUB_ENV 不在 shell 层
+          #    展开，必须经 os.environ 读取——写 '$GITHUB_ENV' 字面名会在 'a' 模式下
+          #    静默建一个空文件，真 GITHUB_ENV 没写进去（R182 实测 run 36450923441）。
+          # ⚠️② GITHUB_ENV 写入只对【后续步骤】生效——本步骤内读不到刚写出的
+          #    REVIEW_PR/REVIEW_HEAD_SHA，任何同步骤内的 echo 自检都会在 set -u 下
+          #    unbound variable 杀步（R183 实测 run 36451573421：os.environ 修复后
+          #    仍挂在 echo 这行）。故本步骤只写不验；下游「Review from diff」步骤
+          #    能拿到这两个变量。若需本步自检，须拆成独立步骤。
           python3 - <<'PY'
           import json
+          import os
           m = json.load(open('collected/meta.json'))
           print('PR=%s head_sha=%s draft=%s head_repo=%s' % (
               m['number'], m['head_sha'], m['draft'], m['head_repo_full_name']))
-          with open('$GITHUB_ENV', 'a') as f:
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write('REVIEW_PR=%s\n' % m['number'])
               f.write('REVIEW_HEAD_SHA=%s\n' % m['head_sha'])
           PY
-          echo "PR=${REVIEW_PR} head=${REVIEW_HEAD_SHA}"
 
       # ── 网关方案：与 robin.yml 的 review job 完全同构，逐字复制（1:1 复用源）──────────
       # zengate 通过拉起真实 opencode serve 子进程与 Zen 通信，绕开 CI 上的来源闸门；
