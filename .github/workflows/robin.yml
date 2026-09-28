@@ -19,11 +19,16 @@ jobs:
     # ⚠️ 同仓 PR 与 fork PR 走的是**两条不同的凭据路径**，不要合并成一条：
     #   - 同仓 PR（本仓维护者的分支）：`pull_request` 事件，github.token 保留 pull-requests: write
     #     → 自动审查（下面 pull_request 那一支）。
-    #   - fork PR：GitHub 对 fork 来源的 `pull_request` 运行**把 token 降级为只读**
-    #     （实测：授权类报错 `Resource not accessible by integration`；对比同一次提交在
-    #     `pull_request_target` 下零授权错误）。而 robin 必须建一条 review 评论，
-    #     需要 pull-requests: write ⇒ 在 `pull_request` 下**必然 403**。
-    #     所以这里显式把 fork PR 从自动路径排除，改由 issue_comment 的 `/review` 兜底：
+    #   - fork PR：GitHub 对 fork 来源的 `pull_request`/`pull_request_review` 运行**把 token
+    #     降级为只读**。实测范围 2026-09-27（跨仓 PR 头提交 a56c600 的双事件对照，唯一变量
+    #     是事件类型）：Voting action 的 `pull_request_review` run 36357503139 报
+    #     `Resource not accessible by integration`（job democracy→Evaluate vote 失败）；
+    #     同一提交的 `pull_request_target` run 36337473071 零授权错误、跑到真实计票只因
+    #     票数不足失败。robin 自身全仓仅 3 次 `pull_request` 运行（均 cancelled/skipped、
+    #     无 403 日志留存），降级行为按 GitHub 文档对 fork PR 的机制延伸到 robin。
+    #     而 robin 必须建一条 review 评论，需要 pull-requests: write ⇒ 在 `pull_request`
+    #     下**必然 403**。所以这里显式把 fork PR 从自动路径排除，改由 issue_comment
+    #     的 `/review` 兜底：
     #     那种运行发生在 base 仓上下文，拿到的是可写 token，且本方案链路不依赖任何 secret。
     #     去掉下面那个 head.repo.full_name 判断，fork PR 就会红给维护者看。
     if: >-
@@ -44,7 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     # 超时预算必须覆盖最坏路径，否则失败时连网关日志都来不及打：
     #   就绪探测上限 600s(10m) + 冒烟 240s(4m) + robin 3 次尝试 × llm-timeout 600s(30m) = 44m
-    # 取 50 分钟留余量。实测正常路径仅 2-4 分钟。
+    # 取 50 分钟留余量。正常路径实测范围（2026-09-27，09 仓测试 PR #28 的 CI；旧链路
+    # 另装 opencode 并设 OPENCODE_PATH，与本配置刻意不设不同）：整个 job 约 2–4 分钟
+    # （run 36319218561≈114s 最快、run 36319493968≈233s）。本工作流在生产尚无完整 run
+    # （fork PR 的 pull_request 运行全为 skipped/cancelled），仅供预算留量参考、不作承诺。
     timeout-minutes: 50
     env:
       # 单一来源：就绪检查与 robin 的 model: 都读这个值，避免两处漂移
