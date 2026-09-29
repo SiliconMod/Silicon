@@ -36,6 +36,9 @@ jobs:
       - name: Fetch PR diff and metadata
         env:
           GH_TOKEN: ${{ github.token }}
+          # P1 指纹：run_id 让第二段能验证「这份 artifact 确实是当前这次采集 run 产的」，
+          # 与 workflow_run 上下文对不上的 artifact 一律拒绝（见 robin-review.yml 校验步）。
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           PR="${{ github.event.pull_request.number }}"
@@ -50,6 +53,7 @@ jobs:
           gh api "repos/${{ github.repository }}/pulls/${PR}" > pr.json
           python3 - <<'PY'
           import json
+          import os
           p = json.load(open('pr.json'))
           head = p.get('head', {})
           base = p.get('base', {})
@@ -65,6 +69,7 @@ jobs:
               'base_repo_full_name': (base.get('repo') or {}).get('full_name', ''),
               'author': (p.get('user') or {}).get('login', ''),
               'updated_at': p.get('updated_at', ''),
+              'run_id': int(os.environ['RUN_ID']),
           }
           json.dump(meta, open('meta.json', 'w'), ensure_ascii=False, indent=2)
           print('meta.json:', json.dumps(meta, ensure_ascii=False))

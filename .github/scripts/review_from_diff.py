@@ -102,6 +102,15 @@ def path_matches_skip(path, patterns):
     return False
 
 
+def sanitize_text(s):
+    """输出净化（P1 边界评审点 8 的驱动侧防线）：剥掉控制字符，
+    防 diff/模型输出里的注入串污染评论。diff 内容只进 LLM，模型输出
+    只以 COMMENT 形式呈现，任何内容都不被执行。"""
+    if not isinstance(s, str):
+        return ""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", s).strip()
+
+
 def filter_and_truncate(diff, skip_patterns, max_diff_size):
     """Split diff into per-file sections on 'diff --git ', drop skip-path files,
     then keep the first max_diff_size chars of the remainder (head-only, robin semantics)."""
@@ -197,6 +206,8 @@ def main():
     ap.add_argument("--pr", required=True)
     ap.add_argument("--head-sha", required=True)
     ap.add_argument("--repo", required=True)
+    ap.add_argument("--run-id", help="collect run id (from workflow_run context); "
+                    "artifact meta.run_id must equal it or the run fails closed")
     ap.add_argument("--dry-run", action="store_true", help="print findings without posting")
     ap.add_argument("--json-out", help="write parsed findings JSON to this file (for tests)")
     ap.add_argument("--repo-root", default=".",
@@ -214,9 +225,39 @@ def main():
     with open(diff_path, "r", encoding="utf-8") as f:
         raw_diff = f.read()
 
+    # P1 指纹校验（fail-closed）：artifact meta 必须与调用方（workflow_run 上下文）
+    # 完全一致——artifact 只当 diff 内容，其 PR 号/link 从不用于任何 API 调用。
+    checks = [
+        ("head_sha", meta.get("head_sha"), args.head_sha),
+        ("number", str(meta.get("number")), str(args.pr)),
+    ]
+    if args.run_id:
+        checks.append(("run_id", str(meta.get("run_id")), args.run_id))
+    for k, got, want in checks:
+        if got != want:
+            log("error: artifact meta mismatch on %s: meta=%r context=%r" % (k, got, want))
+            return 1
+
     if meta.get("draft"):
         log("PR is a draft; skipping review")
         return 0
+
+    # P3 去重：同一 head 已由本 bot 发过 COMMENT review 就不重复发。
+    # concurrency 只取消在途 run，这里兜掉已落地 review 的重复触发（一次 synchronize 一条）。
+    rc, out = run_gh(["repos/%s/pulls/%s/reviews" % (args.repo, args.pr)])
+    if rc == 0:
+        try:
+            existing = json.loads(out)
+        except json.JSONDecodeError:
+            existing = []
+        for rv in existing:
+            if (rv.get("user") or {}).get("login") == "github-actions[bot]" \
+                    and rv.get("state") == "COMMENTED" \
+                    and rv.get("commit_id") == args.head_sha:
+                log("head %s already reviewed (review #%s); skipping" % (args.head_sha[:12], rv.get("id")))
+                return 0
+    else:
+        log("warning: could not list existing reviews (rc=%s); proceeding" % rc)
 
     cfg = load_config(args.repo_root)
     diff = filter_and_truncate(raw_diff, cfg["skip-paths"], cfg["max-diff-size"])
@@ -252,7 +293,7 @@ def main():
         log("review from diff: 0 findings (fallback after retries)")
 
     findings = result["findings"] or []
-    summary = result["summary"] or ""
+    summary = sanitize_text(result.get("summary") or "")
     log("review from diff: %d findings" % len(findings))
 
     if args.json_out:
@@ -266,9 +307,9 @@ def main():
     max_comments = cfg["max-comments"]
     post_inline = 0
     for fd in findings[:max_comments]:
-        path = fd.get("path") or ""
+        path = sanitize_text(fd.get("path") or "")
         line = fd.get("line")
-        body = fd.get("body") or ""
+        body = sanitize_text(fd.get("body") or "")
         if not path or not line or not body:
             continue
         payload = {
