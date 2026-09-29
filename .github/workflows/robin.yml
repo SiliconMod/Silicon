@@ -184,7 +184,7 @@ jobs:
           use-json-response-mode: false
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
-          min-command-permission: triage
+          min-command-permission: read
           review-on-synchronize: true
 
       - name: Gateway log
