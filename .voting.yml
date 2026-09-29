@@ -1,4 +1,5 @@
 ---
 percentageToApprove: 100
 minVotersRequired: 3
-minVotingWindowMinutes: 10
+# 投票窗口已删除（维护者决定 2026-09-29）：0 → 代码跳过窗口检查，票即时生效
+minVotingWindowMinutes: 0
