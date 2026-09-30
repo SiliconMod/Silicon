@@ -156,7 +156,16 @@ def api(path, token, method="GET", body=None):
         )
         try:
             with urllib.request.urlopen(req, timeout=API_TIMEOUT_SECONDS) as r:
-                return json.load(r)
+                raw = r.read()
+                # 必须先读原始字节再判空，不能直接 json.load(r)：
+                # DELETE /git/refs/heads/<ref> 成功时返回 **204 No Content**（响应体
+                # 为空），json.load 读到空体抛 JSONDecodeError。它是 ValueError 的
+                # 子类，**既不是 HTTPError 也不是 OSError**，本函数的 except 一条都
+                # 接不住，会一路冒到 delete_head_branch 的 `except Exception`，把一次
+                # 成功的删除报成「清理异常（不影响合并）」——分支真删了，维护者却看到
+                # 失败提示，会去查一个不存在的故障（与 405 文案那处同族：报错误导方向）。
+                # 空体按「成功但无内容」处理；非空但坏掉的 JSON 仍照常抛，不被掩盖。
+                return json.loads(raw) if raw.strip() else None
         except urllib.error.HTTPError as e:
             # 4xx（含 403/409）一律原样抛出，交给调用方按语义分流。
             if e.code < 500 and e.code != 429:
@@ -528,19 +537,39 @@ def main(now=None):
     if not (token and repo and pr):
         sys.exit("缺少 GH_TOKEN / REPO / PR 环境变量（无法判定，fail-closed）")
 
-    cfg = load_yaml_map(".voting.yml")
-    # .voters.yml 缺文件必须当场失败，不静默当成「无人登记」。
+    # 两个配置文件的加载错误统一在这里收口：缺文件 / 非 UTF-8 两种，
+    # 都换成能指名文件与原因的诊断行，而不是裸 traceback。
+    #
+    # 【为什么必须在这里兜，而不是各自就地 try】
+    # ① 顺序陷阱：.voting.yml 先加载、.voters.yml 后加载。若只给后者加处理
+    #    （robin 二轮 L2 当时的做法），那么「两个都缺」时崩在 .voting.yml 上，
+    #    L2 那条修复**根本走不到** —— 一道为「配置缺失」写的防线，被另一份
+    #    同样会缺失的配置挡在后面，看着存在、实际不可达。
+    # ② 同族漏洞：load_yaml_map 对非 UTF-8 抛的是 RuntimeError（不是
+    #    FileNotFoundError），就地 try FileNotFoundError 抓不到它。
+    #    E2E 审查原话是「解码失败必须显式 fail-closed，**不能裸崩成 traceback**」，
+    #    而当时实现只做到「不静默拍平」，raise 出去无人接 ⇒ 恰好违反自己引用的
+    #    那条要求。实测四个场景全是裸 traceback：缺 .voting.yml /
+    #    .voting.yml 非 UTF-8 / .voters.yml 非 UTF-8 / 两份都缺。
+    #    本文件别处的既有范式是「就地 try + 说人话」（如 .voters.yml 非整数权重），
+    #    这里保持一致。
+    def _load_cfg(path, what):
+        try:
+            return load_yaml_map(path)
+        except FileNotFoundError:
+            sys.exit("无法判定：%s 缺失（%s）。"
+                     "请在仓库根补上该文件后重跑；缺它会让闸门停在"
+                     "「无法评估」，症状与「票不够」无法区分。"
+                     % (path, what))
+        except RuntimeError as e:            # load_yaml_map 的非 UTF-8 路径
+            sys.exit("无法判定：%s（%s）" % (e, what))
+
+    cfg = _load_cfg(".voting.yml", "投票门槛配置")
+    # .voters.yml 缺文件必须当场失败，不静默当成「无人登记」：
     # 静默默认 {} 的症状是「所有 PR 永远停在 投票人 0 < 门槛 3」——方向上是
     # fail-closed，但与「配置写错了」的症状无法区分，排查方向完全跑偏，
     # 与本文件反复强调的「配置错误必须当场可见」相悖（robin 二轮 L2）。
-    # 写法对齐 .voting.yml（default=None -> 缺文件抛 FileNotFoundError），
-    # 但把裸 traceback 换成可读的诊断行。
-    try:
-        voters = load_yaml_map(".voters.yml")
-    except FileNotFoundError:
-        sys.exit("无法判定：.voters.yml 缺失（登记投票人名单不存在）。"
-                 "请在仓库根补上该文件后重跑；缺它会让所有 PR 恒定停在"
-                 "「投票人 0 < 门槛」，症状与「没人投票」无法区分。")
+    voters = _load_cfg(".voters.yml", "登记投票人名单")
 
     # 权重必须是整数。
     #
@@ -805,8 +834,12 @@ def main(now=None):
             p("- 这是合入前的约束不满足：ruleset / required check 挡住，或合并方法")
             p("  不被允许（GitHub 对此只回 `not mergeable` 一类模糊消息，极易被")
             p("  误读成「投票没过」）。优先排查：")
-            p("  ① `democracy` 是否在本 PR 当前头提交上重跑过（同名 context 只要有一条")
-            p("     failure 就整体判红，后到的 success 不覆盖前面的 failure）；")
+            p("  ① `democracy` 在本 PR【当前头提交】上是否重跑过、且【最新一条】run 是")
+            p("     success —— required 判定取的是该 context 名最新一条 run 的结论，")
+            p("     更早的陈旧 failure **不构成阻塞**（实测 PR #59 的 head 上带着一条")
+            p("     早 12 小时的 democracy failure，PR 仍正常合入；`statusCheckRollup`")
+            p("     把同名 context 的失败那条也并进去显示 FAILURE，那是【展示用的并集】，")
+            p("     不等于「合不了」，别照着 rollup 判）；")
             p("  ② `democracy` 的投票窗口起点用的是 `head.repo.pushed_at`，可能被头仓")
             p("     【任意分支】的 push 顶到未来（见上文打印的偏差）；")
             p("  ③ 合并方法不被允许：本脚本请求 squash merge，若仓库未开启 squash，")
