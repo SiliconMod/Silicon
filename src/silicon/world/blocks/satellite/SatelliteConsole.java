@@ -290,14 +290,6 @@ public class SatelliteConsole extends Block {
             table.label(() -> Core.bundle.format("block.silicon-satellite-console.roster.summary",
                     SatelliteManager.launchedCount(team), SatelliteManager.readyCount(team)))
                     .color(Color.lightGray).pad(2f).row();
-            table.label(() -> {
-                int[] n = new int[ORBIT_COUNT];
-                for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
-                    if (r.orbit >= 0 && r.orbit < ORBIT_COUNT) n[r.orbit]++;
-                }
-                return Core.bundle.format("block.silicon-satellite-console.roster.byOrbit",
-                        n[ORBIT_LEO], n[ORBIT_MEO], n[ORBIT_GEO], n[ORBIT_SSO]);
-            }).color(Color.lightGray).pad(2f).row();
 
             arc.struct.Seq<SatelliteManager.SatelliteRecord> list = SatelliteManager.satellites(team);
             if (list.isEmpty()) {
