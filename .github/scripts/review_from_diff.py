@@ -60,7 +60,7 @@ def log(msg):
     print(msg, flush=True)
 
 
-def run_gh(args, timeout=60):
+def run_gh(args, timeout=60, stdin_data=None):
     """Run `gh api ...`; return (exit_code, stdout). Never raises on HTTP errors."""
     env = dict(os.environ)
     if "GH_TOKEN" not in env:
@@ -69,6 +69,7 @@ def run_gh(args, timeout=60):
     try:
         p = subprocess.run(
             ["gh", "api", *args],
+            input=stdin_data,
             capture_output=True, text=True, timeout=timeout, env=env,
         )
         return p.returncode, p.stdout.strip()
@@ -318,10 +319,13 @@ def main():
             "line": int(line),
             "body": body,
         }
+        # 【修 2026-09-30】此前只构建了 payload 却从未把它送进 stdin ——
+        # `gh api --input -` 收到空 body，行内评论 8/8、5/5 全部被 422 拒收，
+        # 每条审查只剩摘要 body。现在把 JSON 以 stdin 传入，行内评论真正落地。
         rc, out = run_gh([
             "-X", "POST", "repos/%s/pulls/%s/comments" % (args.repo, args.pr),
             "--input", "-",
-        ])
+        ], stdin_data=json.dumps(payload))
         if rc == 0:
             post_inline += 1
             log("posted line comment on %s:%s" % (path, line))

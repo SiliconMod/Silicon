@@ -22,8 +22,11 @@ on:
   # 投票载体就是 PR review（Approve / Request changes，action 遍历 pulls.listReviews）。
   # action 的 switch 不认 payloadAction='submitted'，所以此前「投完票票数不刷新」，
   # 必须等下一次 push —— 这正是投票无法自动更新的根因。这里用 payloadAction 强制改写。
+  # dismissed 也要触发重评（E2E 审查发现）：dismiss 掉某张票的处置建议，在只有
+  # submitted 的触发器下永远不会重跑；dismiss 后同样以 payloadAction=synchronize
+  # 走「当 synchronize 处理」分支，重评即发生。
   pull_request_review:
-    types: [submitted]
+    types: [submitted, dismissed]
 
 # ⚠️ 这里【不】设顶层 permissions。
 # 顶层 permissions 会被每个 job 继承：一旦为了 automerge 需要 contents: write 而写在顶层，
@@ -45,6 +48,11 @@ on:
 #      写成显式的，日后 review 时一眼能看见这条边界。
 #   ② 票数与门槛只从 base 检出（.voting.yml / .voters.yml 同理），
 #      外部贡献者无法通过改 PR 里的配置文件来放宽门槛或给自己加权。
+#   ③ 本文件内【禁止】install / uses 未钉 commit 的 action、引用 PR 侧 ref 或
+#      执行 PR 侧脚本（E2E 审查建议）：本 workflow 以本仓权限跑 pull_request_target，
+#      任何「从 PR 注入内容后执行」的步骤 = 把本仓写权限交给外部贡献者。
+#      另：所有 checkout 一律 persist-credentials: false，把高权限暴露面压到最小——
+#      AUTOMERGE_TOKEN 只出现在需要它的那个 job 的 env 里，不进 git 凭据。
 jobs:
   # 真实票数评估 + 投票评论。context 名必须保持 democracy：
   # 上游 ruleset 22253791 登记的 required context 就是这个名字，改名会直接让规则失配。
@@ -62,6 +70,8 @@ jobs:
         with:
           # 见文件头 ①：显式钉在 base 提交上，不检 PR 代码
           ref: ${{ github.event.pull_request.base.sha }}
+          # 见文件头 ③：不把凭据留给后续步骤，收窄 pull_request_target 权限面
+          persist-credentials: false
       - name: Evaluate vote
         # 钉死到 commit，而不是 @main。原因同文件头：@main 是浮动 ref，任何能往
         # Xiaobei09/git-democracy 推东西的人，都能在不改本 PR 的情况下改变本仓
@@ -107,6 +117,8 @@ jobs:
         with:
           # 见文件头 ①：复核脚本必须来自 base，不能是 PR 作者提供的版本
           ref: ${{ github.event.pull_request.base.sha }}
+          # 见文件头 ③：拷贝凭据不进 git，AUTOMERGE_TOKEN 只活在下一步 env 里
+          persist-credentials: false
       - name: Re-verify vote independently, then squash-merge
         env:
           GH_TOKEN: ${{ github.token }}
@@ -121,6 +133,9 @@ jobs:
           # Secrets → New repository secret，AUTOMERGE_TOKEN = 一把对本仓有
           # `contents: write` 的令牌（classic PAT 勾 Contents:read&write 即可，
           # 仓库归属本仓即可，不必属于 PR 作者）。
+          # 更窄的替代：fine-grained PAT，仅授本仓 Contents: read&write ——
+          # 若维护者不想给 classic PAT 的全部仓库权限，用 fine-grained 更稳
+          # （E2E 审查建议）。
           #
           # 为什么必须是 secret 而不是仓库变量：`vars` 只能读到 Configuration
           # variables，【读不到 Actions secrets】。写成 ${{ vars.X }} 会恒为空串。

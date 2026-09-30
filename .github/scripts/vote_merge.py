@@ -212,6 +212,12 @@ def load_yaml_map(path, default=None):
     except FileNotFoundError:
         if default is None:
             raise
+        return out
+    except UnicodeDecodeError as exc:
+        # E2E 审查建议：配置解码失败必须显式 fail-closed，不能静默拍平、
+        # 也不能裸崩成 traceback——给出一条能定位文件和原因的拒绝信息。
+        raise RuntimeError("%s 不是有效 UTF-8（%s）——配置损坏，拒绝评估"
+                           % (path, exc)) from exc
     return out
 
 
@@ -247,11 +253,14 @@ def latest_reviews(reviews):
         # 带上 state：诊断输出要指名「哪一张 review、谁投的、什么时候」，
         # 只留 (vote, sub, rid) 的话 COMMENTED / DISMISSED / PENDING 三种
         # 都被压成 vote=0，运维看到的就只是「他不计入」而不知道他干了什么。
-        latest[login] = (vote, sub, rid, state)
+        latest[login] = (vote, sub, rid, state, r.get("commit_id") or "")
     return latest
 
 
-def tally(reviews, voters, author, update_time=None, now=None):
+AUTHOR_SYNTH_DEFAULT = (None, None, None, "作者合成票（action 替他投）", None)
+
+
+def tally(reviews, voters, author, update_time=None, now=None, head_sha=None):
     """返回 (numVoters, forIt, againstIt, per_user, stale_dropped, per_vote, dropped_detail)。
 
     update_time 之后提交的票才有效；作者的合成票恒有效。
@@ -263,22 +272,35 @@ def tally(reviews, voters, author, update_time=None, now=None):
                        覆盖【所有】进入计票的人（含权重 0 的与作者合成票），
                        用来指名「是谁的哪一张 review 在挡着」。
       dropped_detail = {login: (state, submitted_at, review_id)}，
-                       那些因早于本次更新（或时间戳解析不出来）而作废的票 ——
+                       那些因未落在当前头提交上（head_sha 缺省时改按「早于本次
+                       更新 / 时间戳解析不出来」兜底）而作废的票 ——
                        「我明明投了票为什么不算数」的答案在这里。
     位置都排在原 5 元组之后，索引 0..4 的含义一字未动。
     """
     latest = latest_reviews(reviews)
     counted, dropped = {}, []
     dropped_detail = {}
-    for login, (vote, sub, rid, state) in latest.items():
+    for login, (vote, sub, rid, state, cmt) in latest.items():
         t = parse_ts(sub)
         # vote==0（PENDING / COMMENTED / DISMISSED）不参与任何门槛判定，它的时间戳
-        # 解析不了也无所谓；只有决定性的票才必须过时间这一关。
-        if update_time is not None and vote != 0 and (t is None or t <= update_time):
+        # 解析不了也无所谓；只有决定性的票才必须过锚点这一关。
+        if vote == 0:
+            counted[login] = vote
+            continue
+        stale = False
+        # 锚点①（不可伪造，E2E 审查主发现）：决定性票必须落在当前 head 提交上。
+        # GitHub 在提交 review 时把 commit_id 钉到当时的 head commit，PR 作者
+        # 无法回填这个字段 —— 旧头提交上的 APPOVED 在 head 前移后自然作废，
+        # 作者也不能靠改提交者时间把旧票「洗」成新票。head_sha 传空时退回锚点②。
+        if head_sha is not None and cmt != head_sha:
+            stale = True
+        elif update_time is not None and (t is None or t <= update_time):
             # t is None 一并作废：时间戳解析不出来，就【无法证明】这张票晚于本次
             # 更新，按 fail-closed 处理。若放行，条件就退化成「解析失败=最新票」，
             # 那恰好是本函数存在的意义所在 —— 防止 PR 更新前的旧票被算进来。
-            dropped.append(login)             # PR 更新前投的票 → 作废
+            stale = True
+        if stale:
+            dropped.append(login)             # 旧头 / 过早的票 → 作废
             dropped_detail[login] = (state, sub, rid)
             continue
         counted[login] = vote
@@ -294,9 +316,8 @@ def tally(reviews, voters, author, update_time=None, now=None):
     for login, vote in counted.items():
         w = voters.get(login)
         w = w if isinstance(w, int) else 0
-        state = latest.get(login, (None, None, None, "作者合成票（action 替他投）"))[3]
-        sub = latest.get(login, (None, None, None, None))[1]
-        rid = latest.get(login, (None, None, None, None))[2]
+        e = latest.get(login) or AUTHOR_SYNTH_DEFAULT
+        state, sub, rid = e[3], e[1], e[2]
         per_vote[login] = (vote, w, state, sub, rid)
         if w > 0 and vote != 0:
             num_voters += 1
@@ -349,7 +370,11 @@ _PAT_WHY = ("选它而不是继续用 GITHUB_TOKEN 的关键理由：GITHUB_TOKE
 def merge_pr(repo, pr, sha, token, pr_head_repo=None):
     """用 REST merge 把 sha 钉死到已复核的头提交。
 
-    返回 (merged: bool, detail: str, code: int|None)。传了 sha 之后，若在
+    返回 (merged: bool, detail: str, code: int|None, merge_token: str|None)。
+    第 4 项 = 合并实际使用的凭据（跨仓 PR 时是 pick 出来的 AUTOMERGE_TOKEN 而非
+    只读的 GITHUB_TOKEN），供删贡献者分支时复用 —— 旧实现删分支用的还是裸
+    GITHUB_TOKEN，跨仓删分支路径必然 403（E2E 审查「合并凭据未复用」发现）。
+    传了 sha 之后，若在
     「复核完成」到「合并生效」之间有人推了新提交，GitHub 会返回 409 而**不会**
     把没复核过的新提交合进去 —— 这正是 gh pr merge 留给我们的 TOCTOU 窗口。
 
@@ -364,18 +389,18 @@ def merge_pr(repo, pr, sha, token, pr_head_repo=None):
     mt, why = pick_merge_token(base_repo=repo, head_repo=pr_head_repo, gh=token)
     print("- 合并凭据: %s" % why)
     if not mt:
-        return False, "缺少可用的合并凭据（详见上方「合并凭据」行）", None
+        return False, "缺少可用的合并凭据（详见上方「合并凭据」行）", None, None
     try:
         out = api(path, mt, method="PUT",
                   body={"sha": sha, "merge_method": "squash"})
-        return bool(out.get("merged")), (out.get("message") or ""), 200
+        return bool(out.get("merged")), (out.get("message") or ""), 200, mt
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
         try:
             detail = json.loads(detail).get("message", detail)
         except ValueError:
             pass
-        return False, detail.strip(), e.code
+        return False, detail.strip(), e.code, mt
 
 
 def delete_head_branch(head, base_repo, token):
@@ -568,9 +593,14 @@ def main(now=None):
         page += 1
 
     num_voters, for_it, against_it, per_user, dropped, per_vote, dropped_detail = tally(
-        reviews, voters, author, update_time, now)
+        reviews, voters, author, update_time, now, head_sha=sha)
     total = for_it + against_it
     pct = (for_it / total * 100) if total else 0.0
+    # 数据一致性守卫（E2E 审查建议）：for_it/against_it 与 total 理应对得上，
+    # 不一致说明计票逻辑出了 bug —— 显式报警而不是让「>100%」这种怪值悄悄过去。
+    if for_it > total or against_it > total:
+        p("⚠️ 数据异常: 赞成/反对票数与总数不一致（for=%d against=%d total=%d）"
+              % (for_it, against_it, total))
 
     p("### 自动合并复核结果")
     p("")
@@ -620,7 +650,7 @@ def main(now=None):
         reasons.append("投票人 %d < 门槛 %d" % (num_voters, need_voters))
     if total == 0:
         reasons.append("无任何有效票（action 在此情形会因 0/0=NaN 而静默放行）")
-    elif pct < need_pct:
+    elif for_it * 100 < need_pct * total:
         reasons.append("赞成率 %.1f%% < 门槛 %d%%" % (pct, need_pct))
     if update_time > now:
         # 头提交时间取自【提交者的本地时钟】，可能被顶到未来（机器时钟不准、或者
@@ -653,11 +683,11 @@ def main(now=None):
             if dropped_detail:
                 for k in sorted(dropped_detail):
                     state, sub, rid = dropped_detail[k]
-                    p("    · `%s` 的 %s（review #%s，%s）早于本次更新，已作废"
+                    p("    · `%s` 的 %s（review #%s，%s）未落在当前头提交上（或早于本次更新），已作废"
                           % (k, state, rid, sub))
         if total == 0:
             p("  · 票数: 没有任何有效票。登记投票人里没有任何人投出决定性立场"
-                  "（Approve / Request changes），或全都早于本次更新被作废。")
+                  "（Approve / Request changes），或全都未落在当前头提交上（或早于本次更新）被作废。")
         elif pct < need_pct:
             blockers = sorted(k for k, v in per_vote.items() if v[0] < 0)
             p("  · 赞成率: 反对票来自 %s"
@@ -682,8 +712,9 @@ def main(now=None):
     p("- 阻塞明细: 无（人数 / 赞成率 / 窗口三项门槛全部满足）")
     p("")
     p("票数复核通过，执行 squash 合并（头提交已钉死为 `%s`）" % sha)
-    merged, detail, code = merge_pr(repo, pr, sha, token,
-                                    pr_head_repo=(head.get("repo") or {}).get("full_name"))
+    merged, detail, code, merge_token = merge_pr(
+        repo, pr, sha, token,
+        pr_head_repo=(head.get("repo") or {}).get("full_name"))
     if not merged:
         # 走到这里说明本脚本自己的门槛全过了，票数判定没问题。但「被拒」有三种
         # 完全不同、成因相反的原因，必须按 HTTP 状态码分流——GitHub 对 403/405
@@ -720,7 +751,7 @@ def main(now=None):
         summary(["## 自动合并复核：合并被拒（HTTP %s）" % code, ""] + _SUM)
         sys.exit(1)
     report("已合并 %s（头提交 `%s`）" % (detail or "", sha))
-    p("- 贡献者分支清理: %s" % delete_head_branch(head, repo, token))
+    p("- 贡献者分支清理: %s" % delete_head_branch(head, repo, merge_token))
     summary(["## 自动合并复核：已合并", ""] + _SUM)
 
 
