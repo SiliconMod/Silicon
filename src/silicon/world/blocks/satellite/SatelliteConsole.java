@@ -17,6 +17,8 @@ import mindustry.gen.Groups;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.world.Block;
+import silicon.content.SatelliteUnits;
+import silicon.util.LoicWeapon;
 import silicon.util.SatelliteManager;
 import silicon.world.blocks.signal.SignalChannel;
 import silicon.world.blocks.signal.SignalSource;
@@ -68,6 +70,16 @@ public class SatelliteConsole extends Block {
     public static boolean orbitAllowed(int type, int orbit) {
         if (type == SatelliteLauncher.TYPE_ION) return orbit == ORBIT_LEO;
         return !(type == TYPE_SIGNAL && orbit == ORBIT_SSO);
+    }
+
+    /**
+     * 由主机回执覆盖本地开关状态。放在方块类上（而不是内部类里）：客机收到 `sat-loic-result` 时
+     * 手边没有控制台实例，回执路径只需按 unitId 定位那份状态。
+     */
+    public static void applyLoicState(int unitId, int autoFire, int attackSats) {
+        LoicWeapon.State s = LoicWeapon.state(unitId);
+        s.autoFire = autoFire != 0;
+        s.attackSats = attackSats != 0;
     }
 
 
@@ -195,6 +207,24 @@ public class SatelliteConsole extends Block {
             } else {
                 Vars.ui.showInfoToast(Core.bundle.get(key), 3f);
             }
+        }
+
+        /**
+         * 切换离子炮卫星的开关。权威端直接改；纯客机把**期望的新状态**打包发给主机，
+         * 并本地乐观更新（主机回执 `sat-loic-result` 会再覆盖一次，所以两台客机同时操作时以主机为准）。
+         *
+         * @param autoFire true = 切换"自动发射"，false = 切换"攻击低轨卫星"
+         */
+        void toggleLoic(int unitId, boolean autoFire) {
+            LoicWeapon.State s = LoicWeapon.state(unitId);
+            boolean nextAuto = autoFire ? !s.autoFire : s.autoFire;
+            boolean nextSats = autoFire ? s.attackSats : !s.attackSats;
+            if (Vars.net.active() && !SatelliteManager.isAuthority()) {
+                Call.serverPacketReliable("sat-loic", tileX() + "," + tileY() + "|" + unitId
+                        + "|" + (nextAuto ? 1 : 0) + "|" + (nextSats ? 1 : 0));
+            }
+            s.autoFire = nextAuto;
+            s.attackSats = nextSats;
         }
 
         /** 选中时的小面板：仅一个"打开界面"按钮，点击后打开可拖动窗口 */
@@ -341,6 +371,29 @@ public class SatelliteConsole extends Block {
                         ? hp + " " + Core.bundle.get("block.silicon-satellite-console.roster.state.muted")
                         : hp;
             }).color(Color.lightGray).width(150f).pad(4f);
+            // 离子炮卫星：弹药 + 两个开关（自动发射 / 是否对低轨卫星开火）。
+            // 开关的权威语义在主机，纯客机点击时由 toggleLoic 发包给主机执行。
+            if (r.type == SatelliteLauncher.TYPE_ION) {
+                row.label(() -> {
+                    LoicWeapon.State s = LoicWeapon.peekState(r.unitId);
+                    return Core.bundle.format("block.silicon-satellite-console.loic.ammo",
+                            s == null ? 0 : (int) s.ammo, (int) SatelliteUnits.ION_MAGAZINE);
+                }).color(Color.lightGray).width(58f).pad(4f);
+                TextButton autoBtn = new TextButton(
+                        Core.bundle.get("block.silicon-satellite-console.loic.auto"), Styles.flatTogglet);
+                autoBtn.clicked(() -> toggleLoic(r.unitId, true));
+                row.add(autoBtn).size(62f, 32f).pad(2f);
+                TextButton satsBtn = new TextButton(
+                        Core.bundle.get("block.silicon-satellite-console.loic.sats"), Styles.flatTogglet);
+                satsBtn.clicked(() -> toggleLoic(r.unitId, false));
+                row.add(satsBtn).size(62f, 32f).pad(2f);
+                // 状态每帧回读（主机上的改动、或另一台客机改完经回执同步的结果都能反映出来）
+                row.update(() -> {
+                    LoicWeapon.State st = LoicWeapon.state(r.unitId);
+                    if (autoBtn.isChecked() != st.autoFire) autoBtn.setChecked(st.autoFire);
+                    if (satsBtn.isChecked() != st.attackSats) satsBtn.setChecked(st.attackSats);
+                });
+            }
             table.add(row).left().pad(2f).row();
         }
 

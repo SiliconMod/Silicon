@@ -151,6 +151,7 @@ public class SatelliteManager {
         readyTypeMirror.clear();
         producingTypeMirror.clear();
         SatelliteIntel.clear(); // 定位情报同样按世界生命周期清理（换图/读档后旧坐标无意义）
+        LoicWeapon.clear();     // 离子炮弹药与开关同理：读档后弹药回满、开关回默认
     }
 
     /** 世界加载完成后对账（WorldLoadEvent + app.post 延迟一拍 + 控制器节流兜底）。

@@ -231,6 +231,39 @@ public class Silicon extends Mod {
                 }
             });
 
+            // 离子炮开关请求（客机 → 服务器）：只传控制台坐标、目标 unitId 与期望的两个开关值。
+            // 校验与 sat-launch 同级：坐标→控制台存在→队伍匹配→enabled，另加"该 unitId 确实是本队的
+            // 离子炮卫星"（否则等于让任意客户端改别人卫星的武器状态）。权威端写入后回执最终状态。
+            netServer.addPacketHandler("sat-loic", (p, data) -> {
+                try {
+                    String[] parts = data.split("\\|", -1);
+                    if (parts.length != 4) return;
+                    String[] xy = parts[0].split(",");
+                    if (xy.length != 2) return;
+                    mindustry.world.Tile tile = world.tile(
+                            Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
+                    if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
+                        return;
+                    }
+                    silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
+                            (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
+                    if (cb.team != p.team() || !cb.enabled) return;
+                    int unitId = Integer.parseInt(parts[1].trim());
+                    mindustry.gen.Unit su = mindustry.gen.Groups.unit.getByID(unitId);
+                    if (su == null || su.team != p.team()) return;
+                    silicon.util.SatelliteManager.SatelliteRecord rec = silicon.util.SatelliteManager.recordOf(unitId);
+                    if (rec == null || rec.type != silicon.world.blocks.satellite.SatelliteLauncher.TYPE_ION) return;
+
+                    silicon.util.LoicWeapon.State st = silicon.util.LoicWeapon.state(unitId);
+                    st.autoFire = Integer.parseInt(parts[2].trim()) != 0;
+                    st.attackSats = Integer.parseInt(parts[3].trim()) != 0;
+                    Call.clientPacketReliable(p.con, "sat-loic-result",
+                            unitId + "|" + (st.autoFire ? 1 : 0) + "|" + (st.attackSats ? 1 : 0));
+                } catch (Exception ex) {
+                    SiliconLog.info("sat-loic: handler error: " + ex);
+                }
+            });
+
         }
 
         // 多人暂停的服务端包处理器：必须注册在 init()——dedicated 服务器只触发 ServerLoadEvent、
@@ -371,6 +404,18 @@ public class Silicon extends Mod {
             // 卫星状态广播（服务器 → 客机）：应用主机权威状态（在轨数/归属信号/待发射数镜像）。
             // 包处理器在网络线程回调——一切状态/UI 操作必须 post 回主线程
             netClient.addPacketHandler("sat-state", s -> Core.app.post(() -> SatelliteManager.applyState(s)));
+            // 离子炮开关回执（服务器 → 请求者）：用权威值覆盖客机的乐观更新
+            netClient.addPacketHandler("sat-loic-result", s -> Core.app.post(() -> {
+                try {
+                    String[] f = s.split("\\|", -1);
+                    if (f.length != 3) return;
+                    silicon.world.blocks.satellite.SatelliteConsole.applyLoicState(
+                            Integer.parseInt(f[0].trim()),
+                            Integer.parseInt(f[1].trim()),
+                            Integer.parseInt(f[2].trim()));
+                } catch (NumberFormatException ignoredBadResult) {
+                }
+            }));
             // 发射失败反馈（服务器 → 请求者）
             netClient.addPacketHandler("sat-result", s -> Core.app.post(() -> {
                 if (s.equals("disabled")) {

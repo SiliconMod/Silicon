@@ -71,18 +71,17 @@ public class SatelliteUnits {
     }
 
     /**
-     * 离子炮武器：60 秒冷却、只打地面建筑、落点大范围溅射。
+     * 离子炮武器：**1 秒连射**、**5 发弹夹**、每 30 秒回 1 发；对地打建筑，也可打**低轨卫星**。
      * <p>
-     * 索敌由引擎完成（`Weapon.findTarget` 的第二个谓词就是建筑），所以卫星飞过敌方基地会自动开火；
-     * 玩家既不需要也无法手动瞄准——这与"卫星不可操控"的定位一致。
-     * <p>
-     * 参数放在这里而不是单独的结算类：改用单位武器之后，冷却（`Weapon.reload`）、
-     * 溅射衰减（引擎的 splash 结算）与联机同步都由引擎负责，不再需要自维护的冷却表与网络包。
+     * 索敌、弹药与两个开关（自动发射 / 攻击卫星）都在 {@link silicon.util.LoicWeapon} 里：
+     * 引擎的武器没有"弹夹"概念（`reload` 只是开火间隔），所以那里用一张按 unitId 的状态表补上，
+     * 并**重写** `findTarget` —— 不能在 `super.findTarget` 之后过滤，否则最近的若恰好是卫星且
+     * "攻击卫星"关闭，会连更远的建筑一起漏掉。
      */
     /** 单次打击的中心伤害（溅射边缘由引擎按距离衰减） */
-    public static final float ION_DAMAGE = 3000f;
+    public static final float ION_DAMAGE = 10000f;
     /** 溅射半径（格） */
-    public static final float ION_RADIUS_TILES = 8f;
+    public static final float ION_RADIUS_TILES = 10f;
     /**
      * 武器索敌射程（格）——<b>必须显式设置</b>：`Weapon` 用 `bullet.range` 索敌，而它未设置时由
      * `speed × lifetime` 推算（12 × 90 = 1080px ≈ 135 格），会让卫星在半个地图外就开火。
@@ -90,16 +89,20 @@ public class SatelliteUnits {
      * （覆盖半径随图幅缩放而武器射程是常量：大图上覆盖更大、打击却仍限 40 格，属于可接受的近似。）
      */
     public static final float ION_RANGE_TILES = 40f;
-    /** 冷却（tick）：60 秒 */
-    public static final float ION_COOLDOWN_TICKS = 60f * 60f;
+    /** 开火间隔（tick）：1 秒 */
+    public static final float ION_COOLDOWN_TICKS = 60f;
+    /** 弹夹容量 */
+    public static final float ION_MAGAZINE = 5f;
+    /** 每恢复 1 发所需时间（tick）：30 秒 */
+    public static final float ION_RECHARGE_TICKS = 30f * 60f;
 
-    static mindustry.type.Weapon ionWeapon() {
+    static silicon.util.LoicWeapon ionWeapon() {
         mindustry.entities.bullet.BulletType shot = new mindustry.entities.bullet.BulletType() {{
             damage = ION_DAMAGE;
             splashDamage = ION_DAMAGE;
             splashDamageRadius = ION_RADIUS_TILES * 8f;
             collidesGround = true;   // 打地面目标（建筑）
-            collidesAir = false;     // 不打空中单位
+            collidesAir = true;      // 也要能打低轨卫星（引擎的单位索敌靠 isFlying 放行）
             collidesTiles = true;
             speed = 12f;             // 从轨道砸下：够快，但保留可见的坠落过程
             lifetime = 90f;
@@ -108,8 +111,10 @@ public class SatelliteUnits {
             despawnEffect = mindustry.content.Fx.none;
             shootEffect = mindustry.content.Fx.sparkShoot;
         }};
-        return new mindustry.type.Weapon("silicon-ion-cannon") {{
+        return new silicon.util.LoicWeapon("silicon-ion-cannon") {{
             reload = ION_COOLDOWN_TICKS;
+            maxAmmo = ION_MAGAZINE;
+            rechargeTicks = ION_RECHARGE_TICKS;
             bullet = shot;
             rotate = false;    // 不需要转向表现（伤害直接落在目标上）
             mirror = false;
