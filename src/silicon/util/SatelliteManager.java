@@ -150,6 +150,7 @@ public class SatelliteManager {
         readyMirror.clear();
         readyTypeMirror.clear();
         producingTypeMirror.clear();
+        SatelliteIntel.clear(); // 定位情报同样按世界生命周期清理（换图/读档后旧坐标无意义）
     }
 
     /** 世界加载完成后对账（WorldLoadEvent + app.post 延迟一拍 + 控制器节流兜底）。

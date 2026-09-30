@@ -21,6 +21,7 @@ import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.satellite.SatelliteLauncher;
 import silicon.world.blocks.sandbox.MessageTest;
 import silicon.world.blocks.signal.DimensionAnchor;
+import silicon.world.blocks.signal.SatelliteLocator;
 import silicon.world.blocks.signal.SignalDetector;
 import silicon.world.blocks.signal.SignalJammer;
 import silicon.world.blocks.signal.SignalRelay;
@@ -32,7 +33,8 @@ public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
             dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
-            satelliteLauncher, satelliteConsole, messageTest, signalDetector, asatInterceptor;
+            satelliteLauncher, satelliteConsole, messageTest, signalDetector, asatInterceptor,
+            satelliteLocator;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -185,6 +187,15 @@ public class Blocks {
             size = 2;
             health = 1200;
             armor = 6f;
+        }};
+        // 卫星定位器（第二阶段）：同样追加在末尾——拦截塔要靠它指路
+        satelliteLocator = new SatelliteLocator("satellite-locator") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 400, Items.lead, 300, Items.silicon, 350,
+                            Items.titanium, 200, Items.metaglass, 120));
+            alwaysUnlocked = true;
+            size = 2;
+            health = 700;
         }};
 
     }
