@@ -7,6 +7,7 @@ import mindustry.type.ItemStack;
 import mindustry.world.Block;
 import mindustry.world.meta.BuildVisibility;
 import silicon.world.blocks.container.DualPurposeStorager;
+import silicon.world.blocks.defense.AsatInterceptor;
 import silicon.world.blocks.defense.Switch;
 import silicon.world.blocks.distribution.ItemTransferHub;
 import silicon.world.blocks.distribution.Junction;
@@ -31,7 +32,7 @@ public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
             dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
-            satelliteLauncher, satelliteConsole, messageTest, signalDetector;
+            satelliteLauncher, satelliteConsole, messageTest, signalDetector, asatInterceptor;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -172,6 +173,17 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 1;
             health = 60;
+        }};
+        // 反卫星拦截塔（第二阶段）：新方块一律追加到末尾，绝不插在已注册方块之间——
+        // 插队会移动其后所有方块的内容 ID，虽然存档按内容名映射、但仍会打乱与上游的注册序
+        asatInterceptor = new AsatInterceptor("asat-interceptor") {{
+            requirements(Category.defense, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 250, Items.lead, 180, Items.silicon, 200,
+                            Items.thorium, 80, Items.titanium, 120));
+            alwaysUnlocked = true;
+            size = 2;
+            health = 900;
+            armor = 4f;
         }};
 
     }
