@@ -297,15 +297,17 @@ public class SatelliteConsole extends Block {
                         .color(Color.lightGray).pad(12f).row();
                 return;
             }
-            // 表头：与数据行**都显式左对齐**——arc 的 Table 默认把子表居中，表头与数据行总宽不同就会整列错位
-            //（上一版就是这样：数据行末尾多一个按钮 → 表头整体右移 → "信道"那列下面是空的）
+            // 表头：与数据行**逐列同宽、同空隙**，且外层 cell 左对齐（.left() 作用于表格整体位置）——
+            // 列内不再左对齐，回到 arc 默认的居中；每列 pad(4f) 让相邻列空隙一致。
+            // （上一版把 .left() 加在列内 label 上，列内就变成了左对齐；但外层若不加 .left()，两张表
+            //   会各自居中、总宽不同就整列错位。所以这里是"外层左对齐 + 列内居中"两件事。）
             table.row();
             Table head = new Table();
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.code")).width(64f).left();
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.type")).width(72f);
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.orbit")).width(48f);
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.channel")).width(40f);
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.health")).width(150f).left();
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.code")).width(64f).pad(4f);
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.type")).width(72f).pad(4f);
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.orbit")).width(48f).pad(4f);
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.channel")).width(40f).pad(4f);
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.health")).width(150f).pad(4f);
             table.add(head).left().pad(2f).row();
             for (SatelliteManager.SatelliteRecord r : list) {
                 addRosterRow(table, r);
@@ -322,19 +324,19 @@ public class SatelliteConsole extends Block {
             });
         }
 
-        /** 在轨列表的一行：列宽必须与表头逐列一致，且同样左对齐 */
+        /** 在轨列表的一行：列宽与空隙必须与表头逐列一致；列内居中（不加 .left()） */
         void addRosterRow(Table table, SatelliteManager.SatelliteRecord r) {
             table.row();
             Table row = new Table();
             row.label(() -> r.code == null
                             ? Core.bundle.get("block.silicon-satellite-console.nobind") : r.code)
-                    .color(r.code == null ? Color.lightGray : Color.white).width(64f).left();
+                    .color(r.code == null ? Color.lightGray : Color.white).width(64f).pad(4f);
             row.label(() -> r.type == SatelliteLauncher.TYPE_TEST
                             ? Core.bundle.get("block.silicon-satellite-console.type.short.test")
                             : Core.bundle.get("block.silicon-satellite-console.type.short.signal"))
-                    .color(Color.lightGray).width(72f);
-            row.label(() -> orbitKeyShort(r.orbit)).width(48f);
-            row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f);
+                    .color(Color.lightGray).width(72f).pad(4f);
+            row.label(() -> orbitKeyShort(r.orbit)).width(48f).pad(4f);
+            row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f).pad(4f);
             // 血量：直接读实体，每帧求值 → 掉血立刻可见。实体不在名册里说明丢失；
             // 编码的地面源全没了则在血量后加「静默」后缀（卫星还在轨，但不广播了）
             row.label(() -> {
@@ -344,7 +346,7 @@ public class SatelliteConsole extends Block {
                 return (r.code != null && !SignalChannel.hasLiveSource(team, r.code))
                         ? hp + " " + Core.bundle.get("block.silicon-satellite-console.roster.state.muted")
                         : hp;
-            }).color(Color.lightGray).width(150f).left();
+            }).color(Color.lightGray).width(150f).pad(4f);
             table.add(row).left().pad(2f).row();
         }
 
