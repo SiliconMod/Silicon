@@ -17,8 +17,10 @@ import mindustry.gen.Posc;
 import mindustry.gen.Unit;
 import mindustry.graphics.Layer;
 import mindustry.world.blocks.defense.turrets.Turret;
+import silicon.util.OrbitSatelliteController;
 import silicon.util.SatelliteIntel;
 import silicon.util.SatelliteManager;
+import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.signal.SignalChannel;
 
 /**
@@ -58,6 +60,16 @@ public class AsatInterceptor extends Turret {
     public static final Color LOCK_COLOR = Color.valueOf("ff6a3c");
     /** 取得新目标时锁定标记的持续时长（tick；60 tick = 1 秒） */
     public float acquireTicks = 36f;
+    /**
+     * 各轨道相对 LEO 的**锁定难度**："轨道越高越难被锁定"。
+     * <p>
+     * 下标即 {@link SatelliteConsole#ORBIT_LEO}..{@link SatelliteConsole#ORBIT_SSO}：
+     * LEO 1.0 / MEO 1.5 / GEO 2.5 / SSO 1.0（SSO 与 LEO 同属低轨，只是倾角不同，因此同档）。
+     * <p>
+     * 这个系数与覆盖半径恰好**成反比**：LEO 覆盖最小但最好打，GEO 一颗覆盖全图却最难被击落——
+     * 于是"高轨道更强的覆盖"要用"更难保护"来换，两种选择各有代价。
+     */
+    public static final float[] ORBIT_LOCK_FACTOR = {1f, 1.5f, 2.5f, 1f};
 
     public AsatInterceptor(String name) {
         super(name);
@@ -111,9 +123,31 @@ public class AsatInterceptor extends Turret {
             return Mathf.clamp(best / qualityRef);
         }
 
-        /** 当前所需的锁定时间：可用度越高越快 */
+        /** 当前目标的轨道锁定系数（无目标/非卫星时按 1 处理） */
+        public float orbitLockFactor() {
+            if (target instanceof Unit u && u.controller() instanceof OrbitSatelliteController c
+                    && c.orbit >= 0 && c.orbit < ORBIT_LOCK_FACTOR.length) {
+                return ORBIT_LOCK_FACTOR[c.orbit];
+            }
+            return 1f;
+        }
+
+        /** 当前所需锁定时间：可用度越高越快，再乘目标的轨道难度（越高轨道越难） */
         public float lockTime() {
-            return lockTimeMin + (lockTimeMax - lockTimeMin) * (1f - quality);
+            return (lockTimeMin + (lockTimeMax - lockTimeMin) * (1f - quality)) * orbitLockFactor();
+        }
+
+        /** 目标轨道短名（无目标时为 null）。控制台的 orbitKeyShort 在它的内部类里，这里自带一份 */
+        public String targetOrbitName() {
+            if (target instanceof Unit u && u.controller() instanceof OrbitSatelliteController c) {
+                switch (c.orbit) {
+                    case SatelliteConsole.ORBIT_LEO: return "LEO";
+                    case SatelliteConsole.ORBIT_MEO: return "MEO";
+                    case SatelliteConsole.ORBIT_GEO: return "GEO";
+                    default: return "SSO";
+                }
+            }
+            return null;
         }
 
         /** 锁定进度（0~1），绘制与面板共用 */
@@ -301,6 +335,13 @@ public class AsatInterceptor extends Turret {
                 }
                 return Core.bundle.format("block.silicon-asat-interceptor.intel", inRange, total);
             }).color(Color.lightGray).pad(4f).row();
+            table.label(() -> {
+                String orbit = targetOrbitName();
+                return orbit == null
+                        ? Core.bundle.get("block.silicon-asat-interceptor.targetOrbit.none")
+                        : Core.bundle.format("block.silicon-asat-interceptor.targetOrbit",
+                                orbit, orbitLockFactor());
+            }).color(Color.lightGray).pad(2f).row();
             table.label(() -> Core.bundle.format("block.silicon-asat-interceptor.lock",
                             (int) (lockTime() / 60f * 10f) / 10f))
                     .color(Color.lightGray).pad(2f).row();

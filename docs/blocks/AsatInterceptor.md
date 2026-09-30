@@ -96,8 +96,12 @@
 ## 6. 可用度 → 锁定时间
 
 ```
-锁定时间 = lockTimeMin + (lockTimeMax - lockTimeMin) × (1 − 可用度归一化)
+锁定时间 = (lockTimeMin + (lockTimeMax − lockTimeMin) × (1 − 可用度归一化)) × 轨道系数
 ```
+
+**轨道系数**（"轨道越高越难被锁定"，见 `Satellite.md` §3）：LEO ×1.0、SSO ×1.0、MEO ×1.5、**GEO ×2.5**。
+它与覆盖半径成反比 —— LEO 覆盖最小但最好打，GEO 一颗覆盖全图却最难被击落。系数取自目标的控制器
+（`OrbitSatelliteController.orbit`），不依赖名册；面板会直接显示「目标轨道：GEO（锁定难度 ×2.5）」。
 
 可用度取本塔所在位置 **5 信道的最高可用度**（`SignalChannel.usableAll(…, scopeCode = null)`）——
 **与 H 覆盖、频谱面板完全同一个实现**。塔不绑定任何编码：信号编码是信号源的事。
