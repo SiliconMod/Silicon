@@ -64,6 +64,10 @@ return Units.closestTarget(unit.team, x, y, range,
 
 若改成在地图上手动点坐标，等于把卫星变成遥控炮台，与第一阶段的定位冲突。
 
+**它依然是隐身的**：挂了武器不影响"别人找它"——`targetable/hittable = false` 依旧生效，
+原版与 mod 的任何炮塔都不会索敌它，子弹也会穿透。唯一能打它的仍是反卫星拦截塔
+（索敌与伤害都绕过那两个旗标）。详见 [Satellite.md](Satellite.md) §3.1。
+
 ## 6. 平衡：它和反制端互为代价
 
 | LOIC 一侧 | 量 |

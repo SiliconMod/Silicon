@@ -64,6 +64,25 @@ FADE = WRAP_FADE = 0.06（圈长比例）；GEO 恒为 1
 
 ## 3. 覆盖与强度
 
+### 3.1 卫星对普通炮塔是隐身的（两层保险）
+
+**任何原版或 mod 的炮塔都不会索敌卫星，也打不中卫星** —— 靠的是两个旗标，而不是逐塔特判：
+
+| 层 | 旗标 | 引擎里的检查点 |
+|---|---|---|
+| 索敌 | `UnitType.targetable = false` | `Units.invalidateTarget`（Units.java:156）、`closestTarget`（:304）、`bestTarget`（:326）都要求 `u.targetable(targeter)`；该方法直接返回 `UnitType.targetable`（UnitType.java:635） |
+| 伤害 | `UnitType.hittable = false` | `Damage` 的六条路径全部要求 `hittable()`：弹体命中（:209/:293/:358）、溅射 `damageUnits`（:438）、范围伤害（:474/:507） |
+
+第二层是有意冗余的：即便某条路径绕过了索敌（追踪弹、脚本伤害、溅射），伤害仍会被 `hittable` 拦下，子弹**穿透**而过。
+
+**唯一的例外是[反卫星拦截塔](AsatInterceptor.md)**，这是设计的一部分：
+
+- 索敌：它自己遍历 `Groups.unit` 只筛 `OrbitSatelliteController`，绕过 `targetable`；
+- 伤害：它走 `unit.damage()` 这类 scripted 路径，绕过 `hittable`。
+
+离子炮（[LOIC](LOIC.md)）挂载武器之后**不改变这一条**：武器只让卫星去找别人（子弹 `collidesAir = false`），
+不改变别人找它；它自己的溅射同样会被 `Damage.damageUnits` 的 `hittable()` 过滤，不会误伤卫星。
+
 **锁定难度与轨道高度**：反卫星拦截塔的锁定耗时按目标轨道乘一个难度系数 ——
 **轨道越高越难被锁定**：
 
