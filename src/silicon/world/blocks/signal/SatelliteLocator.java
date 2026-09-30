@@ -33,6 +33,10 @@ import silicon.util.SatelliteManager;
 public class SatelliteLocator extends Block {
     /** 情报刷新节流（tick）：卫星移动快，但不必每 tick 重扫整个单位表 */
     public int refreshInterval = 10;
+    /** 发现新目标时扫描脉冲的持续时长（tick；60 tick = 1 秒） */
+    public float pingTicks = 45f;
+    /** 扫描脉冲与连线的配色（冷色，与拦截塔的暖橙锁定色区分开） */
+    public static final Color PING_COLOR = Color.valueOf("6fd8ff");
 
     public SatelliteLocator(String name) {
         super(name);
@@ -55,13 +59,18 @@ public class SatelliteLocator extends Block {
         private int refreshTimer = 0;
         /** 本端上次探测到的敌星（绘制与面板用） */
         public final Seq<Unit> detected = new Seq<>();
+        /** 上次探测到的目标数（检测"新发现"用） */
+        private int lastCount = 0;
+        /** 最近一次发现新目标的时间（Time.time，单位 tick；绘制扫描脉冲用） */
+        public float pingAt = Float.NEGATIVE_INFINITY;
 
         @Override
         public void updateTile() {
             boolean on = enabled && hasPower() && reporting;
             if (!on) {
                 if (detected.size > 0) detected.clear();
-                if (SatelliteManager.isAuthority()) SatelliteIntel.clearFrom(team); // 断电/被关闭/停止上报即撤稿
+                lastCount = 0;
+                SatelliteIntel.clearFrom(team); // 断电/被关闭/停止上报即撤稿
                 return;
             }
             if (++refreshTimer < refreshInterval) return;
@@ -74,10 +83,13 @@ public class SatelliteLocator extends Block {
                 if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
                 detected.add(u);
             }
-            // 只有权威端发布情报：客机算出来的位置没有意义，塔在客机侧也不结算伤害
-            if (SatelliteManager.isAuthority()) {
-                SatelliteIntel.publish(team, detected, Time.time);
-            }
+            // **两端都发布**：客机侧的情报只服务**本地视觉**（塔的转向、锁定环、取得目标的特效），
+            // 伤害与扣电仍被 isAuthority 挡在权威端。若只在权威端发布，联机时己方炮塔在客机屏幕上
+            // 会是一副"不转向、不锁定、没有特效"的样子。
+            SatelliteIntel.publish(team, detected, Time.time);
+            // 新目标出现时打一发扫描脉冲（数量增加即视为"发现"；持续不变不再重放，避免刷屏）
+            if (detected.size > lastCount) pingAt = Time.time;
+            lastCount = detected.size;
         }
 
         /** 供电是否充足（power.status：0=无电，1=满电）——与信号源/中继器同一判据 */
@@ -88,12 +100,12 @@ public class SatelliteLocator extends Block {
         @Override
         public void changeTeam(Team next) {
             super.changeTeam(next);
-            if (SatelliteManager.isAuthority()) SatelliteIntel.clearFrom(team);
+            SatelliteIntel.clearFrom(team);
         }
 
         @Override
         public void onRemoved() {
-            if (SatelliteManager.isAuthority()) SatelliteIntel.clearFrom(team);
+            SatelliteIntel.clearFrom(team);
             super.onRemoved();
         }
 
@@ -116,14 +128,30 @@ public class SatelliteLocator extends Block {
         @Override
         public void draw() {
             super.draw();
-            if (!hasPower() || !reporting || detected.size == 0) return;
-            // 指向已定位目标的连线（画在方块层之上，与拦截塔的光束同一手法）
+            if (!hasPower() || !reporting) return;
             float prevZ = Draw.z();
             Draw.z(Layer.block + 1f);
-            Lines.stroke(1.2f, Color.valueOf("6fd8ff").a(0.6f));
-            for (Unit u : detected) {
-                Lines.line(x, y, u.x, u.y);
+
+            // 发现新目标时的扫描脉冲：从方块扩散到全图尺度后淡出（"雷达扫到东西了"）。
+            // 全图探测没有"探测半径"字段，脉冲半径直接按地图长边取，保证视觉上扫过整张图。
+            float el = Time.time - pingAt;
+            if (el >= 0f && el < pingTicks) {
+                float f = el / pingTicks;               // 0 → 1
+                float pingR = (mindustry.Vars.world == null || mindustry.Vars.world.unitWidth() <= 0)
+                        ? 600f
+                        : Math.max(mindustry.Vars.world.unitWidth(), mindustry.Vars.world.unitHeight());
+                Lines.stroke(2.4f * (1f - f), PING_COLOR.a(0.85f * (1f - f)));
+                Lines.circle(x, y, f * pingR);
             }
+
+            if (detected.size > 0) {
+                // 指向已定位目标的连线（细、常驻，表示"情报在持续刷新"）
+                Lines.stroke(1.2f, PING_COLOR.a(0.6f));
+                for (Unit u : detected) {
+                    Lines.line(x, y, u.x, u.y);
+                }
+            }
+
             Lines.stroke(1f);
             Draw.z(prevZ);
         }

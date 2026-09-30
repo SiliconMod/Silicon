@@ -56,6 +56,8 @@ public class AsatInterceptor extends Turret {
 
     /** 锁定/瞄准的显示色（暖橙，与定位器的青蓝形成对照） */
     public static final Color LOCK_COLOR = Color.valueOf("ff6a3c");
+    /** 取得新目标时锁定标记的持续时长（tick；60 tick = 1 秒） */
+    public float acquireTicks = 36f;
 
     public AsatInterceptor(String name) {
         super(name);
@@ -77,6 +79,8 @@ public class AsatInterceptor extends Turret {
     public class AsatInterceptorBuild extends TurretBuild {
         /** 已经锁定当前目标的时间（tick）；换目标或丢失即归零 */
         public float lockTimer = 0f;
+        /** 最近一次"取得新目标"的时间（Time.time，单位 tick；绘制锁定标记用） */
+        public float acquireAt = Float.NEGATIVE_INFINITY;
         /** 情报里落在射程内的目标数（面板诊断"看不到"与"够不着"用） */
         public int inRange = 0;
         /** 缓存的信号可用度（0~1，节流更新） */
@@ -148,7 +152,10 @@ public class AsatInterceptor extends Turret {
                 }
             }
             inRange = count;
-            if (best != target) lockTimer = 0f; // 换目标：重新锁定
+            if (best != target) {
+                lockTimer = 0f; // 换目标：重新锁定
+                if (best != null) acquireAt = Time.time; // 新取得目标：播一次锁定标记
+            }
             target = best;
             if (best != null) targetPosition(best);
         }
@@ -258,6 +265,21 @@ public class AsatInterceptor extends Turret {
                 Lines.arc(u.x, u.y, 10f, prog, -90f);
                 Lines.stroke(1f, LOCK_COLOR.a(0.35f));
                 Lines.circle(u.x, u.y, 10f);
+            }
+
+            // 取得新目标时的锁定标记：目标处四角括号向内收缩淡出 + 塔身一圈扩散
+            // —— 情报刚到手的那一刻应该看得见，否则"塔怎么突然开始转了"没有解释
+            float ea = Time.time - acquireAt;
+            if (ea >= 0f && ea < acquireTicks && target instanceof Unit tu && tu.isValid()) {
+                float fa = ea / acquireTicks;
+                float r = 22f - 10f * fa;
+                Lines.stroke(2.2f * (1f - fa), LOCK_COLOR);
+                Lines.line(tu.x - r, tu.y - r, tu.x - r * 0.55f, tu.y - r);
+                Lines.line(tu.x - r, tu.y + r, tu.x - r * 0.55f, tu.y + r);
+                Lines.line(tu.x + r, tu.y - r, tu.x + r * 0.55f, tu.y - r);
+                Lines.line(tu.x + r, tu.y + r, tu.x + r * 0.55f, tu.y + r);
+                Lines.stroke(2f * (1f - fa), LOCK_COLOR.a(0.6f * (1f - fa)));
+                Lines.circle(x, y, fa * size * 14f);
             }
 
             Lines.stroke(1f);
