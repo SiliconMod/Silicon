@@ -2,6 +2,8 @@ package silicon.world.blocks.defense;
 
 import arc.Core;
 import arc.graphics.Color;
+import arc.graphics.g2d.Draw;
+import arc.graphics.g2d.Lines;
 import arc.math.Mathf;
 import arc.scene.ui.layout.Table;
 import arc.struct.Seq;
@@ -11,9 +13,9 @@ import mindustry.entities.bullet.BulletType;
 import mindustry.game.Team;
 import mindustry.gen.Building;
 import mindustry.gen.Call;
-import mindustry.gen.Groups;
 import mindustry.gen.Posc;
 import mindustry.gen.Unit;
+import mindustry.graphics.Layer;
 import mindustry.world.blocks.defense.turrets.Turret;
 import silicon.util.SatelliteIntel;
 import silicon.util.SatelliteManager;
@@ -52,6 +54,9 @@ public class AsatInterceptor extends Turret {
     /** 可用度归一化参考值：达到该可用度即按最快锁定 */
     public float qualityRef = 40f;
 
+    /** 锁定/瞄准的显示色（暖橙，与定位器的青蓝形成对照） */
+    public static final Color LOCK_COLOR = Color.valueOf("ff6a3c");
+
     public AsatInterceptor(String name) {
         super(name);
         // 引擎索敌全部关闭：卫星 targetable=false，Units.bestTarget/bestEnemy 永远看不到它们
@@ -72,6 +77,8 @@ public class AsatInterceptor extends Turret {
     public class AsatInterceptorBuild extends TurretBuild {
         /** 已经锁定当前目标的时间（tick）；换目标或丢失即归零 */
         public float lockTimer = 0f;
+        /** 情报里落在射程内的目标数（面板诊断"看不到"与"够不着"用） */
+        public int inRange = 0;
         /** 缓存的信号可用度（0~1，节流更新） */
         private float quality = 0f;
         private int qualityTimer = 0;
@@ -86,7 +93,7 @@ public class AsatInterceptor extends Turret {
         }
 
         /**
-         * 本塔位置的信号可用度（0~1）：取该点 5 信道的**最高**可用度，不再绑定任何编码——
+         * 本塔位置的信号可用度（0~1）：取该点 5 信道的**最高**可用度，不绑定任何编码——
          * 信号编码是信号源的事，这里只问"这地方信号好不好"。
          */
         public float signalQuality() {
@@ -105,6 +112,12 @@ public class AsatInterceptor extends Turret {
             return lockTimeMin + (lockTimeMax - lockTimeMin) * (1f - quality);
         }
 
+        /** 锁定进度（0~1），绘制与面板共用 */
+        public float lockProgress() {
+            // 注意用 java.lang.Math.max：arc 的 Mathf.max 只有 int 重载
+            return target == null ? 0f : Mathf.clamp(lockTimer / Math.max(lockTime(), 1f));
+        }
+
         /** 本队当前可用的情报目标数（面板显示用） */
         public int intelCount() {
             return SatelliteIntel.get(team, Time.time).size;
@@ -112,6 +125,7 @@ public class AsatInterceptor extends Turret {
 
         /**
          * 覆写索敌：目标来自本队定位器的情报（自动连接，无需配对），再取射程内最近的一颗。
+         * 顺带统计"情报里射程内有几颗"，供面板区分「看不到」与「够不着」两种待机原因。
          * 换目标会清零锁定进度。
          */
         @Override
@@ -120,15 +134,20 @@ public class AsatInterceptor extends Turret {
             Unit best = null;
             float bestDst = Float.MAX_VALUE;
             float range = range();
+            int count = 0;
             for (Unit u : intel) {
                 if (!u.isValid() || u.team == Team.derelict) continue;
                 // 沙盒自测放宽（与定位器同一判据）：沙盒里没有第二个队，只打敌方则无法验证
                 if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
                 float dst = Mathf.dst(x, y, u.x, u.y);
-                if (dst > range || dst >= bestDst) continue;
-                bestDst = dst;
-                best = u;
+                if (dst > range) continue;
+                count++;
+                if (dst < bestDst) {
+                    bestDst = dst;
+                    best = u;
+                }
             }
+            inRange = count;
             if (best != target) lockTimer = 0f; // 换目标：重新锁定
             target = best;
             if (best != null) targetPosition(best);
@@ -187,25 +206,71 @@ public class AsatInterceptor extends Turret {
                 power.graph.useBatteries(powerPerShot);
             }
             boolean wasAlive = u.isValid();
+            float wx = u.x, wy = u.y;
             u.damage(damagePerShot);
-            Fx.hitBulletBig.at(u.x, u.y);
-            Fx.sparkShoot.at(this.x + Mathf.cosDeg(rotation) * 16f,
-                    this.y + Mathf.sinDeg(rotation) * 16f, rotation);
             if (wasAlive && !u.isValid()) {
+                // 击落反馈：卫星本体很小、又在高空，两颗星体积的爆炸比默认命中特效更像"打下来了"
+                Fx.explosion.at(wx, wy);
+                Fx.sparkExplosion.at(wx, wy);
                 Call.sendMessage(Core.bundle.format("block.silicon-asat-interceptor.kill",
                         u.type.localizedName));
+            } else {
+                Fx.hitBulletBig.at(wx, wy);
             }
+            Fx.sparkShoot.at(this.x + Mathf.cosDeg(rotation) * 16f,
+                    this.y + Mathf.sinDeg(rotation) * 16f, rotation);
         }
 
-        /** 面板（保留，只读）：情报来源状态 + 锁定用时 + 电量是否够一发 */
+        /**
+         * 锁定与瞄准的可视化：炮管本身会转向目标，这里补三样玩家真正需要看到的
+         * —— 瞄准线、目标上的锁定进度环、塔自身的锁定进度环。
+         * 没有这三样，玩家只能看到炮塔转着却不发射，无法判断卡在哪一道门上。
+         */
+        @Override
+        public void draw() {
+            super.draw();
+            if (!enabled || !hasPower()) return;
+            float prevZ = Draw.z();
+            Draw.z(Layer.block + 1f);
+
+            // 塔自身的锁定进度环（以方块中心为圆心，方块层之上）
+            float prog = lockProgress();
+            if (prog > 0f) {
+                Lines.stroke(2.2f, LOCK_COLOR.a(0.9f));
+                Lines.arc(x, y, size * 4f + 3f, prog, -90f);
+                Lines.stroke(1f, LOCK_COLOR.a(0.25f));
+                Lines.circle(x, y, size * 4f + 3f);
+            }
+
+            if (target instanceof Unit u && u.isValid()) {
+                // 瞄准线：虚线更像"瞄准"而不是"已经打出去"
+                Lines.stroke(1.2f, LOCK_COLOR.a(0.45f));
+                Lines.dashLine(x, y, u.x, u.y, 10);
+                // 目标上的锁定环：进度满了就变亮，提示"下一发就是它"
+                Lines.stroke(2f, prog >= 1f ? LOCK_COLOR : LOCK_COLOR.a(0.7f));
+                Lines.arc(u.x, u.y, 10f, prog, -90f);
+                Lines.stroke(1f, LOCK_COLOR.a(0.35f));
+                Lines.circle(u.x, u.y, 10f);
+            }
+
+            Lines.stroke(1f);
+            Draw.z(prevZ);
+        }
+
+        /**
+         * 面板（保留，只读）：把"卡在哪一道门"说清楚——
+         * 无情报 / 有情报但都够不着 / 射程内有目标但要等锁定 / 电量不足。
+         */
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
             table.label(() -> {
-                int n = intelCount();
-                return n > 0
-                        ? Core.bundle.format("block.silicon-asat-interceptor.intel", n)
-                        : Core.bundle.get("block.silicon-asat-interceptor.intel.none");
+                int total = intelCount();
+                if (total == 0) return Core.bundle.get("block.silicon-asat-interceptor.intel.none");
+                if (inRange == 0) {
+                    return Core.bundle.format("block.silicon-asat-interceptor.intel.outOfRange", total);
+                }
+                return Core.bundle.format("block.silicon-asat-interceptor.intel", inRange, total);
             }).color(Color.lightGray).pad(4f).row();
             table.label(() -> Core.bundle.format("block.silicon-asat-interceptor.lock",
                             (int) (lockTime() / 60f * 10f) / 10f))
