@@ -138,6 +138,7 @@ public class Silicon extends Mod {
         MineConverter.initNetworking();
         ItemTransferHub.initNetworking();
         SignalOverlay.init();
+        silicon.util.SatelliteTrajectory.init(); // 悬停卫星时预览 ±100 秒轨迹（挂 Trigger.drawOver，与信号覆盖同层）
         // 消息系统多人联网同步（nop 当不在服务器上时，仅注册事件处理器）
         MessageSync.init();
 
