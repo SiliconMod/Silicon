@@ -156,6 +156,12 @@ public class AsatInterceptor extends Turret {
         /**
          * 覆写目标合法性：基类默认走 {@code Units.invalidateTarget(target, ...)}，对
          * `targetable = false` 的卫星一律判"失效"——只覆写 findTarget 的话，刚拿到的目标会被立刻清掉。
+         * <p>
+         * 这里额外要求目标**仍在本队情报里**：引擎每 tick 调本方法、但 `findTarget()` 只在
+         * `timer(timerTarget, …)` 到点时跑（无目标用 targetInterval、有目标用 newTargetInterval，最长 40 tick）。
+         * 若不在这里查情报，定位器撤稿（断电/被拆/停止上报）之后的那段时间里，塔仍会对着一个已经
+         * "看不见"的目标继续锁定、甚至开火——与"信息依赖"的语义不符。
+         * `SatelliteIntel.get` 是按 Team 的 O(1) 查表，每 tick 调用的开销可忽略。
          */
         @Override
         protected boolean validateTarget() {
@@ -163,7 +169,8 @@ public class AsatInterceptor extends Turret {
             if (!(t instanceof Unit u) || !u.isValid()) return false;
             if (u.team == Team.derelict) return false;
             if (u.team == team && !SatelliteManager.testSatelliteAvailable()) return false;
-            return u.within(x, y, range());
+            if (!u.within(x, y, range())) return false;
+            return SatelliteIntel.get(team, Time.time).contains(u);
         }
 
         /**
