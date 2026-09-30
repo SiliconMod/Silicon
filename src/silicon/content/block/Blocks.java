@@ -177,13 +177,14 @@ public class Blocks {
         // 反卫星拦截塔（第二阶段）：新方块一律追加到末尾，绝不插在已注册方块之间——
         // 插队会移动其后所有方块的内容 ID，虽然存档按内容名映射、但仍会打乱与上游的注册序
         asatInterceptor = new AsatInterceptor("asat-interceptor") {{
+            // 与卫星发射中枢同级别的材料门槛：拦截卫星本身就该是重投入（平衡见 AsatInterceptor 类注释）
             requirements(Category.defense, BuildVisibility.shown,
-                    ItemStack.with(Items.copper, 250, Items.lead, 180, Items.silicon, 200,
-                            Items.thorium, 80, Items.titanium, 120));
+                    ItemStack.with(Items.copper, 500, Items.lead, 350, Items.silicon, 450,
+                            Items.titanium, 250, Items.thorium, 150, Items.plastanium, 120, Items.surgeAlloy, 80));
             alwaysUnlocked = true;
             size = 2;
-            health = 900;
-            armor = 4f;
+            health = 1200;
+            armor = 6f;
         }};
 
     }
