@@ -42,12 +42,20 @@
    本脚本当成赞成而放行）。现改用 reviews 的单调递增 id 破平，与 action 遍历顺序对齐。
 5. 时间戳解析不出来的票不再默认为「最新票」，而是与过期票一同作废 —— 解析不出来
    就无法证明它晚于本次更新，按 fail-closed 处理。
-6. .voters.yml 的权重若不是整数（多半是文件被改成了平坦解析器读不了的嵌套写法），
-   脚本停下并说明，而不是拿着自己都没读对的配置去放行合并。
-   ⚠️ R84 更正：这条防线**只挡住「外层键留空」那一种嵌套写法**。`voters: 1`
-   换行 `  rt334: 3` 时外层键通过整数检查，内层真人 rt334 会被本脚本认作权重 3
-   的投票人，而 action 认不出他（其值为 object，被 `typeof val === 'number'` 滤掉）。
-   详见下方 bad_weights 处的注释。
+6. .voters.yml 的权重若不是整数，脚本停下并说明，而不是拿着自己都没读对的
+   配置去放行合并。
+   ⚠️ R84 曾记录「这道防线只挡住「外层键留空」那一种嵌套写法」——**该缺口已修**
+   （robin 二轮 MEDIUM，2026-09-30）：load_yaml_map 现在带**结构守卫**，任何缩进的
+   实体行一律拒绝，判据是「这一行缩进了」而非「拍平后的值是不是整数」。
+   探针实测缩进与否都能拍平（根因是 k.strip() 吃掉缩进），所以按缩进判覆盖面最全。
+   方向是收紧：配置写成嵌套时停下报错。生产两份配置实测均 0 缩进，零影响。
+7. 配置文件带 UTF-8 BOM 时**当场拒绝**（R84 发现③，2026-09-30 修）。
+   实测：纯 BOM **不会**抛 UnicodeDecodeError（EF BB BF 是合法 UTF-8 = U+FEFF），
+   而是被当成正文混进首行键名（`\ufeffrt334`），使第一个投票人凭空消失；
+   js-yaml 侧会剥 BOM 不受影响 ⇒ 若消失的恰好是提 CHANGES_REQUESTED 的人，
+   他那条反对票就没了，闸门漏放。方向是 fail-open，故按字节前缀单独拦。
+   ⚠️ 修这条时我一度把 BOM 提示挂在 UnicodeDecodeError 分支上，对最常见的真实
+   成因来说是**死代码**——是探针实测「纯 BOM 正常返回」才抓出自己的错误。
 
 【rt334 评审的落实】2026-09-28 维护者 rt334 提了四条建议（明说「都不是阻塞项」，
 且认同设计取向），逐条对应：
@@ -201,15 +209,104 @@ def parse_ts(s):
     return None
 
 
+def _utf8_diagnose(path, exc):
+    """把 UnicodeDecodeError 变成「哪一行、哪一列、哪个字节、是不是 BOM」。
+
+    为什么不直接用 exc：UnicodeDecodeError 只有 start/end/object/reason，
+    **不带行列**，也不告诉你文件是不是带 BOM——而 BOM 恰恰是本仓真实踩过的坑
+    （编辑器按 UTF-8 with BOM 保存，首行键名被 U+FEFF 改名，见文件头第 7 条）。
+    诊断里没有这两样，维护者只能自己拿编辑器数字节，定位成本极高。
+
+    偏移量的取法：exc.start 是**增量解码块内**的偏移，文本模式按块解码时
+    它不等于文件绝对偏移，直接拿来算行号会算错。所以这里重新把整个文件
+    当字节读一遍、整体解码一次，取那次失败的绝对偏移。
+    """
+    raw = b""
+    off = None
+    try:
+        with open(path, "rb") as fb:
+            raw = fb.read()
+        raw.decode("utf-8")                 # 正常文件不会抛
+    except FileNotFoundError:
+        return "（无法回读 %s 以定位字节偏移）" % path
+    except UnicodeDecodeError as whole:
+        off = whole.start
+    except OSError as e:
+        return "（回读 %s 失败：%s）" % (path, e)
+
+    if off is None:
+        # 整体解码居然成功：说明失败发生在增量解码的块边界上，绝对偏移未知。
+        # 不用 exc.start 硬凑一个可能错误的行号——宁可说「偏移未知」。
+        return "%s；字节偏移未知（增量解码块边界处失败）" % exc
+
+    line = raw.count(b"\n", 0, off) + 1
+    nl = raw.rfind(b"\n", 0, off)
+    col = off - nl if nl >= 0 else off + 1
+    bad = raw[off:off + 4]
+    return ("%s；第 %d 行第 %d 列，字节偏移 %d，非法字节 %s"
+            % (exc, line, col, off, " ".join("%02X" % b for b in bad)))
+
+
 def load_yaml_map(path, default=None):
-    """只支持 name: number 这种平坦映射，够 .voters.yml / .voting.yml 用。"""
+    """只支持 name: number 这种平坦映射，够 .voters.yml / .voting.yml 用。
+
+    【结构守卫：缩进的行一律拒绝，而不是拍平】（robin 二轮 MEDIUM，R84 发现②）
+    本函数是逐行平坦解析器，遇到嵌套写法（外层键 + 缩进的内层键）时，
+    内层键会被 k.strip() 去掉缩进后当成顶层键收进来，于是本脚本认出的投票人
+    比 action 多：action 侧内层值是 object，被 `typeof val === 'number'` 滤掉、
+    权重算 0、不计入；本脚本却认它是权重 N 的真人——**同一个真人，两侧权重不同，
+    且本脚本更宽**（一个真人可让 numVoters 与总票数一起放大）。
+
+    判据取「这一行缩进了」而不是「拍平后的值是不是整数」：后者只能偶然拦下
+    `voters:` 留空那一种写法，而 `voters: 1` + 缩进内层键照样通过。
+    实测（probe-nested-voters.py）缩进与否都能拍平，所以按缩进判是覆盖面最全的。
+
+    方向是**收紧**（fail-closed）：配置写成嵌套时停下报错，而不是拿着自己
+    都没读对的配置去放行合并。生产 .voters.yml / .voting.yml 实测均为 0 缩进，
+    故对真实配置零影响。
+    """
     out = {}
+    lineno = 0
+    # 【BOM 守卫：必须在解码之前查字节，不能等 UnicodeDecodeError】
+    # 实测（probe-204 同批探针）：纯 BOM 文件【不会】抛 UnicodeDecodeError——
+    # EF BB BF 是合法 UTF-8（解成 U+FEFF），于是它被当成正文混进首行键名：
+    #   BOM + 首行 `---`     -> {'\ufeff---': '', 'rt334': 1, ...}
+    #   BOM + 首行 `rt334: 1` -> {'\ufeffrt334': 1, ...}
+    # 也就是说首个投票人凭空消失（js-yaml 侧会剥 BOM，不受影响）⇒ 若消失的
+    # 恰好是提出 CHANGES_REQUESTED 的人，他那条反对票就没了，闸门直接漏放。
+    # 方向是 fail-open，所以按「字节以 EF BB BF 开头」当场拒绝，而不是靠解码报错。
+    try:
+        with open(path, "rb") as fb:
+            has_bom = fb.read(3) == b"\xef\xbb\xbf"
+    except FileNotFoundError:
+        has_bom = False            # 交给下面 open() 的 FileNotFoundError 分支
+    except OSError:
+        has_bom = False
+    if has_bom:
+        raise RuntimeError(
+            "%s 开头有 UTF-8 BOM（EF BB BF）——拒绝评估。"
+            "BOM 不会让解码失败，而是被当成正文混进首行键名，"
+            "使第一个投票人凭空消失（若他投的是反对票，闸门会漏放）。"
+            "请把该文件另存为「UTF-8 无 BOM」；本仓已多次栽在编辑器默认写 BOM 上。"
+            % path)
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
+                lineno += 1
+                raw_line = line
                 line = line.split("#", 1)[0].rstrip()
                 if not line or line in ("---", "..."):
                     continue
+                if raw_line[:1] in (" ", "\t"):
+                    # 注释行与空行在上面的 rstrip 后已是空串，走不到这里；
+                    # 到这里说明这是一个【带缩进的实体行】= 嵌套写法的内层键。
+                    raise RuntimeError(
+                        "%s 第 %d 行缩进了：%r"
+                        "——本文件只认「顶层平坦映射」（每行 `名字: 整数`，无缩进），"
+                        "缩进行是 YAML 嵌套写法的内层键，拍平它会让本脚本比 action "
+                        "多认出投票人（同一真人两侧权重不同且本脚本更宽），"
+                        "因此拒绝评估。请把该文件改写成每个投票人各占一行、无缩进。"
+                        % (path, lineno, raw_line.rstrip("\n")))
                 k, _, v = line.partition(":")
                 k, v = k.strip().strip("\"'"), v.strip().strip("\"'")
                 if not k:
@@ -225,8 +322,11 @@ def load_yaml_map(path, default=None):
     except UnicodeDecodeError as exc:
         # E2E 审查建议：配置解码失败必须显式 fail-closed，不能静默拍平、
         # 也不能裸崩成 traceback——给出一条能定位文件和原因的拒绝信息。
+        # 行/列/字节偏移由 _utf8_diagnose 现算（UnicodeDecodeError 自带的 start
+        # 是增量解码块内偏移，直接用会算错行号）。BOM 不在此处理——纯 BOM 根本
+        # 不会走到这里，它由上面的字节级守卫单独拦下。
         raise RuntimeError("%s 不是有效 UTF-8（%s）——配置损坏，拒绝评估"
-                           % (path, exc)) from exc
+                           % (path, _utf8_diagnose(path, exc))) from exc
     return out
 
 
@@ -561,7 +661,10 @@ def main(now=None):
                      "请在仓库根补上该文件后重跑；缺它会让闸门停在"
                      "「无法评估」，症状与「票不够」无法区分。"
                      % (path, what))
-        except RuntimeError as e:            # load_yaml_map 的非 UTF-8 路径
+        except RuntimeError as e:
+            # load_yaml_map 的三条拒绝路径共用这一个出口：非 UTF-8 / 带 BOM /
+            # 有缩进的结构守卫。三者都是「配置本身有问题、我读不出可信结果」，
+            # 统一按「无法判定」停下——与「票不够」区分得开，排查方向不会跑偏。
             sys.exit("无法判定：%s（%s）" % (e, what))
 
     cfg = _load_cfg(".voting.yml", "投票门槛配置")
@@ -573,24 +676,24 @@ def main(now=None):
 
     # 权重必须是整数。
     #
-    # 【这道防线只挡住一半的嵌套写法——注释此前把这一点说反了】
-    # load_yaml_map 是逐行平坦解析器：.voters.yml 若被写成嵌套
-    # （voters:\n  rt334: 3），内层的 `rt334` 会被【拍平】进顶层。
-    # 常见写法 `voters:` 后面留空时，外层键的值是空串 -> 非整数 -> 被下面这道
-    # bad_weights 拦下（fail-closed）。但只要外层键碰巧带一个整数值
-    # （`voters: 1` 换行 `  rt334: 3`），外层键本身通过整数检查，内层的 rt334
-    # 就真的进了名单：action 侧 rt334 的值是嵌套 object，被 `typeof val ===
-    # 'number'` 过滤掉 => 权重 0 => 不计入；本脚本却认他是【权重 3】的投票人。
-    # 同一个真人，两侧权重不同，且本脚本更宽。
-    # 正确判据是「这个文件根本不是平坦映射」，而不是「拍平后的值是不是整数」——
-    # 后者只能偶然拦下一种写法。修法（拒绝缩进行 / 换用真 YAML 解析）会改变
-    # fail-closed 面，属闸门语义变更，未擅自改：提案见 PR 描述 R84 节。
+    # 【这道防线过去只挡住一半嵌套写法，缺口已在上游 load_yaml_map 修掉】
+    # 原缺陷：load_yaml_map 是逐行平坦解析器，.voters.yml 若被写成嵌套
+    # （`voters: 1` 换行 `  rt334: 3`），内层真人 rt334 会被拍平进顶层。
+    # action 侧 rt334 的值是嵌套 object，被 `typeof val === 'number'` 滤掉
+    # => 权重 0 => 不计入；本脚本却认他是【权重 3】的投票人——同一个真人，
+    # 两侧权重不同，且本脚本更宽。探针实测**缩进与否都能拍平**（根因是
+    # k.strip() 吃掉缩进），所以「外层键留空才漏」的说法范围也偏窄。
+    # 现修法：load_yaml_map 见到缩进的实体行就拒绝（判据是「这行缩进了」，
+    # 覆盖全部嵌套写法），配置写成嵌套时根本到不了这里。
+    # ⇒ 下面这道 bad_weights 现在只负责**非嵌套**的非整数值（如 `rt334: 高`），
+    #   诊断文案也已随之改写——原文案宣称「仍会拍平并放行内层键」，
+    #   那句话在修复后是**假的**，留着会让维护者以为还有洞没堵。
     bad_weights = sorted(k for k, v in voters.items() if not isinstance(v, int))
     if bad_weights:
         sys.exit("无法判定：.voters.yml 里这些项的权重不是整数 -> %s"
-                 "（权重必须写整数；本文件的平坦解析器读不了嵌套写法，"
-                 "action 也只认顶层整数权重。注意：这只挡住外层键留空的写法，"
-                 "外层键带整数值时仍会拍平并放行内层键）" % ", ".join(bad_weights))
+                 "（权重必须写整数。嵌套写法已被 load_yaml_map 的缩进守卫"
+                 "先行拒绝，所以到这里的都是平顶层写法；action 侧同样只认"
+                 "顶层整数权重）" % ", ".join(bad_weights))
 
     # 负权重在加载处就 fail-closed 拒绝（robin 二轮 M1）。理由见 tally 里那段
     # 注释的展开：负值会让 total = for_it + against_it 小于 for_it，赞成率恒
