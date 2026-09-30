@@ -190,12 +190,14 @@ public class Blocks {
         }};
         // 卫星定位器（第二阶段）：同样追加在末尾——拦截塔要靠它指路
         satelliteLocator = new SatelliteLocator("satellite-locator") {{
+            // 全图探测：一座就能给全队供目标，材料门槛要与这个覆盖面匹配（另见 2000/秒 的待机耗电）
             requirements(Category.effect, BuildVisibility.shown,
-                    ItemStack.with(Items.copper, 400, Items.lead, 300, Items.silicon, 350,
-                            Items.titanium, 200, Items.metaglass, 120));
+                    ItemStack.with(Items.copper, 800, Items.lead, 600, Items.silicon, 700,
+                            Items.titanium, 450, Items.thorium, 250, Items.plastanium, 150,
+                            Items.metaglass, 200));
             alwaysUnlocked = true;
             size = 2;
-            health = 700;
+            health = 900;
         }};
 
     }

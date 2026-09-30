@@ -14,42 +14,40 @@ import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Posc;
 import mindustry.gen.Unit;
-import mindustry.ui.Styles;
 import mindustry.world.blocks.defense.turrets.Turret;
-import silicon.util.OrbitSatelliteController;
 import silicon.util.SatelliteIntel;
 import silicon.util.SatelliteManager;
-import silicon.world.blocks.signal.SatelliteLocator;
 import silicon.world.blocks.signal.SignalChannel;
-import silicon.world.meta.Signal;
 
 /**
- * 反卫星拦截塔（2×2 炮塔）：按*定位情报*打击敌方在轨卫星。
+ * 反卫星拦截塔（2×2 炮塔）：打击 80 格内的敌方在轨卫星，目标来自**本队卫星定位器**的情报
+ * （{@link SatelliteIntel}，全队共享，自动连接、无需配对）。
  * <p>
- * <b>信息依赖</b>：它的目标不来自"天上所有的敌星"，而只来自**自己绑定的信号编码**对应的
- * {@link SatelliteIntel} 情报——那份情报由 {@link SatelliteLocator} 探测并发布。因此：
- * 塔可以在没有目标的情况下长时间空转（炮塔转着、装填条满着，却打不出去），
- * 直到一座同编码的定位器把目标指出来。射程够远（48 格）不是问题，因为"打不打得到"变成了"看不看得见"。
+ * <b>它自己看不见卫星</b>：卫星单位 `targetable = false`，引擎索敌看不到它；`hittable = false`，
+ * 常规伤害路径也碰不到它。所以目标只能来自外部情报——本队没有一座工作中的定位器时，
+ * 这座炮塔只会转着炮管空等（面板上会直接说明原因）。
  * <p>
- * <b>可用度 → 锁定时间</b>：塔以自己所在位置、自己绑定编码的**信号可用度**决定锁定速度——
- * 可用度由 {@link SignalChannel#usableAll}（H 覆盖与频谱面板的同一实现）给出，满值约 1 秒锁定，
- * 很低则要 6 秒。信号差的地方，炮口压不下来。
- * <p>
- * <b>不开子弹</b>：卫星 `hittable/targetable = false`（见 {@link silicon.content.SatelliteUnits}），
- * 引擎的伤害路径对它们失明，子弹会穿透。所以本方块借用 {@link Turret} 的外壳与节奏，
- * 命中结算走 `unit.damage()`——第一阶段预留的那个入口。为此必须覆写三处：
- * {@code findTarget}（目标来自情报，且引擎索敌本就看不到卫星）、
- * {@code validateTarget}（基类默认走 {@code Units.invalidateTarget}，对卫星一律判"失效"，不覆写会把刚拿到的目标立刻清掉）、
+ * <b>四道门</b>，缺一不发：
+ * <ol>
+ *   <li>情报：本队定位器在工作（3 秒内刷新过）；</li>
+ *   <li>射程：目标在 80 格内；</li>
+ *   <li>锁定：持续瞄准 1~6 秒，用时由**所在位置的信号可用度**决定（可用度取该点 5 信道的最高值，
+ *       与 H 覆盖/频谱面板同一实现）——信号差的地方炮口压不下来；</li>
+ *   <li>电力：电池里 ≥ {@link #powerPerShot}。</li>
+ * </ol>
+ * <b>不开子弹</b>：卫星 `hittable/targetable = false`，子弹会直接穿透，所以借用 {@link Turret}
+ * 的外壳与节奏（炮管转向、装填条、射界、预热、逻辑控制），命中结算走 `unit.damage()`。
+ * 为此覆写 {@code findTarget}（目标来自情报）、{@code validateTarget}（基类默认判卫星"失效"）、
  * {@code shoot}（不发子弹，扣电 + 结算伤害）。
  */
 public class AsatInterceptor extends Turret {
-    /** 每发伤害。200 × 2 发 = 400，正好两发击落一颗卫星 */
+    /** 每发伤害。200 × 2 发 = 400，正好两发击落一颗 */
     public float damagePerShot = 200f;
-    /** 每发消耗的电力（从电网电池扣）。击落一颗 = 2 发 = 8 万电力，与发射一颗卫星的电费同量级 */
+    /** 每发消耗的电力（从电网电池扣）：击落一颗 = 2 发 = 8 万电力 */
     public float powerPerShot = 40000f;
     /** 可用度满值时的锁定时间（tick） */
     public float lockTimeMin = 60f;
-    /** 可用度极低时的锁定时间（tick） */
+    /** 可用度趋近 0 时的锁定时间（tick） */
     public float lockTimeMax = 360f;
     /** 可用度归一化参考值：达到该可用度即按最快锁定 */
     public float qualityRef = 40f;
@@ -60,37 +58,18 @@ public class AsatInterceptor extends Turret {
         targetAir = false;
         targetGround = false;
         targetBlocks = false;
-        // 射程拉大到 48 格：既然"看不看得见"由定位器决定，射程就不再是平衡杠杆，而是给布局留余地
-        range = 48f;
+        range = 80f;
         reload = 180f;      // 3 秒/发 → 两发 6 秒
         shootCone = 8f;
         rotateSpeed = 3f;
         cooldownTime = 90f;
         minWarmup = 0.75f;
+        // 面板保留（只读状态），但不再需要玩家配任何东西：情报按队伍自动共享
         configurable = true;
-        // 绑定一个信号编码：目标情报的来源（同编码的定位器在探测）
-        config(String.class, (AsatInterceptorBuild b, String value) -> {
-            if (!Signal.isValidCode(value)) return;
-            b.signal = value;
-            b.lockTimer = 0f;
-        });
-        configClear((AsatInterceptorBuild b) -> {
-            b.signal = null;
-            b.lockTimer = 0f;
-        });
         consumePower(600f / 60f);
     }
 
-    @Override
-    public void setStats() {
-        super.setStats();
-        stats.add(mindustry.world.meta.Stat.range, range, mindustry.world.meta.StatUnit.blocks);
-        stats.add(mindustry.world.meta.Stat.damage, damagePerShot, mindustry.world.meta.StatUnit.perSecond);
-    }
-
     public class AsatInterceptorBuild extends TurretBuild {
-        /** 绑定的信号编码（null = 未绑定，此时没有目标来源） */
-        public String signal;
         /** 已经锁定当前目标的时间（tick）；换目标或丢失即归零 */
         public float lockTimer = 0f;
         /** 缓存的信号可用度（0~1，节流更新） */
@@ -106,11 +85,14 @@ public class AsatInterceptor extends Turret {
             return power != null && power.status > 0.001f;
         }
 
-        /** 本塔位置的信号可用度（0~1）。用 usableAll 的 scopeCode 形式取*本编码*的可用度，与 H 覆盖同一实现 */
+        /**
+         * 本塔位置的信号可用度（0~1）：取该点 5 信道的**最高**可用度，不再绑定任何编码——
+         * 信号编码是信号源的事，这里只问"这地方信号好不好"。
+         */
         public float signalQuality() {
-            if (signal == null || !hasPower()) return 0f;
             qualityTimer = 0;
-            SignalChannel.usableAll(team, x, y, effBuf, srcBuf, null, codeBuf, signal);
+            if (!hasPower()) return 0f;
+            SignalChannel.usableAll(team, x, y, effBuf, srcBuf, null, codeBuf, null);
             float best = 0f;
             for (int ch = 1; ch <= 5; ch++) {
                 best = Math.max(best, effBuf[ch]);
@@ -123,17 +105,18 @@ public class AsatInterceptor extends Turret {
             return lockTimeMin + (lockTimeMax - lockTimeMin) * (1f - quality);
         }
 
+        /** 本队当前可用的情报目标数（面板显示用） */
+        public int intelCount() {
+            return SatelliteIntel.get(team, Time.time).size;
+        }
+
         /**
-         * 覆写索敌：目标只来自本编码的定位情报（{@link SatelliteIntel}），再取射程内最近的一颗。
-         * 情报里已经是"敌方"了，这里仍按队复核一次。换目标会清零锁定进度。
+         * 覆写索敌：目标来自本队定位器的情报（自动连接，无需配对），再取射程内最近的一颗。
+         * 换目标会清零锁定进度。
          */
         @Override
         protected void findTarget() {
-            if (signal == null) {
-                target = null;
-                return;
-            }
-            Seq<Unit> intel = SatelliteIntel.get(team, signal, Time.time);
+            Seq<Unit> intel = SatelliteIntel.get(team, Time.time);
             Unit best = null;
             float bestDst = Float.MAX_VALUE;
             float range = range();
@@ -160,15 +143,13 @@ public class AsatInterceptor extends Turret {
             Posc t = target;
             if (!(t instanceof Unit u) || !u.isValid()) return false;
             if (u.team == Team.derelict) return false;
-            // 沙盒自测放宽（与 findTarget 同一判据）
             if (u.team == team && !SatelliteManager.testSatelliteAvailable()) return false;
             return u.within(x, y, range());
         }
 
         /**
-         * 覆写装填推进：这里是两道门——① 必须在**锁定**（时长由信号可用度决定）；② 电量必须够一发。
-         * 任一不满足就整座塔待机：不攒装填、不空放。所以"电力 + 信号 + 定位器"三者缺一，
-         * 这座炮塔就只是转着的摆设。
+         * 覆写装填推进：两道门——① 必须在锁定（时长由信号可用度决定）；② 电量够一发。
+         * 任一不满足就整塔待机：不攒装填、不空放。
          */
         @Override
         protected void updateShooting() {
@@ -203,7 +184,7 @@ public class AsatInterceptor extends Turret {
                 return;
             }
             if (power != null && power.graph != null) {
-                power.graph.useBatteries(powerPerShot); // 每发电费从电池扣
+                power.graph.useBatteries(powerPerShot);
             }
             boolean wasAlive = u.isValid();
             u.damage(damagePerShot);
@@ -216,36 +197,23 @@ public class AsatInterceptor extends Turret {
             }
         }
 
-        /** 配置面板：列出本队**正在工作的定位器**的编码供绑定（这就是"塔与定位器之间的通信"入口） */
+        /** 面板（保留，只读）：情报来源状态 + 锁定用时 + 电量是否够一发 */
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
-            table.label(() -> signal == null
-                            ? Core.bundle.get("block.silicon-asat-interceptor.code.none")
-                            : Core.bundle.format("block.silicon-asat-interceptor.code", signal))
-                    .color(Color.lightGray).pad(4f).row();
+            table.label(() -> {
+                int n = intelCount();
+                return n > 0
+                        ? Core.bundle.format("block.silicon-asat-interceptor.intel", n)
+                        : Core.bundle.get("block.silicon-asat-interceptor.intel.none");
+            }).color(Color.lightGray).pad(4f).row();
             table.label(() -> Core.bundle.format("block.silicon-asat-interceptor.lock",
                             (int) (lockTime() / 60f * 10f) / 10f))
                     .color(Color.lightGray).pad(2f).row();
-            Seq<String> codes = new Seq<>();
-            for (Building b : Groups.build) {
-                if (b instanceof SatelliteLocator.SatelliteLocatorBuild lb && lb.team == team
-                        && lb.signal != null && !codes.contains(lb.signal.name)) {
-                    codes.add(lb.signal.name);
-                }
-            }
-            if (codes.isEmpty()) {
-                table.label(() -> Core.bundle.get("block.silicon-asat-interceptor.code.empty"))
-                        .color(Color.lightGray).pad(6f).row();
-                return;
-            }
-            Table grid = new Table();
-            int i = 0;
-            for (String code : codes) {
-                grid.button(code, Styles.flatTogglet, () -> configure(code)).size(96f, 36f).pad(2f);
-                if (++i % 4 == 0) grid.row();
-            }
-            table.add(grid).pad(4f).row();
+            table.label(() -> canAffordShot()
+                            ? Core.bundle.get("block.silicon-asat-interceptor.power.ok")
+                            : Core.bundle.get("block.silicon-asat-interceptor.power.low"))
+                    .color(Color.lightGray).pad(2f).row();
         }
     }
 }
