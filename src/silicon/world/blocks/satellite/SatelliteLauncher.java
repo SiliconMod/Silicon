@@ -66,6 +66,10 @@ public class SatelliteLauncher extends Block {
     public static final int OIL_CAPACITY = SatelliteConsole.ORBIT_MAX_FUEL;
     /** 生产所需冷冻液 */
     public static final int COST_CRYOFLUID = 1000;
+    /** 离子炮卫星所需冷冻液（比信号卫星多一倍：它是武器，产线也更重） */
+    public static final int COST_CRYOFLUID_ION = 2000;
+    /** 离子炮卫星生产耗时（120 秒，是信号卫星的两倍） */
+    public static final float PRODUCE_TIME_ION = 60f * 120f;
     /** 生产所需物品材料 */
     public static final ItemStack[] PRODUCTION_ITEMS = with(
             Items.copper, 5000,
@@ -78,23 +82,47 @@ public class SatelliteLauncher extends Block {
     public static final int TYPE_SIGNAL = 0;
     /** 卫星种类：测试卫星（材料 1 硅，效果同信号卫星：星下点覆盖；低成本快速生产，仅用于测试；沙盒模式专属） */
     public static final int TYPE_TEST = 1;
+    /**
+     * 卫星种类：**近地轨道离子炮（LOIC）**——对地武器卫星。
+     * <p>
+     * "近地"二字就是它的轨道约束：只能发射到 {@code SatelliteConsole.ORBIT_LEO}（见 {@code orbitAllowed}）。
+     * 它是本阶段循环的进攻端：LOIC 威胁地面建筑，地面的反卫星拦截塔反过来威胁它，而它只有 400 血、
+     * 两发拦截就掉——武器卫星本身是需要保护的资产。
+     */
+    public static final int TYPE_ION = 2;
+    /** 卫星种类总数：config 的取值上界（`[TYPE_SIGNAL, TYPE_COUNT - 1]`） */
+    public static final int TYPE_COUNT = 3;
 
     /** 测试卫星的生产材料（1 硅，无冷冻液） */
     public static final ItemStack[] TEST_PRODUCTION_ITEMS = with(Items.silicon, 1);
 
+    /** 离子炮卫星的生产材料：硅与钍打底，再叠塑钢与巨浪——它是武器，门槛要压住 */
+    public static final ItemStack[] ION_PRODUCTION_ITEMS = with(
+            Items.silicon, 8000,
+            Items.thorium, 3000,
+            Items.plastanium, 2000,
+            Items.surgeAlloy, 2000
+    );
+
     /** 按种类返回生产所需物品材料 */
     public static ItemStack[] productionItems(int type) {
-        return type == TYPE_TEST ? TEST_PRODUCTION_ITEMS : PRODUCTION_ITEMS;
+        if (type == TYPE_TEST) return TEST_PRODUCTION_ITEMS;
+        if (type == TYPE_ION) return ION_PRODUCTION_ITEMS;
+        return PRODUCTION_ITEMS;
     }
 
     /** 按种类返回生产所需冷冻液 */
     public static int productionCryofluid(int type) {
-        return type == TYPE_TEST ? 0 : COST_CRYOFLUID;
+        if (type == TYPE_TEST) return 0;
+        if (type == TYPE_ION) return COST_CRYOFLUID_ION;
+        return COST_CRYOFLUID;
     }
 
-    /** 按种类返回生产耗时（测试卫星 1 秒，信号卫星 60 秒） */
+    /** 按种类返回生产耗时（测试卫星 1 秒，信号卫星 60 秒，离子炮 120 秒） */
     public static float produceTime(int type) {
-        return type == TYPE_TEST ? PRODUCE_TIME_TEST : PRODUCE_TIME_SIGNAL;
+        if (type == TYPE_TEST) return PRODUCE_TIME_TEST;
+        if (type == TYPE_ION) return PRODUCE_TIME_ION;
+        return PRODUCE_TIME_SIGNAL;
     }
 
     /** 数量格式化（原版风格）：>=1000 显示为 x.xk（5000→5.0k、1250→1.3k、1000→1.0k，k 后缀灰色），小于 1000 原样显示 */
@@ -140,7 +168,7 @@ public class SatelliteLauncher extends Block {
         liquidCapacity = OIL_CAPACITY + COST_CRYOFLUID;
         // 卫星种类走 configure 同步（服务器权威下发，各端选中类型一致）
         config(Integer.class, (SatelliteLauncherBuild b, Integer v) ->
-                b.selectedType = Math.max(TYPE_SIGNAL, Math.min(TYPE_TEST, v == null ? TYPE_SIGNAL : v)));
+                b.selectedType = Math.max(TYPE_SIGNAL, Math.min(TYPE_COUNT - 1, v == null ? TYPE_SIGNAL : v)));
         // 运行时快照（battery|progress|produced）：服务器周期下发，客机应用镜像，使面板/提示与主机一致
         config(String.class, (SatelliteLauncherBuild b, String s) -> b.applySnapshot(s));
     }
@@ -421,6 +449,13 @@ public class SatelliteLauncher extends Block {
             signalBtn.clicked(() -> { selectedType = TYPE_SIGNAL; configure(TYPE_SIGNAL); });
             group.add(signalBtn);
             table.add(signalBtn).size(200f, 44f).pad(3f);
+            table.row();
+            // 近地轨道离子炮（LOIC）：正常模式可用的对地武器卫星，轨道被限定在 LEO（见 TYPE_ION 注释）
+            TextButton ionBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.ion"), Styles.flatTogglet);
+            ionBtn.setChecked(selectedType == TYPE_ION);
+            ionBtn.clicked(() -> { selectedType = TYPE_ION; configure(TYPE_ION); });
+            group.add(ionBtn);
+            table.add(ionBtn).size(200f, 44f).pad(3f);
             table.row();
             // 测试卫星沙盒专属：非沙盒模式不出现该选项（配置被带入时由生产/发射权威端兜底拦截）
             if (SatelliteManager.testSatelliteAvailable()) {

@@ -64,8 +64,9 @@ public class SatelliteConsole extends Block {
         return Core.bundle.get(ORBIT_KEYS[Math.max(0, Math.min(ORBIT_COUNT - 1, orbit))]);
     }
 
-    /** 卫星种类 × 轨道允许性：信号卫星限 LEO/MEO/GEO（SSO 不对信号卫星开放，供其他卫星类型使用） */
+    /** 卫星种类 × 轨道允许性：离子炮卫星限 LEO（“近地”就是它的约束）；信号卫星限 LEO/MEO/GEO（SSO 对信号卫星关闭） */
     public static boolean orbitAllowed(int type, int orbit) {
+        if (type == SatelliteLauncher.TYPE_ION) return orbit == ORBIT_LEO;
         return !(type == TYPE_SIGNAL && orbit == ORBIT_SSO);
     }
 
@@ -114,8 +115,8 @@ public class SatelliteConsole extends Block {
         private int hubCount = 0;
         private int consoleCount = 0;
         private boolean consoleInRange = false;
-        /** SSO 轨道按钮（动态灰化用） */
-        private TextButton ssoBtn = null;
+        /** 四个轨道按钮（按「绑定种类 × 轨道允许性」逐个灰化；面板未建时为 null） */
+        private final TextButton[] orbitBtns = new TextButton[ORBIT_COUNT];
         /** 上次收到 sat-launch 请求的时间（tick；速率限制用，不落存档） */
         public float lastLaunchRequest = Float.NEGATIVE_INFINITY;
 
@@ -143,7 +144,7 @@ public class SatelliteConsole extends Block {
             hubCount = hubs.size;
             boundHub = hubCount == 1 ? hubs.first() : null;
             consoleCount = SatelliteManager.consolesInSignal(team, selectedSignal);
-            if (ssoBtn != null) ssoBtn.setDisabled(ssoBlocked());
+            updateOrbitButtons();
         }
 
         /** 绑定状态错误键（null=绑定正常可发射） */
@@ -152,11 +153,6 @@ public class SatelliteConsole extends Block {
             if (hubCount > 1) return "block.silicon-satellite-console.multihub";
             if (consoleCount > 1) return "block.silicon-satellite-console.multiconsole";
             return null;
-        }
-
-        /** SSO 是否灰化：绑定的中枢选择了信号卫星（信号卫星不能发 SSO，选中即灰化，与生产进度无关） */
-        boolean ssoBlocked() {
-            return boundHub != null && boundHub.selectedType == TYPE_SIGNAL;
         }
 
         /** 发射卫星：本队可点发射。权威端（主机/单机）直接执行；纯客机发请求由主机执行并广播/反馈结果 */
@@ -331,10 +327,7 @@ public class SatelliteConsole extends Block {
             row.label(() -> r.code == null
                             ? Core.bundle.get("block.silicon-satellite-console.nobind") : r.code)
                     .color(r.code == null ? Color.lightGray : Color.white).width(64f).pad(4f);
-            row.label(() -> r.type == SatelliteLauncher.TYPE_TEST
-                            ? Core.bundle.get("block.silicon-satellite-console.type.short.test")
-                            : Core.bundle.get("block.silicon-satellite-console.type.short.signal"))
-                    .color(Color.lightGray).width(72f).pad(4f);
+            row.label(() -> typeShortName(r.type)).color(Color.lightGray).width(72f).pad(4f);
             row.label(() -> orbitKeyShort(r.orbit)).width(48f).pad(4f);
             row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f).pad(4f);
             // 血量：直接读实体，每帧求值 → 掉血立刻可见。实体不在名册里说明丢失；
@@ -350,11 +343,16 @@ public class SatelliteConsole extends Block {
             table.add(row).left().pad(2f).row();
         }
 
-        /** 卫星种类短名（信号卫星 / 测试卫星，bundle） */
+        /** 卫星种类短名（信号卫星 / 测试卫星 / 离子炮卫星，bundle） */
         String typeShortName(int type) {
-            return type == TYPE_SIGNAL
-                    ? Core.bundle.get("block.silicon-satellite-console.type.short.signal")
-                    : Core.bundle.get("block.silicon-satellite-console.type.short.test");
+            switch (type) {
+                case SatelliteLauncher.TYPE_ION:
+                    return Core.bundle.get("block.silicon-satellite-console.type.short.ion");
+                case SatelliteLauncher.TYPE_TEST:
+                    return Core.bundle.get("block.silicon-satellite-console.type.short.test");
+                default:
+                    return Core.bundle.get("block.silicon-satellite-console.type.short.signal");
+            }
         }
 
         /** 名称行：绑定的中枢所准备发射/制造中的卫星（动态；未绑定或异常时显示 —） */
@@ -370,7 +368,8 @@ public class SatelliteConsole extends Block {
             }).color(Color.lightGray).pad(2f);
         }
 
-        /** 轨道选择按钮行（4 单选）；绑定的中枢选择信号卫星时 SSO 即灰化（信号卫星不能发 SSO） */
+        /** 轨道选择按钮行（4 单选）。灰化规则统一由「绑定中枢的种类 × 轨道允许性」决定：
+         *  离子炮只能 LEO（"近地"即约束），信号卫星不能 SSO。 */
         void rebuildOrbitRow(Table table) {
             table.row();
             table.label(() -> Core.bundle.format("block.silicon-satellite-console.orbit.current", orbitName(selectedOrbit)))
@@ -381,7 +380,6 @@ public class SatelliteConsole extends Block {
             Table row = new Table();
             ButtonGroup<TextButton> group = new ButtonGroup<>();
             group.setMinCheckCount(0); // 允许全不选（默认 1 会在 add() 时强制勾选第一个按钮，且无法取消）
-            ssoBtn = null;
             for (int o = ORBIT_LEO; o < ORBIT_COUNT; o++) {
                 final int orbit = o;
                 TextButton btn = new TextButton(orbitKeyShort(orbit), Styles.flatTogglet);
@@ -391,10 +389,45 @@ public class SatelliteConsole extends Block {
                     configure(orbit);
                 });
                 group.add(btn);
-                if (orbit == ORBIT_SSO) ssoBtn = btn;
+                orbitBtns[orbit] = btn;
                 row.add(btn).size(110f, 40f).pad(2f);
             }
             table.add(row).pad(2f);
+            updateOrbitButtons();
+        }
+
+        /** 绑定中枢当前选择的种类（未绑定时按信号卫星处理） */
+        int boundType() {
+            return boundHub != null ? boundHub.selectedType : TYPE_SIGNAL;
+        }
+
+        /**
+         * 按种类刷新轨道按钮可用性；若当前选中项被新种类禁止（例如刚从信号卫星切成离子炮、而选的是 MEO），
+         * 自动回退到第一个允许的轨道并同步下发配置 —— 否则会带着一个非法轨道去发射。
+         */
+        void updateOrbitButtons() {
+            int type = boundType();
+            boolean changed = false;
+            for (int o = ORBIT_LEO; o < ORBIT_COUNT; o++) {
+                TextButton btn = orbitBtns[o];
+                if (btn == null) continue;
+                boolean blocked = !orbitAllowed(type, o);
+                btn.setDisabled(blocked);
+                if (blocked && selectedOrbit == o) {
+                    for (int k = ORBIT_LEO; k < ORBIT_COUNT; k++) {
+                        if (orbitAllowed(type, k)) {
+                            selectedOrbit = k;
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (changed) {
+                TextButton sel = orbitBtns[selectedOrbit];
+                if (sel != null) sel.setChecked(true);
+                configure(selectedOrbit);
+            }
         }
 
         /** 轨道按钮短标签（LEO 等） */
