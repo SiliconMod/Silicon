@@ -104,7 +104,11 @@ public class SatelliteLocator extends Block {
             detected.clear();
             for (Unit u : Groups.unit) {
                 if (!(u.controller() instanceof OrbitSatelliteController)) continue;
-                if (u.team == team || u.team == Team.derelict) continue;
+                if (u.team == Team.derelict) continue;
+                // 沙盒自测放宽：沙盒里没有第二个队，若只探测敌方则整条拦截链路无从验证。
+                // 判据与"测试卫星仅沙盒可用"完全一致（SatelliteManager.testSatelliteAvailable），
+                // 正式模式不含这段放宽——那里只探测敌方卫星。
+                if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
                 if (Mathf.dst(x, y, u.x, u.y) > radius) continue;
                 detected.add(u);
             }

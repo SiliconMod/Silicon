@@ -138,7 +138,9 @@ public class AsatInterceptor extends Turret {
             float bestDst = Float.MAX_VALUE;
             float range = range();
             for (Unit u : intel) {
-                if (!u.isValid() || u.team == team || u.team == Team.derelict) continue;
+                if (!u.isValid() || u.team == Team.derelict) continue;
+                // 沙盒自测放宽（与定位器同一判据）：沙盒里没有第二个队，只打敌方则无法验证
+                if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
                 float dst = Mathf.dst(x, y, u.x, u.y);
                 if (dst > range || dst >= bestDst) continue;
                 bestDst = dst;
@@ -157,7 +159,9 @@ public class AsatInterceptor extends Turret {
         protected boolean validateTarget() {
             Posc t = target;
             if (!(t instanceof Unit u) || !u.isValid()) return false;
-            if (u.team == team || u.team == Team.derelict) return false;
+            if (u.team == Team.derelict) return false;
+            // 沙盒自测放宽（与 findTarget 同一判据）
+            if (u.team == team && !SatelliteManager.testSatelliteAvailable()) return false;
             return u.within(x, y, range());
         }
 
