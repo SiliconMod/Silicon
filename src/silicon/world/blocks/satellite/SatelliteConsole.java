@@ -305,16 +305,16 @@ public class SatelliteConsole extends Block {
                         .color(Color.lightGray).pad(12f).row();
                 return;
             }
-            // 表头
+            // 表头：与数据行**都显式左对齐**——arc 的 Table 默认把子表居中，表头与数据行总宽不同就会整列错位
+            //（上一版就是这样：数据行末尾多一个按钮 → 表头整体右移 → "信道"那列下面是空的）
             table.row();
             Table head = new Table();
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.code")).width(64f).left();
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.type")).width(72f);
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.orbit")).width(48f);
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.channel")).width(40f);
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.state")).width(150f).left();
-            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.progress")).width(70f);
-            table.add(head).pad(2f).row();
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.health")).width(150f).left();
+            table.add(head).left().pad(2f).row();
             for (SatelliteManager.SatelliteRecord r : list) {
                 addRosterRow(table, r);
             }
@@ -330,7 +330,7 @@ public class SatelliteConsole extends Block {
             });
         }
 
-        /** 在轨列表的一行 */
+        /** 在轨列表的一行：列宽必须与表头逐列一致，且同样左对齐 */
         void addRosterRow(Table table, SatelliteManager.SatelliteRecord r) {
             table.row();
             Table row = new Table();
@@ -343,34 +343,17 @@ public class SatelliteConsole extends Block {
                     .color(Color.lightGray).width(72f);
             row.label(() -> orbitKeyShort(r.orbit)).width(48f);
             row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f);
-            // 状态：先判上行门控（编码没有存活地面源时卫星静默），再看它此刻是否覆盖本控制台
+            // 血量：直接读实体，每帧求值 → 掉血立刻可见。实体不在名册里说明丢失；
+            // 编码的地面源全没了则在血量后加「静默」后缀（卫星还在轨，但不广播了）
             row.label(() -> {
-                if (r.code != null && !SignalChannel.hasLiveSource(team, r.code)) {
-                    return Core.bundle.get("block.silicon-satellite-console.roster.state.muted");
-                }
-                if (Groups.unit.getByID(r.unitId) == null) {
-                    return Core.bundle.get("block.silicon-satellite-console.roster.state.missing");
-                }
-                float eff = SatelliteManager.satelliteEffAt(r, x, y);
-                return eff > 0f
-                        ? Core.bundle.format("block.silicon-satellite-console.roster.state.here", (int) eff)
-                        : Core.bundle.get("block.silicon-satellite-console.roster.state.elsewhere");
+                mindustry.gen.Unit u = Groups.unit.getByID(r.unitId);
+                if (u == null) return Core.bundle.get("block.silicon-satellite-console.roster.state.missing");
+                String hp = (int) u.health + "/" + (int) u.maxHealth;
+                return (r.code != null && !SignalChannel.hasLiveSource(team, r.code))
+                        ? hp + " " + Core.bundle.get("block.silicon-satellite-console.roster.state.muted")
+                        : hp;
             }).color(Color.lightGray).width(150f).left();
-            // 进度：GEO 是定点（相位=方位角），不显示百分比
-            row.label(() -> r.orbit == ORBIT_GEO
-                            ? Core.bundle.get("block.silicon-satellite-console.roster.geo")
-                            : (int) (SatelliteManager.scanU(r) * 100f) + "%")
-                    .color(Color.lightGray).width(70f);
-            row.button(Core.bundle.get("block.silicon-satellite-console.roster.focus"), Styles.defaultt, () -> focusOn(r))
-                    .size(80f, 32f).padLeft(4f);
-            table.add(row).pad(2f).row();
-        }
-
-        /** 把相机移到该卫星当前星下点（只动视图，不影响任何模拟状态） */
-        void focusOn(SatelliteManager.SatelliteRecord r) {
-            mindustry.gen.Unit u = Groups.unit.getByID(r.unitId);
-            if (u == null) return;
-            Core.camera.position.set(u.x, u.y);
+            table.add(row).left().pad(2f).row();
         }
 
         /** 卫星种类短名（信号卫星 / 测试卫星，bundle） */
