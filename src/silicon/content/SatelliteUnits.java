@@ -83,6 +83,13 @@ public class SatelliteUnits {
     public static final float ION_DAMAGE = 3000f;
     /** 溅射半径（格） */
     public static final float ION_RADIUS_TILES = 8f;
+    /**
+     * 武器索敌射程（格）——<b>必须显式设置</b>：`Weapon` 用 `bullet.range` 索敌，而它未设置时由
+     * `speed × lifetime` 推算（12 × 90 = 1080px ≈ 135 格），会让卫星在半个地图外就开火。
+     * 这里取 250×250 图上 LEO 的星下点覆盖半径 40 格，使"打击范围 = 覆盖范围"成立。
+     * （覆盖半径随图幅缩放而武器射程是常量：大图上覆盖更大、打击却仍限 40 格，属于可接受的近似。）
+     */
+    public static final float ION_RANGE_TILES = 40f;
     /** 冷却（tick）：60 秒 */
     public static final float ION_COOLDOWN_TICKS = 60f * 60f;
 
@@ -96,6 +103,7 @@ public class SatelliteUnits {
             collidesTiles = true;
             speed = 12f;             // 从轨道砸下：够快，但保留可见的坠落过程
             lifetime = 90f;
+            range = ION_RANGE_TILES * 8f;   // 索敌射程：不显式设置会被 speed×lifetime 推成 135 格
             hitEffect = mindustry.content.Fx.massiveExplosion;
             despawnEffect = mindustry.content.Fx.none;
             shootEffect = mindustry.content.Fx.sparkShoot;
