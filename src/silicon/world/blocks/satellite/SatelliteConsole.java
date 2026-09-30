@@ -13,6 +13,7 @@ import arc.util.io.Writes;
 import mindustry.Vars;
 import mindustry.gen.Building;
 import mindustry.gen.Call;
+import mindustry.gen.Groups;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.world.Block;
@@ -21,9 +22,10 @@ import silicon.world.blocks.signal.SignalChannel;
 import silicon.world.blocks.signal.SignalSource;
 
 /**
- * 卫星控制台（3×3）：卫星的发射终端，仅提供发射操作。
+ * 卫星控制台（3×3）：卫星的发射与在轨管理终端。
  * 不存储燃料与电力——燃料（石油）与缓冲电力（10000）均由卫星发射中枢提供；
- * 卫星种类由卫星发射中枢选择。点击方块弹出界面选择轨道与信号后发射。
+ * 卫星种类由卫星发射中枢选择。点击方块弹出界面，分两个页签：
+ * 「发射」选信号与轨道后发射；「在轨管理」列出本队名册（编码/轨道/信道/门控与覆盖/进度，可定位）。
  * 轨道影响中枢燃油需求（LEO 1000 / MEO 2500 / GEO 5000 / SSO 8000）；
  * 信号卫星仅可发射到 LEO/MEO/GEO；SSO 供信号卫星以外的卫星类型使用（轨道划分不同卫星的功能）。
  */
@@ -212,6 +214,16 @@ public class SatelliteConsole extends Block {
             }).size(160f, 48f).pad(4f);
         }
 
+        // —— 界面页签（发射 / 在轨管理，两个页面分开）——
+
+        /** 当前是否停在「在轨管理」页（false = 发射页）。按方块持久化在实例上，重开窗口保持上次的页 */
+        private boolean rosterTab = false;
+        /** 当前内容容器（pane 提供的 Table），页签切换时对它重建 */
+        private Table contentTable;
+        /** 在轨列表行数节流检查（行数变化才重建整页，行内文本由 Prov 每帧求值） */
+        private int rosterTick = 0;
+        private int rosterRows = -1;
+
         /** 打开可拖动窗口 */
         void openDialog() {
             BaseDialog dialog = new BaseDialog(Core.bundle.get("block.silicon-satellite-console.title"));
@@ -221,10 +233,139 @@ public class SatelliteConsole extends Block {
             // 尺寸按屏幕比例动态计算（大屏封顶 660×580，小屏按比例缩小；内容增加轨道区后调高上限）
             float w = Math.min(660f, Core.graphics.getWidth() * 0.6f);
             float h = Math.min(580f, Core.graphics.getHeight() * 0.82f);
-            dialog.cont.pane(content -> rebuildFull(content, dialog)).width(w).height(h).pad(10f);
+            // 顶部页签：发射 / 在轨管理（两个页面分开，共用下面的内容容器）
+            dialog.cont.table(tabs -> {
+                ButtonGroup<TextButton> group = new ButtonGroup<>();
+                group.setMinCheckCount(0);
+                TextButton launchBtn = new TextButton(
+                        Core.bundle.get("block.silicon-satellite-console.tab.launch"), Styles.flatTogglet);
+                TextButton rosterBtn = new TextButton(
+                        Core.bundle.get("block.silicon-satellite-console.tab.roster"), Styles.flatTogglet);
+                launchBtn.setChecked(!rosterTab);
+                rosterBtn.setChecked(rosterTab);
+                launchBtn.clicked(() -> switchTab(false, dialog));
+                rosterBtn.clicked(() -> switchTab(true, dialog));
+                group.add(launchBtn);
+                group.add(rosterBtn);
+                tabs.add(launchBtn).size(150f, 40f).pad(2f);
+                tabs.add(rosterBtn).size(150f, 40f).pad(2f);
+            }).padBottom(6f).row();
+            dialog.cont.pane(content -> {
+                contentTable = content;
+                rebuildTab(content, dialog);
+            }).width(w).height(h).pad(10f);
             dialog.buttons.button(Core.bundle.get("block.silicon-satellite-console.close"), Styles.defaultt, dialog::hide)
                     .size(120f, 40f).padTop(6f);
             dialog.show();
+        }
+
+        /** 切页：只重建内容容器（页签按钮的选中态由 ButtonGroup 自己维护） */
+        void switchTab(boolean roster, BaseDialog dialog) {
+            if (rosterTab == roster) return;
+            rosterTab = roster;
+            rosterRows = -1; // 强制下一次进入在轨页时重建
+            if (contentTable != null) rebuildTab(contentTable, dialog);
+        }
+
+        /** 按当前页签重建内容 */
+        void rebuildTab(Table content, BaseDialog dialog) {
+            content.clearChildren();
+            content.top();
+            if (rosterTab) {
+                rebuildRoster(content, dialog);
+            } else {
+                rebuildFull(content, dialog);
+            }
+        }
+
+        /**
+         * 在轨管理页：本队名册概览 + 逐星状态（编码 / 轨道 / 信道 / 门控与覆盖 / 进度 / 定位）。
+         * <p>行内文本一律走 {@code label(Prov)} 每帧求值，只有**行数变化**（新发射 / 被击落 / 读档换图）
+         * 才重建整页——卫星的位置与覆盖每帧都在变，全量重建会有明显开销。
+         */
+        void rebuildRoster(Table table, BaseDialog dialog) {
+            table.clearChildren();
+            table.top();
+            // 概览：在轨总数 + 待发射（按轨道分组计数在第二行）
+            table.label(() -> Core.bundle.format("block.silicon-satellite-console.roster.summary",
+                    SatelliteManager.launchedCount(team), SatelliteManager.readyCount(team)))
+                    .color(Color.lightGray).pad(2f).row();
+            table.label(() -> {
+                int[] n = new int[ORBIT_COUNT];
+                for (SatelliteManager.SatelliteRecord r : SatelliteManager.satellites(team)) {
+                    if (r.orbit >= 0 && r.orbit < ORBIT_COUNT) n[r.orbit]++;
+                }
+                return Core.bundle.format("block.silicon-satellite-console.roster.byOrbit",
+                        n[ORBIT_LEO], n[ORBIT_MEO], n[ORBIT_GEO], n[ORBIT_SSO]);
+            }).color(Color.lightGray).pad(2f).row();
+
+            arc.struct.Seq<SatelliteManager.SatelliteRecord> list = SatelliteManager.satellites(team);
+            if (list.isEmpty()) {
+                table.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.empty"))
+                        .color(Color.lightGray).pad(12f).row();
+                return;
+            }
+            // 表头
+            table.row();
+            Table head = new Table();
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.code")).width(64f).left();
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.orbit")).width(48f);
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.channel")).width(40f);
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.state")).width(150f).left();
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.progress")).width(70f);
+            table.add(head).pad(2f).row();
+            for (SatelliteManager.SatelliteRecord r : list) {
+                addRosterRow(table, r);
+            }
+            // 行数变化（发射 / 击落 / 读档）时重建整页；否则只让上面的 Prov 自己刷新
+            rosterRows = list.size;
+            table.update(() -> {
+                if (!rosterTab || contentTable == null) return;
+                if (++rosterTick < 15) return;
+                rosterTick = 0;
+                if (SatelliteManager.satellites(team).size != rosterRows) {
+                    rebuildTab(contentTable, dialog);
+                }
+            });
+        }
+
+        /** 在轨列表的一行 */
+        void addRosterRow(Table table, SatelliteManager.SatelliteRecord r) {
+            table.row();
+            Table row = new Table();
+            row.label(() -> r.code == null
+                            ? Core.bundle.get("block.silicon-satellite-console.nobind") : r.code)
+                    .color(r.code == null ? Color.lightGray : Color.white).width(64f).left();
+            row.label(() -> orbitKeyShort(r.orbit)).width(48f);
+            row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f);
+            // 状态：先判上行门控（编码没有存活地面源时卫星静默），再看它此刻是否覆盖本控制台
+            row.label(() -> {
+                if (r.code != null && !SignalChannel.hasLiveSource(team, r.code)) {
+                    return Core.bundle.get("block.silicon-satellite-console.roster.state.muted");
+                }
+                if (Groups.unit.getByID(r.unitId) == null) {
+                    return Core.bundle.get("block.silicon-satellite-console.roster.state.missing");
+                }
+                float eff = SatelliteManager.satelliteEffAt(r, x, y);
+                return eff > 0f
+                        ? Core.bundle.format("block.silicon-satellite-console.roster.state.here", (int) eff)
+                        : Core.bundle.get("block.silicon-satellite-console.roster.state.elsewhere");
+            }).color(Color.lightGray).width(150f).left();
+            // 进度：GEO 是定点（相位=方位角），不显示百分比
+            row.label(() -> r.orbit == ORBIT_GEO
+                            ? Core.bundle.get("block.silicon-satellite-console.roster.geo")
+                            : (int) (SatelliteManager.scanU(r) * 100f) + "%")
+                    .color(Color.lightGray).width(70f);
+            row.button(Core.bundle.get("block.silicon-satellite-console.roster.focus"), Styles.defaultt, () -> focusOn(r))
+                    .size(80f, 32f).padLeft(4f);
+            table.add(row).pad(2f).row();
+        }
+
+        /** 把相机移到该卫星当前星下点（只动视图，不影响任何模拟状态） */
+        void focusOn(SatelliteManager.SatelliteRecord r) {
+            mindustry.gen.Unit u = Groups.unit.getByID(r.unitId);
+            if (u == null) return;
+            Core.camera.position.set(u.x, u.y);
         }
 
         /** 卫星种类短名（信号卫星 / 测试卫星，bundle） */
