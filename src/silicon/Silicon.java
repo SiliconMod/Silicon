@@ -230,55 +230,6 @@ public class Silicon extends Mod {
                 }
             });
 
-            // 离子炮打击请求（客机 → 服务器）：只传控制台坐标与目标卫星的 unitId——落点不传，
-            // 由服务器按该卫星的星下点覆盖自行挑选（与 sat-launch 同一套校验/回包约定：
-            // 越权与畸形一律回笼统 fail，细节只进日志）
-            netServer.addPacketHandler("sat-ion", (p, data) -> {
-                try {
-                    String[] parts = data.split("\\|", -1);
-                    if (parts.length != 2) {
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "fail");
-                        return;
-                    }
-                    String[] xy = parts[0].split(",");
-                    if (xy.length != 2) {
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "fail");
-                        return;
-                    }
-                    mindustry.world.Tile tile = world.tile(
-                            Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
-                    if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "fail");
-                        SiliconLog.info("sat-ion: invalid console tile from " + p.name);
-                        return;
-                    }
-                    silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
-                            (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
-                    if (cb.team != p.team()) {
-                        SiliconLog.info("sat-ion: team mismatch from " + p.name);
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "fail");
-                        return;
-                    }
-                    if (!cb.enabled) {
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "disabled");
-                        return;
-                    }
-                    // 与 sat-launch 同一条限流：正规操作不会连点（冷却 60 秒），这里只挡重放
-                    if (Time.time - cb.lastIonRequest < LAUNCH_REQUEST_COOLDOWN) {
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "busy");
-                        return;
-                    }
-                    cb.lastIonRequest = Time.time;
-                    int unitId = Integer.parseInt(parts[1].trim());
-                    Call.clientPacketReliable(p.con, "sat-ion-result", String.valueOf(cb.doIonStrike(unitId)));
-                } catch (Exception e) {
-                    SiliconLog.info("sat-ion: handler error: " + e);
-                    try {
-                        Call.clientPacketReliable(p.con, "sat-ion-result", "fail");
-                    } catch (Throwable ignored) {
-                    }
-                }
-            });
         }
 
         // 多人暂停的服务端包处理器：必须注册在 init()——dedicated 服务器只触发 ServerLoadEvent、
@@ -419,23 +370,6 @@ public class Silicon extends Mod {
             // 卫星状态广播（服务器 → 客机）：应用主机权威状态（在轨数/归属信号/待发射数镜像）。
             // 包处理器在网络线程回调——一切状态/UI 操作必须 post 回主线程
             netClient.addPacketHandler("sat-state", s -> Core.app.post(() -> SatelliteManager.applyState(s)));
-            // 离子炮打击失败/结果反馈（服务器 → 请求者）
-            netClient.addPacketHandler("sat-ion-result", s -> Core.app.post(() -> {
-                if (s.equals("disabled")) {
-                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.disabled"), 3f);
-                    return;
-                }
-                if (s.equals("busy")) {
-                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.busy"), 3f);
-                    return;
-                }
-                try {
-                    int result = Integer.parseInt(s.trim());
-                    silicon.world.blocks.satellite.SatelliteConsole.showIonResult(result);
-                } catch (NumberFormatException badResult) {
-                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.ion.fail"), 3f);
-                }
-            }));
             // 发射失败反馈（服务器 → 请求者）
             netClient.addPacketHandler("sat-result", s -> Core.app.post(() -> {
                 if (s.equals("disabled")) {

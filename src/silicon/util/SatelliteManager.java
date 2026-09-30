@@ -151,7 +151,6 @@ public class SatelliteManager {
         readyTypeMirror.clear();
         producingTypeMirror.clear();
         SatelliteIntel.clear(); // 定位情报同样按世界生命周期清理（换图/读档后旧坐标无意义）
-        IonStrike.clear();      // 离子炮冷却同理：读档后视为已就绪（见 IonStrike 类注释）
     }
 
     /** 世界加载完成后对账（WorldLoadEvent + app.post 延迟一拍 + 控制器节流兜底）。
@@ -767,8 +766,9 @@ public class SatelliteManager {
             }
             rec.phase = best;
         }
-        // 出生点直接落在轨道点上（相位此刻已确定）：否则出生那一帧卫星会停在发射中枢方块上
-        UnitType ut = SatelliteUnits.typeFor(orbit);
+        // 出生点直接落在轨道点上（相位此刻已确定）：否则出生那一帧卫星会停在发射中枢方块上。
+        // 机型按「轨道 + 种类」选：离子炮卫星有独立机型（唯一挂武器的），不能与信号卫星共用。
+        UnitType ut = SatelliteUnits.typeFor(orbit, type);
         Unit unit = ut.create(team);
         unit.set(scanX(rec), scanY(rec));
         unit.add();

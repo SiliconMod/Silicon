@@ -17,7 +17,6 @@ import mindustry.gen.Groups;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.world.Block;
-import silicon.util.IonStrike;
 import silicon.util.SatelliteManager;
 import silicon.world.blocks.signal.SignalChannel;
 import silicon.world.blocks.signal.SignalSource;
@@ -71,20 +70,6 @@ public class SatelliteConsole extends Block {
         return !(type == TYPE_SIGNAL && orbit == ORBIT_SSO);
     }
 
-    /**
-     * 打击结果提示。放在方块类上（而不是实例里）：客机收到 `sat-ion-result` 回执时手边没有控制台实例，
-     * 只能由网络回执路径直接调用。
-     */
-    public static void showIonResult(int result) {
-        String key;
-        switch (result) {
-            case IonStrike.RESULT_OK: key = "block.silicon-satellite-console.ion.ok"; break;
-            case IonStrike.RESULT_COOLDOWN: key = "block.silicon-satellite-console.ion.cooldown"; break;
-            case IonStrike.RESULT_NO_TARGET: key = "block.silicon-satellite-console.ion.notarget"; break;
-            default: key = "block.silicon-satellite-console.ion.fail"; break;
-        }
-        Vars.ui.showInfoToast(Core.bundle.get(key), 3f);
-    }
 
     /** 耗电（/秒，Mindustry 按 /60 tick 计）：100 电力/秒 */
     public static final float POWER_CONSUMPTION = 100f / 60f;
@@ -210,36 +195,6 @@ public class SatelliteConsole extends Block {
             } else {
                 Vars.ui.showInfoToast(Core.bundle.get(key), 3f);
             }
-        }
-
-        /** 上次收到 sat-ion 请求的时间（tick；限流用，不落存档） */
-        public float lastIonRequest = Float.NEGATIVE_INFINITY;
-
-        /**
-         * 对指定在轨卫星下达离子炮打击（**权威端**执行）。落点不在这里决定：由 {@link IonStrike}
-         * 按该卫星的星下点覆盖自行挑选敌方建筑——玩家只决定"何时开火"。
-         *
-         * @param unitId 名册里那颗卫星的实体 id
-         * @return {@link IonStrike#RESULT_OK}/{@link IonStrike#RESULT_COOLDOWN}/{@link IonStrike#RESULT_NO_TARGET}，
-         *         或 -1（控制台不可用 / 该 id 不是离子炮卫星 / 实体已丢失）
-         */
-        public int doIonStrike(int unitId) {
-            if (!enabled) return -1;
-            SatelliteManager.SatelliteRecord r = SatelliteManager.recordOf(unitId);
-            if (r == null || r.type != SatelliteLauncher.TYPE_ION) return -1;
-            mindustry.gen.Unit u = Groups.unit.getByID(unitId);
-            if (u == null || !u.isValid()) return -1;
-            return IonStrike.strike(team, r, u.x, u.y);
-        }
-
-        /** 打击按钮入口：纯客机发请求给主机，权威端直接执行 */
-        void requestIonStrike(int unitId) {
-            if (Vars.net.active() && !SatelliteManager.isAuthority()) {
-                Call.serverPacketReliable("sat-ion", tileX() + "," + tileY() + "|" + unitId);
-                return;
-            }
-            int result = doIonStrike(unitId);
-            if (result >= 0) showIonResult(result);
         }
 
         /** 选中时的小面板：仅一个"打开界面"按钮，点击后打开可拖动窗口 */
@@ -386,12 +341,6 @@ public class SatelliteConsole extends Block {
                         ? hp + " " + Core.bundle.get("block.silicon-satellite-console.roster.state.muted")
                         : hp;
             }).color(Color.lightGray).width(150f).pad(4f);
-            // 离子炮卫星特有入口：落点由卫星的星下点覆盖决定（玩家只决定何时开火），
-            // 因此按钮不需要任何瞄准交互；非离子炮的行不出现这个按钮。
-            if (r.type == SatelliteLauncher.TYPE_ION) {
-                row.button(Core.bundle.get("block.silicon-satellite-console.ion.fire"), Styles.defaultt,
-                        () -> requestIonStrike(r.unitId)).size(76f, 32f).pad(4f);
-            }
             table.add(row).left().pad(2f).row();
         }
 

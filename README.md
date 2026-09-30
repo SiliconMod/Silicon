@@ -61,10 +61,10 @@
   缺了定位器或信号，炮塔就只是转着的摆设。
   详见 [docs/blocks/AsatInterceptor.md](docs/blocks/AsatInterceptor.md) 与 [docs/blocks/SatelliteLocator.md](docs/blocks/SatelliteLocator.md)。
 - **离子炮（LOIC，第二种卫星用途）**：近地轨道离子炮卫星——只能发到 LEO，成本是信号卫星的两倍
-  （硅 8000 · 钍 3000 · 塑钢 2000 · 巨浪合金 2000，生产 120 秒），充能 60 秒后可在卫星控制台的在轨列表里
-  下达一次打击：卫星在其**星下点覆盖范围内**自动选最近的敌方建筑，落下 3000 中心伤害（8 格半径、按距离衰减，只伤建筑）。
+  （硅 8000 · 钍 3000 · 塑钢 2000 · 巨浪合金 2000，生产 120 秒）。它是**卫星单位自带的武器**：
+  60 秒冷却、3000 中心伤害 / 8 格溅射、只打地面建筑，飞到哪里打到哪里（自动索敌，玩家不需要也无法手动瞄准）。
   它同时也是**最容易被反制**的轨道（LEO 锁定难度 ×1.0），因此与拦截塔构成攻防闭环。
-  详见 [docs/blocks/IonStrike.md](docs/blocks/IonStrike.md)。
+  详见 [docs/blocks/LOIC.md](docs/blocks/LOIC.md)。
 
 ## 设置
 

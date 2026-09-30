@@ -54,6 +54,8 @@ import silicon.util.SatelliteManager;
  */
 public class SatelliteUnits {
     public static UnitType signalLeo, signalMeo, signalGeo, testSso;
+    /** 近地轨道离子炮（LOIC）专用机型：唯一挂武器的卫星，只在 LEO 使用 */
+    public static UnitType ionLeo;
 
     public static void load() {
         // 名字不带 mod 前缀：MappableContent 构造时会经 content.transformName 无条件加 "silicon-" 前缀
@@ -62,10 +64,61 @@ public class SatelliteUnits {
         signalMeo = orbitSatellite("satellite-meo", SatelliteConsole.ORBIT_MEO);
         signalGeo = orbitSatellite("satellite-geo", SatelliteConsole.ORBIT_GEO);
         testSso = orbitSatellite("satellite-sso", SatelliteConsole.ORBIT_SSO);
+        // 离子炮走**单位武器**：冷却、索敌、瞄准、开火与联机同步全部由引擎的 Weapon 处理，
+        // 不需要另维护冷却表或自定义网络包（引擎的单位武器会自带建筑谓词，见 Weapon.findTarget）
+        ionLeo = orbitSatellite("satellite-loic", SatelliteConsole.ORBIT_LEO);
+        ionLeo.weapons.add(ionWeapon());
     }
 
-    /** 按轨道取机型 */
-    public static UnitType typeFor(int orbit) {
+    /**
+     * 离子炮武器：60 秒冷却、只打地面建筑、落点大范围溅射。
+     * <p>
+     * 索敌由引擎完成（`Weapon.findTarget` 的第二个谓词就是建筑），所以卫星飞过敌方基地会自动开火；
+     * 玩家既不需要也无法手动瞄准——这与"卫星不可操控"的定位一致。
+     * <p>
+     * 参数放在这里而不是单独的结算类：改用单位武器之后，冷却（`Weapon.reload`）、
+     * 溅射衰减（引擎的 splash 结算）与联机同步都由引擎负责，不再需要自维护的冷却表与网络包。
+     */
+    /** 单次打击的中心伤害（溅射边缘由引擎按距离衰减） */
+    public static final float ION_DAMAGE = 3000f;
+    /** 溅射半径（格） */
+    public static final float ION_RADIUS_TILES = 8f;
+    /** 冷却（tick）：60 秒 */
+    public static final float ION_COOLDOWN_TICKS = 60f * 60f;
+
+    static mindustry.type.Weapon ionWeapon() {
+        mindustry.entities.bullet.BulletType shot = new mindustry.entities.bullet.BulletType() {{
+            damage = ION_DAMAGE;
+            splashDamage = ION_DAMAGE;
+            splashDamageRadius = ION_RADIUS_TILES * 8f;
+            collidesGround = true;   // 打地面目标（建筑）
+            collidesAir = false;     // 不打空中单位
+            collidesTiles = true;
+            speed = 12f;             // 从轨道砸下：够快，但保留可见的坠落过程
+            lifetime = 90f;
+            hitEffect = mindustry.content.Fx.massiveExplosion;
+            despawnEffect = mindustry.content.Fx.none;
+            shootEffect = mindustry.content.Fx.sparkShoot;
+        }};
+        return new mindustry.type.Weapon("silicon-ion-cannon") {{
+            reload = ION_COOLDOWN_TICKS;
+            bullet = shot;
+            rotate = false;    // 不需要转向表现（伤害直接落在目标上）
+            mirror = false;
+            shootCone = 360f;  // 不限制射界：目标可能在任意方向
+            x = 0f;
+            y = 0f;
+        }};
+    }
+
+    /**
+     * 按轨道与种类取机型。
+     * <p>
+     * 离子炮卫星必须有独立机型：机型是**按轨道共享**的（信号卫星与测试卫星共用同一批），
+     * 把武器加在通用机型上会让所有 LEO 卫星都变成炮。
+     */
+    public static UnitType typeFor(int orbit, int type) {
+        if (type == silicon.world.blocks.satellite.SatelliteLauncher.TYPE_ION) return ionLeo;
         switch (orbit) {
             case SatelliteConsole.ORBIT_MEO: return signalMeo;
             case SatelliteConsole.ORBIT_GEO: return signalGeo;
