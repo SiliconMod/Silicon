@@ -151,6 +151,7 @@ public class SatelliteManager {
         readyTypeMirror.clear();
         producingTypeMirror.clear();
         SatelliteIntel.clear(); // 定位情报同样按世界生命周期清理（换图/读档后旧坐标无意义）
+        IonStrike.clear();      // 离子炮冷却同理：读档后视为已就绪（见 IonStrike 类注释）
     }
 
     /** 世界加载完成后对账（WorldLoadEvent + app.post 延迟一拍 + 控制器节流兜底）。
