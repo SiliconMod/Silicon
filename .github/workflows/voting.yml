@@ -48,9 +48,16 @@ on:
 #      写成显式的，日后 review 时一眼能看见这条边界。
 #   ② 票数与门槛只从 base 检出（.voting.yml / .voters.yml 同理），
 #      外部贡献者无法通过改 PR 里的配置文件来放宽门槛或给自己加权。
-#   ③ 本文件内【禁止】install / uses 未钉 commit 的 action、引用 PR 侧 ref 或
+#   ③ 本文件内【禁止】install / uses 未钉 commit 的第三方 action、引用 PR 侧 ref 或
 #      执行 PR 侧脚本（E2E 审查建议）：本 workflow 以本仓权限跑 pull_request_target，
 #      任何「从 PR 注入内容后执行」的步骤 = 把本仓写权限交给外部贡献者。
+#      范围限定为第三方 action：GitHub 官方 action（actions/*）本文件用浮动 tag
+#      （actions/checkout@v4），因为官方 action 以 tag 发布、tag 即受维护的版本
+#      契约，且其代码由 GitHub 与 runner 同源维护，供应链面与个人 fork 不同级；
+#      真正的高风险面是「本仓权限 + 个人账号持有的 action」，钉 commit 是对那
+#      一类的要求。robin 二轮 L1 指出原文写成「禁止未钉 commit 的 action」与
+#      同文件第 69/116 行的 checkout@v4 自相矛盾，已按此收敛措辞。
+#      判据一句话：【第三方 action 必钉 commit；官方 action 可用 tag】。
 #      另：所有 checkout 一律 persist-credentials: false，把高权限暴露面压到最小——
 #      AUTOMERGE_TOKEN 只出现在需要它的那个 job 的 env 里，不进 git 凭据。
 jobs:

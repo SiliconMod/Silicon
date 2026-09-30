@@ -257,7 +257,11 @@ def latest_reviews(reviews):
     return latest
 
 
-AUTHOR_SYNTH_DEFAULT = (None, None, None, "作者合成票（action 替他投）", None)
+# 作者合成票的 state 字面量。两处引用（默认元组与 _review_ref 的比较）必须同源，
+# 否则不同步时不会报错，只会静默退化成「…，review #无，提交于 无」的错误诊断
+# ——而那恰恰是「为什么合不掉」最需要说清的一句话（robin 二轮 L4）。
+AUTHOR_SYNTH_STATE = "作者合成票（action 替他投）"
+AUTHOR_SYNTH_DEFAULT = (None, None, None, AUTHOR_SYNTH_STATE, None)
 
 
 def tally(reviews, voters, author, update_time=None, now=None, head_sha=None):
@@ -319,7 +323,16 @@ def tally(reviews, voters, author, update_time=None, now=None, head_sha=None):
         e = latest.get(login) or AUTHOR_SYNTH_DEFAULT
         state, sub, rid = e[3], e[1], e[2]
         per_vote[login] = (vote, w, state, sub, rid)
-        if w > 0 and vote != 0:
+        # 权重非正一律【跳过】，绝不按其原值参与求和（robin 二轮 M1）。
+        # 负权重是 fail-open 的入口：num_voters 要求 w>0，for_it/against_it 却按
+        # `vote * w` 累加、total = for_it + against_it。一个权重 -1 的登记投票人投反对，
+        # against_it 被压成 -1 ⇒ total 反而小于 for_it ⇒ 赞成率恒 100%，
+        # 而该人因 w<=0 又不计入 num_voters ⇒ 人数与赞成率两道闸门同时失效。
+        # 与「分歧一律往更严」相反。加载处已对负值 fail-closed 拒绝（见 main），
+        # 这里再守一道是防御性的：tally 可能被别的调用方直接喂原始 voters。
+        if w <= 0:
+            continue
+        if vote != 0:
             num_voters += 1
             per_user[login] = (vote, w)
         if vote > 0:
@@ -389,7 +402,8 @@ def merge_pr(repo, pr, sha, token, pr_head_repo=None):
     mt, why = pick_merge_token(base_repo=repo, head_repo=pr_head_repo, gh=token)
     print("- 合并凭据: %s" % why)
     if not mt:
-        return False, "缺少可用的合并凭据（详见上方「合并凭据」行）", None, None
+        return False, ("无法判定：缺少可用的合并凭据"
+                       "（详见上方「合并凭据」行）"), None, None
     try:
         out = api(path, mt, method="PUT",
                   body={"sha": sha, "merge_method": "squash"})
@@ -401,6 +415,16 @@ def merge_pr(repo, pr, sha, token, pr_head_repo=None):
         except ValueError:
             pass
         return False, detail.strip(), e.code, mt
+    except (urllib.error.URLError, OSError) as e:
+        # 网络层失败，不是「GitHub 明确拒绝」。api() 文档自己承认「带 body 的 PUT
+        # 第一次可能已经合并成功，只是响应没回来」，那正是 URLError/OSError 而非
+        # HTTPError 的场景。让它逃出去会变成裸 traceback + 退出码 1，维护者看到
+        # 红叉以为合并失败，实际 PR 可能已经合上 —— 与 delete_head_branch 注释里
+        # 明确要避免的「事后失败比直接报错更具误导性」同一类问题。
+        # code=None 是「无法判定」的标记，main 会为它走独立分支（robin 二轮 M2/L3）。
+        return False, ("无法判定：%s。请求可能在服务端已生效，"
+                       "请先确认 PR 状态再决定是否重跑，勿直接重试合并"
+                       % e), None, mt
 
 
 def delete_head_branch(head, base_repo, token):
@@ -493,7 +517,7 @@ def _review_ref(entry):
     if not entry:
         return "（无记录）"
     vote, _w, state, sub, rid = entry
-    if state == "作者合成票（action 替他投）":
+    if state == AUTHOR_SYNTH_STATE:
         return "作者自投（action 无条件合成的 +1，不受时间过滤影响）"
     return "%s，review #%s，提交于 %s" % (state or "?", rid or "?", sub or "无")
 
@@ -505,7 +529,18 @@ def main(now=None):
         sys.exit("缺少 GH_TOKEN / REPO / PR 环境变量（无法判定，fail-closed）")
 
     cfg = load_yaml_map(".voting.yml")
-    voters = load_yaml_map(".voters.yml", default={})
+    # .voters.yml 缺文件必须当场失败，不静默当成「无人登记」。
+    # 静默默认 {} 的症状是「所有 PR 永远停在 投票人 0 < 门槛 3」——方向上是
+    # fail-closed，但与「配置写错了」的症状无法区分，排查方向完全跑偏，
+    # 与本文件反复强调的「配置错误必须当场可见」相悖（robin 二轮 L2）。
+    # 写法对齐 .voting.yml（default=None -> 缺文件抛 FileNotFoundError），
+    # 但把裸 traceback 换成可读的诊断行。
+    try:
+        voters = load_yaml_map(".voters.yml")
+    except FileNotFoundError:
+        sys.exit("无法判定：.voters.yml 缺失（登记投票人名单不存在）。"
+                 "请在仓库根补上该文件后重跑；缺它会让所有 PR 恒定停在"
+                 "「投票人 0 < 门槛」，症状与「没人投票」无法区分。")
 
     # 权重必须是整数。
     #
@@ -527,6 +562,16 @@ def main(now=None):
                  "（权重必须写整数；本文件的平坦解析器读不了嵌套写法，"
                  "action 也只认顶层整数权重。注意：这只挡住外层键留空的写法，"
                  "外层键带整数值时仍会拍平并放行内层键）" % ", ".join(bad_weights))
+
+    # 负权重在加载处就 fail-closed 拒绝（robin 二轮 M1）。理由见 tally 里那段
+    # 注释的展开：负值会让 total = for_it + against_it 小于 for_it，赞成率恒
+    # 100%，而该人又因 w<=0 不计入 num_voters ⇒ 两道闸门同时失效。
+    # w == 0 允许：语义就是「登记了但不参与计票」，tally 已按跳过处理。
+    neg_weights = sorted(k for k, v in voters.items() if isinstance(v, int) and v < 0)
+    if neg_weights:
+        sys.exit("无法判定：.voters.yml 里这些项的权重为负 -> %s"
+                 "（权重必须 >= 0；负权重会压低 total 使赞成率计算失真，"
+                 "且该人不计入投票人数，两道闸门会同时失效）" % ", ".join(neg_weights))
 
     def _int_cfg(key, default):
         # 缺键/拼错键时不能【静默放宽】门槛（rt334 评审建议 3）。
@@ -716,11 +761,34 @@ def main(now=None):
         repo, pr, sha, token,
         pr_head_repo=(head.get("repo") or {}).get("full_name"))
     if not merged:
-        # 走到这里说明本脚本自己的门槛全过了，票数判定没问题。但「被拒」有三种
-        # 完全不同、成因相反的原因，必须按 HTTP 状态码分流——GitHub 对 403/405
-        # 都只回一句含义模糊的 message，不分流就会把权限问题当成投票问题去查。
-        report("合并被拒（HTTP %s）：%s" % (code, detail or "未知原因"))
-        if code == 403:
+        # 走到这里说明本脚本自己的门槛全过了，票数判定没问题。但「没合上」的原因
+        # 有四类，成因与处置完全不同，必须分流——GitHub 对 403/405 都只回一句含义
+        # 模糊的 message，不分流就会把权限问题当成投票问题去查。
+        #
+        # code=None 单列一类：它不是「GitHub 拒绝了」，而是「请求没拿到响应」
+        # （网络层失败 / 超时 / 缺凭据）。指纹行必须与 403/405/409 区分得开，
+        # 否则「合并结果: 合并被拒（HTTP None）」既不是 HTTP 拒绝，也无法与真实
+        # 状态码区分，grep 指纹的人会顺着错方向查（robin 二轮 M2/L3）。
+        if code is None:
+            report(detail or "无法判定：合并请求未拿到响应（缺凭据或网络层失败）")
+        else:
+            report("合并被拒（HTTP %s）：%s" % (code, detail or "未知原因"))
+        if code is None:
+            p("- **既不是投票问题，也不是 GitHub 明确拒绝** —— 本脚本的票数判定已全过。")
+            if not merge_token and "凭据" in (detail or ""):
+                p("- 直接原因：缺可用的合并凭据。跨仓 PR（头仓 ≠ 本仓）在 "
+                  "`pull_request_target` 下拿到的 GITHUB_TOKEN 被 GitHub 降级为"
+                  "只读，必须配 %s。请维护者在本仓 Settings → Secrets and"
+                  " variables → Actions → Secrets 里新增它。" % MERGE_TOKEN_VAR)
+                p("- 这种情况**没有任何合并请求发出过**，重跑不会改变结果，"
+                  "必须先配好凭据。")
+            else:
+                p("- 直接原因：网络层失败 / 超时，请求没拿到响应。")
+            p("- ⚠️ 不要直接重试合并：带 body 的 PUT 可能在服务端**已经生效**、"
+              "只是响应没回来。")
+            p("  先确认 PR 的 `merged` 状态再决定是否重跑 —— 重复请求会把「已生效」"
+              "误当成「首次尝试」而让诊断失真。")
+        elif code == 403:
             p("- **这是权限问题，不是投票问题。** 令牌缺 `contents: write`。成因：")
             p("  ① 本仓 PR 且 workflow 里 automerge job 的 `permissions` 没给")
             p("     `contents: write`（注意：job 级 permissions 会把未列出的权限置为 none）；")
@@ -748,7 +816,11 @@ def main(now=None):
             p("  让它在当前头提交上重跑。")
         else:
             p("- 未识别的拒绝码，处置方式同上：先看 HTTP %s 与原始 message。" % code)
-        summary(["## 自动合并复核：合并被拒（HTTP %s）" % code, ""] + _SUM)
+        # Summary 小节标题必须与 report 的指纹同一口径：code=None 不是 HTTP 拒绝，
+        # 标题里写「HTTP None」会与日志里的「无法判定」自相矛盾。
+        summary(["## 自动合并复核：%s" % (
+            "合并被拒（HTTP %s）" % code if code is not None
+            else "无法判定（未拿到合并响应）"), ""] + _SUM)
         sys.exit(1)
     report("已合并 %s（头提交 `%s`）" % (detail or "", sha))
     p("- 贡献者分支清理: %s" % delete_head_branch(head, repo, merge_token))

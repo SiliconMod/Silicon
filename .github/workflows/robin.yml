@@ -184,6 +184,21 @@ jobs:
           use-json-response-mode: false
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
+          # min-command-permission: read —— 从 triage 放宽到 read（robin 二轮 L5）。
+          # 放宽理由：机器人命令（/robin 等）需要在【只读可见性】下即可触发，
+          #   triage 可见性读不到某些 PR 元数据，read 级协作员因此完全无法用。
+          # 触发者被放宽后机器人能做什么（安全边界，写在此处以免日后被当成
+          #   「无意的单向放宽」）：
+          #   · 只发 review / 评论，且是【顾问模式】（.github/robin.yml 的
+          #     request-changes: false），不写仓库内容、不改分支、不发 release；
+          #   · 每个 PR 上跑一次审查流水线（成本型副作用），受本文件顶部
+          #     concurrency 组 robin-<PR号> + cancel-in-progress 约束，
+          #     连发命令只留最新一次；
+          #   · 不因命令获得任何写权限——本文件顶层 permissions 已显式收窄成
+          #     contents: read + pull-requests: write，触发者身份不改变 job
+          #     拿到的令牌权限。
+          # 若日后要进一步收紧：改回 triage，或改为白名单式触发（在 job 级 if
+          # 里按 github.event.comment.user.login 过滤），而不是全局放宽。
           min-command-permission: read
           review-on-synchronize: true
 
