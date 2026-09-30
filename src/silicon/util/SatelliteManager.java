@@ -105,6 +105,10 @@ public class SatelliteManager {
         public int channel = -1;
         /** 发射轨道（SatelliteConsole.ORBIT_*），决定覆盖半径与轨道周期 */
         public int orbit;
+        /** 卫星类型（SatelliteLauncher.TYPE_SIGNAL / TYPE_TEST）：发射时由中枢的所选种类固化。
+         *  与轨道**正交**（测试卫星同样能发任意轨道），所以必须单独存——此前只能用"轨道==SSO"近似判断种类，
+         *  对"测试卫星发 LEO/MEO/GEO"和"信号卫星以外的种类发 SSO"都会算错。 */
+        public int type = SatelliteLauncher.TYPE_SIGNAL;
         /** 轨道相位（rad，世界时间 0 时刻的轨道角）——保存时推进到当前时刻，读档续接不跳位 */
         public float phase;
     }
@@ -254,9 +258,9 @@ public class SatelliteManager {
      *  客机 applyState 不消费此字段，仅用于广播串格式占位） */
     public static int launchedCount(Team team, int type) {
         int n = 0;
-        boolean wantTest = type == SatelliteLauncher.TYPE_TEST;
+        // 按名册里固化的真实类型计数（此前用"轨道==SSO"近似，测试卫星可发任意轨道故不准）
         for (SatelliteRecord r : satellites(team)) {
-            if ((r.orbit == SatelliteConsole.ORBIT_SSO) == wantTest) n++;
+            if (r.type == type) n++;
         }
         return n;
     }
@@ -281,7 +285,7 @@ public class SatelliteManager {
      * 按 unitId 去重：多台控制台写同一份全局快照，读档时先到先得、并集合并。
      * 实体对账在 onWorldLoaded 统一进行。
      */
-    public static void restoreRecord(Team team, int unitId, int channel, int orbit, String code, float phase) {
+    public static void restoreRecord(Team team, int unitId, int channel, int orbit, String code, float phase, int type) {
         if (recordOf(unitId) != null) return;
         SatelliteRecord r = new SatelliteRecord();
         r.unitId = unitId;
@@ -293,6 +297,7 @@ public class SatelliteManager {
         r.code = c;
         r.channel = (channel == -1) ? -1 : Mathf.clamp(channel, 1, SignalJammer.CHANNEL_MAX);
         r.orbit = (orbit >= 0 && orbit < SatelliteConsole.ORBIT_COUNT) ? orbit : SatelliteConsole.ORBIT_LEO;
+        r.type = (type == SatelliteLauncher.TYPE_TEST) ? SatelliteLauncher.TYPE_TEST : SatelliteLauncher.TYPE_SIGNAL;
         r.phase = (Float.isFinite(phase)) ? phase - (float) Math.floor(phase) : 0f;
         satRecords.get(team, Seq::new).add(r);
     }
@@ -596,7 +601,8 @@ public class SatelliteManager {
         return -1;
     }
 
-    /** 编码某队状态为广播串（teamId|sigC|testC|名册|readyC|readyType|producingType） */
+    /** 编码某队状态为广播串（teamId|sigC|testC|名册|readyC|readyType|producingType；
+     *  名册条目 = unitId:code:channel:orbit:type:phase） */
     static String encodeState(Team team) {
         StringBuilder roster = new StringBuilder();
         for (SatelliteRecord r : satellites(team)) {
@@ -605,6 +611,7 @@ public class SatelliteManager {
                     .append(r.code == null ? "" : r.code).append(':')
                     .append(r.channel).append(':')
                     .append(r.orbit).append(':')
+                    .append(r.type).append(':')
                     .append(Float.floatToIntBits(r.phase));
         }
         return team.id + SEP + launchedCount(team, SatelliteLauncher.TYPE_SIGNAL) + SEP
@@ -648,13 +655,14 @@ public class SatelliteManager {
             if (!parts[3].isEmpty()) {
                 for (String entry : parts[3].split(";")) {
                     String[] f = entry.split(":", -1);
-                    if (f.length != 5) continue;
+                    if (f.length != 6) continue; // unitId:code:channel:orbit:type:phase
                     SatelliteRecord r = new SatelliteRecord();
                     r.unitId = Integer.parseInt(f[0]);
                     r.code = f[1].isEmpty() ? null : f[1];
                     r.channel = Integer.parseInt(f[2]);
                     r.orbit = Integer.parseInt(f[3]);
-                    r.phase = Float.intBitsToFloat(Integer.parseInt(f[4]));
+                    r.type = Integer.parseInt(f[4]);
+                    r.phase = Float.intBitsToFloat(Integer.parseInt(f[5]));
                     list.add(r);
                 }
             }
@@ -739,6 +747,7 @@ public class SatelliteManager {
         rec.code = signalName;
         rec.channel = resolveChannel(team, signalName);
         rec.orbit = orbit;
+        rec.type = type; // 类型来自中枢的所选种类（与轨道正交，必须随名册一起持久化与广播）
         // 初始相位：取星下点轨迹上距中枢最近的点作为出生点（与发射特效衔接）；
         // GEO 定点于中枢方位角（距图心 0.05 短半轴的定点环，多颗自然散开）
         float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;

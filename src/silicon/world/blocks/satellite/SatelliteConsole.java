@@ -309,6 +309,7 @@ public class SatelliteConsole extends Block {
             table.row();
             Table head = new Table();
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.code")).width(64f).left();
+            head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.type")).width(72f);
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.orbit")).width(48f);
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.channel")).width(40f);
             head.label(() -> Core.bundle.get("block.silicon-satellite-console.roster.state")).width(150f).left();
@@ -336,6 +337,10 @@ public class SatelliteConsole extends Block {
             row.label(() -> r.code == null
                             ? Core.bundle.get("block.silicon-satellite-console.nobind") : r.code)
                     .color(r.code == null ? Color.lightGray : Color.white).width(64f).left();
+            row.label(() -> r.type == SatelliteLauncher.TYPE_TEST
+                            ? Core.bundle.get("block.silicon-satellite-console.type.short.test")
+                            : Core.bundle.get("block.silicon-satellite-console.type.short.signal"))
+                    .color(Color.lightGray).width(72f);
             row.label(() -> orbitKeyShort(r.orbit)).width(48f);
             row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f);
             // 状态：先判上行门控（编码没有存活地面源时卫星静默），再看它此刻是否覆盖本控制台
@@ -554,6 +559,7 @@ public class SatelliteConsole extends Block {
             // v2:追加本队卫星名册快照。卫星实体的编码/信道/相位无处随单位持久化（无自定义实体组件），
             // 由控制台代存——所有控制台写同一份全局快照，读侧按 unitId 去重并集，任一存活控制台即可恢复。
             // 相位在保存时推进到当前时刻（扫描进度 u，GEO 为定点方位角）：读档后 Time.time 归零，轨迹位置以存档进度续接，卫星不跳位
+            // v3:每条追加 type（信号卫星/测试卫星）——类型与轨道正交，光靠 orbit 推不出来
             arc.struct.Seq<SatelliteManager.SatelliteRecord> list = SatelliteManager.satellites(team);
             // 条目数上限：与读侧的 ROSTER_MAX 必须是同一个常量（读侧还额外保证消费全部条目，见 read()）。
             int n = Math.min(list.size, ROSTER_MAX);
@@ -564,6 +570,7 @@ public class SatelliteConsole extends Block {
                 write.i(r.channel);
                 write.i(r.orbit);
                 write.str(r.code == null ? "" : r.code);
+                write.i(r.type);
                 write.i(Float.floatToIntBits(SatelliteManager.phaseForSave(r)));
             }
         }
@@ -590,17 +597,20 @@ public class SatelliteConsole extends Block {
                     int channel = read.i();
                     int orbit = read.i();
                     String code = read.str();
+                    // v3 起在该位置追加 type；旧档（revision < 3）没有这个字段，按信号卫星处理。
+                    // 顺序必须与 write 严格一致：unitId → channel → orbit → code → **type** → phase
+                    int type = (revision >= 3) ? read.i() : TYPE_SIGNAL;
                     float phase = Float.intBitsToFloat(read.i());
                     if (restored >= ROSTER_MAX) continue;
                     restored++;
-                    SatelliteManager.restoreRecord(team, unitId, channel, orbit, code, phase);
+                    SatelliteManager.restoreRecord(team, unitId, channel, orbit, code, phase, type);
                 }
             }
         }
 
         @Override
         public byte version() {
-            return 2;
+            return 3;
         }
     }
 }
