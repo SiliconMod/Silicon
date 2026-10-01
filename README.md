@@ -79,7 +79,18 @@ powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1
 
 ## 更新日志
 
-### a0.12.4.4（最新）
+### a0.12.4.5（最新）
+- 纯 CI 批次，无游戏内容改动；按版本号规范只递增次位（Sub）：`a0.12.4.4 → a0.12.4.5`
+- **新增投票合并闸门** `.github/scripts/vote_merge.py`：票数、赞成率、投票窗口三项配置全部达标才放行，独立复核票数、不信任 democracy job 的退出码
+- 合并以 `squash` 执行，且**头提交被钉死**（请求体带 `sha`）后才发出，避免复核通过到合并生效之间被推新提交
+- 计票口径与 `git-democracy` action 对齐：同一投票人多张票时改用 review 的单调递增 `id` 破平（原按 `submitted_at` 字符串比较，GitHub 只有秒级精度，同秒提交会取错票）
+- `.voters.yml` / `.voting.yml` 加载收口为 fail-closed：拒绝嵌套缩进写法、拒绝 UTF-8 BOM、解析失败带行列定位退出，不再静默拍平
+- 合并接口按 403 / 405 / 409 分流诊断，并修正 405 文案（原只归因于 ruleset，漏了「合并方法不被允许」这一成因）；204 空响应体已显式守卫
+- 投票窗口 `minVotingWindowMinutes` 由 10 归零（维护者决定 2026-09-29），票即时生效
+- `robin.yml`：`/robin` 触发权限由 `triage` 放宽到 `read`，使 read 级协作员也能触发审查；放宽的安全边界写在该行注释里
+- `review_from_diff.py`：`gh` 失败时把 stderr 记进日志，不再整条丢弃
+
+### a0.12.4.4
 - **适配 Mindustry v160.1**：`build.gradle` 依赖版本由 `v159.7` 提升至 `v160.1`，纯上游代码零源码改动编译通过（含 `--rerun-tasks` 全量重编译）；v160.1 客户端实测模组加载、内容注册、设置加载均正常
 - 向后兼容：v160.1 构建在 159.7 上同样正常加载，`minGameVersion` 维持 `155.4`
 - v160 破坏性变更排查结论：JSON 反序列化新增的 `@AllowSerialization` 要求不影响本仓库（无歧义的 JSON 反序列化）；桥梁物品查看、动画护盾选项合并、按键解绑均为 UI 层改动，无 API 破坏
