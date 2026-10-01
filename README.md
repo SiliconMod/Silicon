@@ -89,6 +89,9 @@ powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1
 - 投票窗口 `minVotingWindowMinutes` 由 10 归零（维护者决定 2026-09-29），票即时生效
 - `robin.yml`：`/robin` 触发权限由 `triage` 放宽到 `read`，使 read 级协作员也能触发审查；放宽的安全边界写在该行注释里
 - `review_from_diff.py`：`gh` 失败时把 stderr 记进日志，不再整条丢弃
+- `robin.yml`：审查 action 由 `antongulin/robin@v2.7.2` 升到 `v2.8.0`（该 tag 与 `v2.7.2` 仅相差一次发版提交、**无功能改动**，重试参数一字未变；原钉版本只是落后一个次版本号）
+- `review_from_diff.py`：**网关不可达 / HTTP 错误时不再发「未发现值得指出的问题」的假通过 review**，两次尝试都拿不到应答即退出非 0（审查闸门跑不起来 ≠ 没发现问题）；`call_llm` 区分「压根没拿到应答」与「应答了但 JSON/结构畸形」，后者仍按顾问模式回退，以免把「模型给了坏 JSON」误判成「闸门没跑起来」
+- `review_from_diff.py`：**一条坏 finding 不再杀死整次审查** —— `line` 不是可转整数的值（如 `"N/A"`）、或 `findings` 元素不是对象时，只跳过该条并记 warning，末尾汇总 review 照发、退出码仍 0；此前这两种坏数据会让 `int(line)` / `fd.get()` 抛未捕获异常，审查带 traceback 死掉、连结论都发不出去（`Robin` 审查项 4144570820）
 
 ### a0.12.4.4
 - **适配 Mindustry v160.1**：`build.gradle` 依赖版本由 `v159.7` 提升至 `v160.1`，纯上游代码零源码改动编译通过（含 `--rerun-tasks` 全量重编译）；v160.1 客户端实测模组加载、内容注册、设置加载均正常

@@ -152,7 +152,7 @@ jobs:
             || { echo "::error::$MODEL did not answer OK through the gateway"; exit 1; }
 
       - name: Robin review
-        uses: antongulin/robin@v2.7.2
+        uses: antongulin/robin@v2.8.0
         with:
           # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，**不是 secret**，
           # 所以「拿得到」这一点对 fork PR 同样成立（pull_request 不注入 secrets.* 这条限制
