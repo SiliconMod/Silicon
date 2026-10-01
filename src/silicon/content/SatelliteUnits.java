@@ -63,7 +63,7 @@ public class SatelliteUnits {
      * <ul>
      *   <li>LOIC 的 {@code isLowOrbitSatellite()} 只认控制器类型与轨道，本机型取 LEO，可被索敌；</li>
      *   <li>卫星定位器按控制器类型全图探测，因此它也会被探测、被拦截塔锁定；</li>
-     *   <li>血量刻意高于普通卫星（见 {@link #TARGET_HEALTH}），便于观察连续命中与弹夹消耗。</li>
+     *   <li>血量 1000（见 {@link #TARGET_HEALTH}）：高于普通卫星的 400，被离子炮一发击落。</li>
      * </ul>
      * <b>无需任何生成逻辑</b>：直接放置/刷出即可。缺名册的轨道卫星会被
      * {@code SatelliteManager.onWorldLoaded()} 的补建路径自动登记（控制器每 60 帧兜底触发一次），
@@ -72,10 +72,10 @@ public class SatelliteUnits {
     public static UnitType targetSatellite;
 
     /**
-     * 靶标卫星血量：LOIC 单发 10000，取 30000 即 **3 发击落**——
-     * 普通卫星的 400 血是一发就没，看不出弹夹消耗与连续命中，靶子需要能挨几发。
+     * 靶标卫星血量：1000 —— LOIC 单发 10000，因此**一发即碎**，符合"靶子"的直觉；
+     * 但仍高于普通卫星的 400（普通卫星被 ASAT 拦截塔两发击落，靶标需要略耐打一点才看得出命中）。
      */
-    public static final float TARGET_HEALTH = 30000f;
+    public static final float TARGET_HEALTH = 1000f;
 
     public static void load() {
         // 名字不带 mod 前缀：MappableContent 构造时会经 content.transformName 无条件加 "silicon-" 前缀
