@@ -299,7 +299,10 @@ public class SatelliteManager {
         r.code = c;
         r.channel = (channel == -1) ? -1 : Mathf.clamp(channel, 1, SignalJammer.CHANNEL_MAX);
         r.orbit = (orbit >= 0 && orbit < SatelliteConsole.ORBIT_COUNT) ? orbit : SatelliteConsole.ORBIT_LEO;
-        r.type = (type == SatelliteLauncher.TYPE_TEST) ? SatelliteLauncher.TYPE_TEST : SatelliteLauncher.TYPE_SIGNAL;
+        // 类型**夹取到合法范围**，而不是二值化：第一阶段只有两种类型时这里写的是
+        // `(type == TYPE_TEST) ? TYPE_TEST : TYPE_SIGNAL`，于是离子炮（TYPE_ION=2）读档后被归成
+        // 信号卫星——表现为"退出重进存档后卫星类型异常"（在轨列表显示、武器判定、轨道允许性全跟着错）。
+        r.type = (type >= 0 && type < SatelliteLauncher.TYPE_COUNT) ? type : SatelliteLauncher.TYPE_SIGNAL;
         r.phase = (Float.isFinite(phase)) ? phase - (float) Math.floor(phase) : 0f;
         satRecords.get(team, Seq::new).add(r);
     }
