@@ -112,7 +112,8 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 3;
         }};
-        // 已废弃的维度锚点存根：保持原注册位置以保留旧存档方块 ID（隐藏于建造菜单，无功能）
+        // 已废弃的维度锚点存根：不能删——存档头按内容名解析，名字找不到时引擎会把该位置的
+        // 方块回退成 contentMap[0]（一个原版方块），比留着存根更糟。隐藏于建造菜单，无功能。
         dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
             health = 600;
         }};

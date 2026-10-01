@@ -24,7 +24,6 @@ import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog;
 import silicon.content.SatelliteUnits;
 import silicon.content.block.Blocks;
-import silicon.content.item.Items;
 import silicon.util.SatelliteManager;
 import silicon.util.MessageSync;
 import silicon.util.MessageSystem;
@@ -86,7 +85,6 @@ public class Silicon extends Mod {
 
     @Override
     public void loadContent() {
-        Items.load();
         Blocks.load();
         SatelliteUnits.load();
         SiliconLog.info("Loading contents.");
