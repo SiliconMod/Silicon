@@ -101,7 +101,7 @@ public class UniversalJunctionDialog extends BaseDialog {
     }
 
     public void setup() {
-        Log.info("[UJBUILD] rev=20261001A");
+        Log.info("[UJBUILD] rev=20261001B");
         allRegions.clear(); // shown → setup 可能多次调用：先清空，避免 re-show 时累积陈旧区域状态
         cont.table(grid -> {
             grid.margin(10f);
@@ -368,6 +368,15 @@ public class UniversalJunctionDialog extends BaseDialog {
             slotLayer.invalidateHierarchy();
         }
 
+        /** 清除整框拖拽预览设定的目标坐标（松手/取消时调用，让白框回到正常布局排位） */
+        void clearDragPreview() {
+            for (int i = 0; i < slotBoxes.size; i++) {
+                SlotBox b = slotBoxes.get(i);
+                b.dragPreviewX = Float.NaN;
+                b.dragPreviewY = Float.NaN;
+            }
+        }
+
         /** 生成新槽位（插入到两框之间）并放入按钮 */
         void createSlotFor(Direction d, float sx, float sy) {
             removeFrom(d); // 先移除按钮并重排来源框视觉
@@ -438,6 +447,19 @@ public class UniversalJunctionDialog extends BaseDialog {
             final Table content = new Table();
             /** 拖拽悬停本框时，灰色占位按钮的插入位置（-1 表示不显示占位） */
             int previewInsert = -1;
+            /** 整框拖拽预览设定的目标局部坐标（NaN=不干预，按布局正常排位）。
+             * slotLayer 每帧 layout 会把子元素位置重置回 cell 位置，故须在 draw 前重新应用。 */
+            float dragPreviewX = Float.NaN;
+            float dragPreviewY = Float.NaN;
+
+            @Override
+            public void draw() {
+                if (!Float.isNaN(dragPreviewY)) {
+                    x = dragPreviewX;
+                    y = dragPreviewY;
+                }
+                super.draw();
+            }
             /** 拖拽中本框内某按钮被拖出：实时把该按钮的行折叠、框高收缩（空位排掉），拖回时恢复 */
             boolean vacating = false;
 
@@ -549,6 +571,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                         }
                         removePlaceGhost();
                         SlotBox.this.visible = true;
+                        rs.clearDragPreview();
                         // 落点判定：直接采用拖动预览算出的插入索引（与灰框观感一致），
                         // reorderBox 内 rebuildSlots 的 clearChildren 不会触发 unfocus 重入
                         int src = rs.slotBoxes.indexOf(SlotBox.this);
@@ -659,11 +682,14 @@ public class UniversalJunctionDialog extends BaseDialog {
                             for (int j = ins; j < nAll; j++) top[j] -= shift;
                             grayTop = upperBottom - GAP;
                         }
-                        // 置位全部白框（含 hidden phantom，置位无害）
+                        // 设定全部白框的预览目标坐标（含 hidden phantom，无害）：
+                        // 不依赖 setPosition（slotLayer 每帧 layout 会把它重置回 cell 位置），
+                        // 改由 SlotBox.draw 前重新应用，保证白框真正显示在让位后的位置。
                         for (int j = 0; j < nAll; j++) {
                             RegionState.SlotBox b = rs.slotBoxes.get(j);
                             float hh = rs.slotHeight(j);
-                            b.setPosition(b.x, (top[j] - hh) - slotBase.y);
+                            b.dragPreviewX = b.x;
+                            b.dragPreviewY = (top[j] - hh) - slotBase.y;
                         }
                         // 松手落点：去掉被拖框后的插入索引 = ins - (phantIdx < ins ? 1 : 0)
                         curInsert = Mathf.clamp(ins - (phantIdx >= 0 && phantIdx < ins ? 1 : 0), 0, nAll - 1);
@@ -1158,30 +1184,24 @@ addListener(new InputListener() {
                     if (ghost != null) ghost.toFront();
                 }
 
-                /** 按各白框基准 top(stage) 置位（slotLayer 局部坐标；含 hidden 的 phantom 框，置位无害） */
+                /** 按各白框基准 top(stage) 设定预览目标坐标（slotLayer 每帧 layout 会重置 setPosition，
+                 * 故由 SlotBox.draw 前重新应用；含 hidden 的 phantom 框，设定无害） */
                 private void placeVisByTop(float[] top) {
                     // 用当前 slotLayer 原点（来源框收缩后 slotLayer 会重新居中，拖拽快照 slotBase 会过期）
                     float curSlotY = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).y;
                     for (int j = 0; j < rs.slotBoxes.size; j++) {
                         RegionState.SlotBox b = rs.slotBoxes.get(j);
                         float hh = rs.slotHeightWithPreview(j);
-                        b.setPosition(b.x, (top[j] - hh) - curSlotY);
+                        b.dragPreviewX = b.x;
+                        b.dragPreviewY = (top[j] - hh) - curSlotY;
                     }
                 }
 
-                /** 把白框还原到基准堆叠（纯 setPosition，不动布局树；配合插入重排后的复原） */
+                /** 把白框还原到基准堆叠（清除预览目标，让布局重新接管；配合插入重排后的复原） */
                 private void restoreBoxPristine() {
                     if (!boxReflowActive) return;
                     boxReflowActive = false;
-                    if (rs.slotBoxes.size == 0) return;
-                    float curSlotY = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).y;
-                    float y = currentStackTop();
-                    for (int i = 0; i < rs.slotBoxes.size; i++) {
-                        RegionState.SlotBox b = rs.slotBoxes.get(i);
-                        float hh = rs.slotHeightWithPreview(i);
-                        b.setPosition(b.x, y - hh - curSlotY);
-                        y -= hh + 40f;
-                    }
+                    rs.clearDragPreview();
                 }
 
                 /** 还原来源框内按钮到基准位置（离开框内移动或落下前调用） */
@@ -1306,6 +1326,7 @@ addListener(new InputListener() {
             inBoxReflowActive = false;
             srcBoxIdx = -1;
             srcBtnBaseBottoms = null;
+            rs.clearDragPreview();
             // 清除所有白框的实时收缩标记（落点重排后按真实内容重建高度）
             for (int i = 0; i < rs.slotBoxes.size; i++) {
                 RegionState.SlotBox b = rs.slotBoxes.get(i);
