@@ -32,6 +32,9 @@ public class LoicWeapon extends Weapon {
 
     public LoicWeapon(String name) {
         super(name);
+        // 构造即记录：mod 加载时就会写，用来确认诊断链路本身是活的
+        // （若这一行都不出现，说明诊断代码没进 jar，问题在构建/安装而非游戏）
+        diagLine("[constructed] " + name + " @ " + System.currentTimeMillis());
     }
 
     /** 单颗卫星的武器状态 */
@@ -240,30 +243,57 @@ public class LoicWeapon extends Weapon {
     // 所以这里留下可开关的运行时日志：打开后能一次性区分
     //   「武器根本没被更新」/「更新了但索敌为空」/「有目标但被校验清掉」/「校验通过却没进 shoot」
     // 这四种完全不同的故障。默认关闭，避免刷屏。
+    //
+    // 输出**不走引擎日志**：last_log.txt 每次启动都会被清空重写，一次没进图的启动就会把
+    // 上一次的现场冲掉（已实际踩到）。这里直接追加写独立文件，除非手工删除否则不会丢。
 
-    /** 诊断开关（默认关）。开启方式：设置里勾选，或控制台执行 `silicon.loic.debug = true` */
+    /** 诊断开关（默认关）。设置界面可勾选，或控制台执行 `silicon.loic.debug = true` */
     public static boolean debug = false;
+
+    /** 独立诊断文件（追加写，不经引擎日志系统，避免被 last_log.txt 覆盖） */
+    private static final String DIAG_FILE = "silicon-loic-diag.log";
 
     /** 诊断输出节流（每颗卫星每 N tick 最多一条） */
     private static final int DEBUG_INTERVAL = 60;
     private static final ObjectMap<Integer, Integer> debugTick = new ObjectMap<>();
 
+    /** 诊断是否已被启用过一次（用于只写一次"诊断已启动"标记） */
+    private static boolean diagAnnounced = false;
+
     /** 该卫星本轮是否应当输出诊断（按 tick 节流；返回 true 时已累计计数） */
     private static boolean debugDue(int unitId) {
         int t = debugTick.get(unitId, 0) + 1;
         if (t >= DEBUG_INTERVAL) {
-            t = 0;
-            debugTick.put(unitId, t);
+            debugTick.put(unitId, 0);
             return true;
         }
         debugTick.put(unitId, t);
         return false;
     }
 
-    /** 统一诊断输出（只在 debug 打开时写日志） */
+    /**
+     * 追加一行诊断到独立文件。
+     * <p>
+     * 用 {@code arc.Files} 的相对路径落在游戏数据目录（与 mods 同级），便于直接查看；
+     * 写失败绝不影响游戏逻辑（整段包在 try 里，异常直接吞掉）。
+     */
+    private static void diagLine(String text) {
+        try {
+            // 用 Vars.dataDirectory（%APPDATA%\Mindustry）直接构造，避开 arc.Files 实例问题
+            mindustry.Vars.dataDirectory.child(DIAG_FILE).writeString(text + "\n", true);
+        } catch (Throwable ignored) {
+            // 诊断写失败不影响游戏
+        }
+    }
+
+    /** 统一诊断输出（只在 debug 打开时写文件） */
     private static void dbg(int unitId, String stage, String detail) {
         if (!debug) return;
-        silicon.util.SiliconLog.info("[LOIC:" + stage + "] unit=" + unitId + " " + detail);
+        if (!diagAnnounced) {
+            diagAnnounced = true;
+            diagLine("=== LOIC 诊断已启用 " + System.currentTimeMillis() + " ===");
+        }
+        diagLine("[" + stage + "] unit=" + unitId + " " + detail);
     }
 
     /** 上一次诊断时看到的目标（用于区分"从未找到过目标"与"目标被中途清掉"） */
