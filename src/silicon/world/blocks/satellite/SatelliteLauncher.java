@@ -185,7 +185,7 @@ public class SatelliteLauncher extends Block {
         // 卫星种类走 configure 同步（服务器权威下发，各端选中类型一致）
         config(Integer.class, (SatelliteLauncherBuild b, Integer v) ->
                 b.selectedType = Math.max(TYPE_SIGNAL, Math.min(TYPE_COUNT - 1, v == null ? TYPE_SIGNAL : v)));
-        // 运行时快照（battery|progress|produced）：服务器周期下发，客机应用镜像，使面板/提示与主机一致
+        // 运行时快照（battery|progress|produced|lockedType）：服务器周期下发，客机应用镜像，使面板/提示与主机一致
         config(String.class, (SatelliteLauncherBuild b, String s) -> b.applySnapshot(s));
     }
 
@@ -237,12 +237,13 @@ public class SatelliteLauncher extends Block {
         /** 运行状态快照同步计时（服务器每 SNAPSHOT_INTERVAL tick 向客机下发一次） */
         private int snapshotTimer = 0;
 
-        /** 服务器构造本中枢运行快照（整数化减小包体） */
+        /** 服务器构造本中枢运行快照（整数化减小包体；v2 追加 lockedType） */
         String snapshot() {
-            return (int) battery + "" + SNAP_SEP + (int) progress + SNAP_SEP + (produced ? "1" : "0");
+            return (int) battery + "" + SNAP_SEP + (int) progress + SNAP_SEP + (produced ? "1" : "0")
+                    + SNAP_SEP + lockedType;
         }
 
-        /** 客机应用主机下发的运行快照（battery|progress|produced）；解析失败忽略（防伪造串） */
+        /** 客机应用主机下发的运行快照（battery|progress|produced|lockedType）；解析失败忽略 */
         void applySnapshot(String s) {
             // 主机权威守卫:该处理器挂在 tileConfig 双向通道上,任何同队客户端都能向服务器
             // 发包走这里——若不拦截,发一条 "10000|0|1" 即可在主机上凭空造出跳过全部
@@ -251,10 +252,14 @@ public class SatelliteLauncher extends Block {
             if (Vars.net.server()) return;
             try {
                 String[] p = s.split("\\" + SNAP_SEP, -1);
-                if (p.length != 3) return;
+                if (p.length != 3 && p.length != 4) return;
                 battery = Math.max(0f, Math.min(LAUNCH_POWER, Integer.parseInt(p[0])));
-                progress = Math.max(0f, Math.min(produceTime(selectedType), Integer.parseInt(p[1])));
+                if (p.length == 4) {
+                    lockedType = Mathf.clamp(Integer.parseInt(p[3]), TYPE_SIGNAL, TYPE_COUNT - 1);
+                }
                 produced = p[2].equals("1");
+                int progressType = produced ? lockedType : (p.length == 4 ? lockedType : selectedType);
+                progress = Math.max(0f, Math.min(produceTime(progressType), Integer.parseInt(p[1])));
             } catch (NumberFormatException ignored) {
             }
         }

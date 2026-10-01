@@ -82,7 +82,7 @@ public class SatelliteManager {
     private static final ObjectIntMap<Team> readyTypeMirror = new ObjectIntMap<>();
     private static final ObjectIntMap<Team> producingTypeMirror = new ObjectIntMap<>();
     /** 状态广播字段分隔符（编码：teamId|sigC|testC|名册|readyC|readyType|producingType；
-     *  名册条目 "unitId:code:channel:orbit:phaseBits"，条目间 ';'，空名册为空字段） */
+     *  名册条目 "unitId:code:channel:orbit:type:phaseBits"，条目间 ';'，空名册为空字段） */
     static final String SEP = "|";
     /** 每星信号强度（覆盖圆内、未被压制时的原始强度；多星按非相干功率合成 √(Σeᵢ²) 叠加）——轨道越高覆盖越大、强度越低：
      *  LEO 9.9 / MEO 8.58 / GEO 7.26 = 旧 15 标度值 ×6.6（与地面同一 0~99 标度；单星净空有效值 7.9/5.5/3.5，
@@ -202,6 +202,8 @@ public class SatelliteManager {
                     r.code = null; // 未绑定：仅提供覆盖强度，不参与编码绑定
                     r.channel = -1;
                     r.orbit = ((OrbitSatelliteController) u.controller()).orbit;
+                    // 名册缺失时从实体机型恢复类型：控制器只保存 orbit，LOIC 的独立 UnitType 才是唯一可靠线索。
+                    r.type = typeForUnit(u);
                     float cx = Vars.world.unitWidth() / 2f, cy = Vars.world.unitHeight() / 2f;
                     // 从当前位置近似续接轨迹：主轴对齐（EW=经度，SSO=纬度，GEO=定点方位角）
                     if (r.orbit == SatelliteConsole.ORBIT_GEO) {
@@ -282,8 +284,19 @@ public class SatelliteManager {
         return null;
     }
 
+    /** 根据卫星实体机型恢复类型；名册缺失时用于读档对账。 */
+    static int typeForUnit(Unit unit) {
+        if (unit != null && unit.type == silicon.content.SatelliteUnits.ionLeo) {
+            return SatelliteLauncher.TYPE_ION;
+        }
+        if (unit != null && unit.type == silicon.content.SatelliteUnits.testSso) {
+            return SatelliteLauncher.TYPE_TEST;
+        }
+        return SatelliteLauncher.TYPE_SIGNAL;
+    }
+
     /**
-     * 恢复一条名册记录（SatelliteConsole 存档块 v2 读入时调用；权威端与客机都用它引导）。
+     * 恢复一条名册记录（SatelliteConsole 存档块 v3 读入时调用；权威端与客机都用它引导）。
      * 按 unitId 去重：多台控制台写同一份全局快照，读档时先到先得、并集合并。
      * 实体对账在 onWorldLoaded 统一进行。
      */
@@ -587,20 +600,20 @@ public class SatelliteManager {
         broadcastState(launcher.team);
     }
 
-    /** 某队伍待发射第一颗卫星种类（信号/测试；-1=无）——客机读镜像，权威端读登记列表 */
+    /** 某队伍待发射第一颗卫星种类（按生产锁定类型；-1=无）——客机读镜像，权威端读登记列表 */
     public static int readyType(Team team) {
         if (!isAuthority()) return readyTypeMirror.get(team, -1);
         Seq<SatelliteLauncher.SatelliteLauncherBuild> list = readyLaunchers.get(team);
-        return list == null || list.isEmpty() ? -1 : list.get(0).selectedType;
+        return list == null || list.isEmpty() ? -1 : list.get(0).lockedType;
     }
 
-    /** 某队伍正在制造的卫星种类（-1=无）——客机读镜像，权威端扫描中枢生产状态 */
+    /** 某队伍正在制造的卫星种类（按生产锁定类型；-1=无）——客机读镜像，权威端扫描中枢生产状态 */
     public static int producingType(Team team) {
         if (!isAuthority()) return producingTypeMirror.get(team, -1);
         for (Building b : Groups.build) {
             if (b instanceof SatelliteLauncher.SatelliteLauncherBuild lb
                     && lb.team == team && !lb.produced && lb.progress > 0f) {
-                return lb.selectedType;
+                return lb.lockedType;
             }
         }
         return -1;
