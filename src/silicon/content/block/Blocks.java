@@ -15,10 +15,10 @@ import silicon.world.blocks.power.GeneratorPump;
 import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
+import silicon.world.blocks.sandbox.MessageTest;
 import silicon.world.blocks.sandbox.PowerSource;
 import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.satellite.SatelliteLauncher;
-import silicon.world.blocks.sandbox.MessageTest;
 import silicon.world.blocks.signal.DimensionAnchor;
 import silicon.world.blocks.signal.SignalDetector;
 import silicon.world.blocks.signal.SignalJammer;
@@ -158,14 +158,17 @@ public class Blocks {
             size = 3;
             health = 400;
         }};
-        // “消息测试”调试方块：上游 test（PR #58）既有注册位置（satelliteConsole 之后），不挪动以保上游存档 ID
+        // “消息测试”调试方块：位置与上游 test（PR #58）保持一致（satelliteConsole 之后），
+        // 便于后续同步上游时减少改动。注意 Mindustry 存档按**内容名**映射（ContentLoader 头表），
+        // 注册顺序本身不决定旧存档兼容；顺序真正影响的是各内容的 content id。
         messageTest = new MessageTest("message-test") {{
             requirements(Category.effect, BuildVisibility.sandboxOnly, with());
             alwaysUnlocked = true;
             size = 1;
             health = 60;
         }};
-        // 信号检测器注册在最后：保证旧存档方块 ID 不被后续新增方块打乱（纯测量设备，无游戏逻辑）
+        // 信号检测器：新方块一律追加在末尾，与上游注册序保持一致（纯测量设备，无游戏逻辑）。
+        // 顺序不决定存档兼容（存档按内容名映射），但插队会移动其后所有方块的 content id。
         signalDetector = new SignalDetector("signal-detector") {{
             requirements(Category.effect, BuildVisibility.shown,
                     ItemStack.with(Items.copper, 5, Items.silicon, 4));

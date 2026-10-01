@@ -15,9 +15,9 @@ import mindustry.gen.Unit;
 import mindustry.graphics.Layer;
 import mindustry.type.UnitType;
 import mindustry.world.meta.Env;
-import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.util.OrbitSatelliteController;
 import silicon.util.SatelliteManager;
+import silicon.world.blocks.satellite.SatelliteConsole;
 
 /**
  * 卫星实体机型（按轨道一型，共 4 型）：卫星是真实引擎单位（UnitEntity），轨道运动由

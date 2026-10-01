@@ -145,38 +145,43 @@ public class Silicon extends Mod {
         // 不触发 ClientLoadEvent）也必须能处理发射请求。主机权威执行，失败原因定向回发，成功走全图播报+状态广播
         if (netServer != null) {
             netServer.addPacketHandler("sat-launch", (p, data) -> {
+                // 失败回包统一出口：每条拒绝路径都必须回包，否则请求方 UI 一直等待。
+                // why 为 null 表示该路径无需单独记日志（busy/disabled 之类已由回包值自解释）；
+                // 回包本身再兜一层 try，避免异常路径上"回包失败"把处理器掀翻。
+                java.util.function.BiConsumer<String, String> deny = (result, why) -> {
+                    try {
+                        Call.clientPacketReliable(p.con, "sat-result", result);
+                    } catch (Throwable ignored) {
+                    }
+                    if (why != null) SiliconLog.info("sat-launch: " + why + " from " + p.name);
+                };
                 try {
                     String[] parts = data.split("\\|", -1);
                     if (parts.length != 3) {
-                        // 所有失败路径都必须回包,否则请求方 UI 一直等待
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
-                        SiliconLog.info("sat-launch: malformed packet (fields) from " + p.name);
+                        deny.accept("fail", "malformed packet (fields)");
                         return;
                     }
                     String[] xy = parts[0].split(",");
                     if (xy.length != 2) {
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
-                        SiliconLog.info("sat-launch: malformed packet (coords) from " + p.name);
+                        deny.accept("fail", "malformed packet (coords)");
                         return;
                     }
                     mindustry.world.Tile tile = world.tile(
                             Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
                     if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
                         // 控制台可能已被拆除/替换:给请求者明确反馈,而非无声死点击
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
-                        SiliconLog.info("sat-launch: invalid console tile from " + p.name);
+                        deny.accept("fail", "invalid console tile");
                         return;
                     }
                     silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
                             (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
                     if (cb.team != p.team()) {
                         // 只能操作本队控制台;越权请求回笼统 fail(细节只进日志,不向可疑客户端透露原因)
-                        SiliconLog.info("sat-launch: team mismatch from " + p.name);
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
+                        deny.accept("fail", "team mismatch");
                         return;
                     }
                     if (!cb.enabled) {
-                        Call.clientPacketReliable(p.con, "sat-result", "disabled");
+                        deny.accept("disabled", null);
                         return;
                     }
                     // 速率限制：每个请求都会做一遍"信号范围 + 1:1 配对"扫描（O(建筑×源)），
@@ -185,7 +190,7 @@ public class Silicon extends Mod {
                     if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN) {
                         // 限流必须与"真实失败"用不同回包：都回 "fail" 会让合法双击的第二次弹「发射失败」，
                         // 把"点太快"误导成"配置有问题"
-                        Call.clientPacketReliable(p.con, "sat-result", "busy");
+                        deny.accept("busy", null);
                         return;
                     }
                     cb.lastLaunchRequest = Time.time;
@@ -194,20 +199,17 @@ public class Silicon extends Mod {
                         orbit = Integer.parseInt(parts[2].trim());
                         if (orbit < silicon.world.blocks.satellite.SatelliteConsole.ORBIT_LEO
                                 || orbit > silicon.world.blocks.satellite.SatelliteConsole.ORBIT_SSO) {
-                            Call.clientPacketReliable(p.con, "sat-result", "fail");
-                            SiliconLog.info("sat-launch: orbit out of range from " + p.name);
+                            deny.accept("fail", "orbit out of range");
                             return;
                         }
                     } catch (NumberFormatException e) {
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
-                        SiliconLog.info("sat-launch: malformed packet (orbit) from " + p.name);
+                        deny.accept("fail", "malformed packet (orbit)");
                         return;
                     }
                     // 信号编码校验：4 位字母数字或空（空=沿用控制台默认），防畸形输入进入管理器
                     String sig = parts[1];
                     if (!sig.isEmpty() && !sig.matches("[A-Za-z0-9]{4}")) {
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
-                        SiliconLog.info("sat-launch: malformed signal code from " + p.name);
+                        deny.accept("fail", "malformed signal code");
                         return;
                     }
                     // 空编码 = 沿用控制台当前绑定的编码：客机在 tileConfig 到达前的首帧、或本地
@@ -218,15 +220,12 @@ public class Silicon extends Mod {
                     int result = SatelliteManager.launch(p.team(),
                             (effSig == null || effSig.isEmpty()) ? null : effSig, orbit, cb.x, cb.y);
                     if (result != SatelliteManager.LAUNCH_OK) {
-                        Call.clientPacketReliable(p.con, "sat-result", String.valueOf(result));
+                        deny.accept(String.valueOf(result), null);
                     }
                 } catch (Exception e) {
                     SiliconLog.info("sat-launch: handler error: " + e);
-                    // 异常路径也必须回包;再兜一层防止回包本身抛异常
-                    try {
-                        Call.clientPacketReliable(p.con, "sat-result", "fail");
-                    } catch (Throwable ignored) {
-                    }
+                    // 异常路径也必须回包（deny 内部已再兜一层，防止回包本身抛异常）
+                    deny.accept("fail", null);
                 }
             });
         }
@@ -236,27 +235,23 @@ public class Silicon extends Mod {
         // 永远不会生效（与 sat-launch 同因，故移到同一位置）
         if (netServer != null) {
             netServer.addPacketHandler("pause", (p, time) -> {
-                if (p.admin || p.name.equals(state.map.author())) {
-                    state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                    Call.clientPacketReliable(p.con, "paused", time);
-                    SiliconLog.info(p.name + " pause");
-                    return;
+                // 放行判定收敛成一处：原先 admin/author、pauseMode==1、pauseMode==2+白名单
+                // 三段各自重复了「切换暂停 + 回包 + 记日志」，条件不同但动作完全相同。
+                // 语义要点：admin/author 先放行，**不受 pauseMode 限制**（pauseMode==0 也要放行），
+                // 所以这里先算 admin/author，只有它不是才去看 pauseMode。
+                boolean allowed = p.admin || p.name.equals(state.map.author());
+                if (!allowed) {
+                    if (Vars.pauseMode == 1) {
+                        allowed = true;
+                    } else if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
+                        allowed = true;
+                    }
                 }
+                if (!allowed) return;
 
-                if (Vars.pauseMode == 0) return;
-
-                if (Vars.pauseMode == 1) {
-                    state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                    Call.clientPacketReliable(p.con, "paused", time);
-                    SiliconLog.info(p.name + " pause");
-                    return;
-                }
-
-                if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
-                    state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                    Call.clientPacketReliable(p.con, "paused", time);
-                    SiliconLog.info(p.name + " pause");
-                }
+                state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
+                Call.clientPacketReliable(p.con, "paused", time);
+                SiliconLog.info(p.name + " pause");
             });
 
             netServer.addPacketHandler("pause-setmode", (p, data) -> {
