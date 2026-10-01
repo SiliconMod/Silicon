@@ -1,9 +1,12 @@
 package silicon.util;
 
+import arc.math.Mathf;
 import arc.struct.ObjectMap;
 import arc.util.Time;
-import mindustry.entities.Units;
 import mindustry.entities.units.WeaponMount;
+import mindustry.game.Team;
+import mindustry.gen.Building;
+import mindustry.gen.Groups;
 import mindustry.gen.Teamc;
 import mindustry.gen.Unit;
 import mindustry.type.Weapon;
@@ -81,26 +84,49 @@ public class LoicWeapon extends Weapon {
     }
 
     /**
-     * 索敌：在引擎的候选集层面就把不该打的东西排除掉。
-     * <p>
-     * 三类目标分开判：
+     * 索敌：自己遍历，而不是用引擎的 `Units.closestTarget`。两个理由：
      * <ul>
-     *   <li><b>低轨卫星</b>（LEO/SSO）：受"对星"开关控制；</li>
-     *   <li><b>其他空中单位</b>：一律不打——离子炮是轨道对地武器，"对星"开关打开并不等于兼职防空；</li>
-     *   <li><b>地面目标</b>（建筑与地面单位）：照常。</li>
+     *   <li>引擎那个只认**敌方**——沙盒里没有第二个队，只打敌方等于一炮都打不出去，
+     *       与反卫星拦截塔/定位器"沙盒自测放宽"的判据不一致（同一份 {@code testSatelliteAvailable()}）；</li>
+     *   <li>需要在候选集层面就排除"普通空中单位"：对星开关打开 ≠ 兼职防空。</li>
      * </ul>
-     * 另外不能在 `super.findTarget` 之后过滤：后者只返回最近的那一个目标，若最近的恰好是
-     * 被排除的卫星，会连更远的地面目标一起漏掉。
+     * 三类目标分开判：低轨卫星（受开关控制）/ 其他空中单位（一律不打）/ 地面目标（照常）。
+     * <p>
+     * 本方法由 `Weapon.update` 按 `retarget` 间隔调用（不是每帧），遍历成本可忽略。
      */
     @Override
     protected Teamc findTarget(Unit unit, float x, float y, float range, boolean air, boolean ground) {
         boolean sats = state(unit.id).attackSats;
-        return Units.closestTarget(unit.team, x, y, range + Math.abs(shootY),
-                u -> {
-                    if (isLowOrbitSatellite(u)) return sats && u.checkTarget(air, ground);
-                    return !u.isFlying() && u.checkTarget(air, ground);
-                },
-                t -> ground && (unit.type.targetUnderBlocks || !t.block.underBullets));
+        // 沙盒自测放宽：与 AsatInterceptor / SatelliteLocator 同一判据
+        boolean selfOk = SatelliteManager.testSatelliteAvailable();
+        float limit = range + Math.abs(shootY);
+        float bestDst = Float.MAX_VALUE;
+        Teamc best = null;
+
+        // 地面建筑
+        if (ground) {
+            for (Building b : Groups.build) {
+                if (b.team == Team.derelict || (b.team == unit.team && !selfOk)) continue;
+                if (!unit.type.targetUnderBlocks && b.block.underBullets) continue;
+                float d = Mathf.dst(x, y, b.x, b.y);
+                if (d > limit || d >= bestDst) continue;
+                bestDst = d;
+                best = b;
+            }
+        }
+
+        // 单位：只有低轨卫星可能入选（且"对星"开关必须打开）
+        if (sats) {
+            for (Unit u : Groups.unit) {
+                if (u == unit || u.team == Team.derelict || (u.team == unit.team && !selfOk)) continue;
+                if (!isLowOrbitSatellite(u) || !u.checkTarget(air, ground)) continue;
+                float d = Mathf.dst(x, y, u.x, u.y);
+                if (d > limit || d >= bestDst) continue;
+                bestDst = d;
+                best = u;
+            }
+        }
+        return best;
     }
 
     /** 开火：先扣弹药，"自动发射"关闭或弹夹为空都不发射 */
