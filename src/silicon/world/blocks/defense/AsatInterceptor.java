@@ -47,12 +47,12 @@ import silicon.world.blocks.signal.SignalChannel;
 public class AsatInterceptor extends Turret {
     /** 每发伤害。200 × 2 发 = 400，正好两发击落一颗 */
     public float damagePerShot = 200f;
-    /** 每发消耗的电力（从电网电池扣）：击落一颗 = 2 发 = 8 万电力 */
-    public float powerPerShot = 40000f;
-    /** 可用度满值时的锁定时间（tick） */
-    public float lockTimeMin = 60f;
-    /** 可用度趋近 0 时的锁定时间（tick） */
-    public float lockTimeMax = 360f;
+    /** 每发消耗的电力（从电网电池扣） */
+    public float powerPerShot = 10000f;
+    /** 可用度满值时的锁定时间（tick），0.5 秒 */
+    public float lockTimeMin = 30f;
+    /** 可用度趋近 0 时的锁定时间（tick），2 秒 */
+    public float lockTimeMax = 120f;
     /** 可用度归一化参考值：达到该可用度即按最快锁定 */
     public float qualityRef = 40f;
 
@@ -77,7 +77,9 @@ public class AsatInterceptor extends Turret {
         targetAir = false;
         targetGround = false;
         targetBlocks = false;
-        range = 80f;
+        // 射程单位是**世界像素**（1 格 = 8 像素）：这里取 80 格 = 640px。
+        // 早先写成 80f 实际只有 10 格——卫星从头顶掠过时几乎来不及锁定，塔形同虚设。
+        range = 80f * 8f;
         reload = 180f;      // 3 秒/发 → 两发 6 秒
         shootCone = 8f;
         rotateSpeed = 3f;
@@ -258,9 +260,23 @@ public class AsatInterceptor extends Turret {
             super.updateShooting();
         }
 
-        /** 电量是否够打下一发 */
+        /** 电网里可扣的电池存量（面板显示与判定共用） */
+        public float storedPower() {
+            return power == null || power.graph == null ? 0f : power.graph.getBatteryStored();
+        }
+
+        /**
+         * 电量是否够打下一发。
+         * <p>
+         * 两道判据：电网里**有电池**时按存量精确判断；**纯发电网（没有电池）**的
+         * {@code getBatteryStored()} 恒为 0，若坚持按存量判断就永远开不了火
+         * （表现为"电量不能正常检测"），因此这种情况退回按供电状态放行。
+         */
         public boolean canAffordShot() {
-            return power != null && power.graph != null && power.graph.getBatteryStored() >= powerPerShot;
+            if (power == null || power.graph == null) return false;
+            float stored = power.graph.getBatteryStored();
+            if (stored > 0f) return stored >= powerPerShot;
+            return hasPower();
         }
 
         /**
@@ -276,7 +292,9 @@ public class AsatInterceptor extends Turret {
                 return;
             }
             if (power != null && power.graph != null) {
-                power.graph.useBatteries(powerPerShot);
+                // 只扣电网里真实存在的存量：纯发电网没有存量可扣（canAffordShot 已按供电状态放行）
+                float stored = power.graph.getBatteryStored();
+                if (stored > 0f) power.graph.useBatteries(Math.min(powerPerShot, stored));
             }
             boolean wasAlive = u.isValid();
             float wx = u.x, wy = u.y;
@@ -358,8 +376,12 @@ public class AsatInterceptor extends Turret {
                 return Core.bundle.format("block.silicon-asat-interceptor.ui.intel", total, inRange);
             }).color(Color.lightGray).pad(3f).row();
             table.label(() -> {
-                int stored = power == null || power.graph == null ? 0 : (int) power.graph.getBatteryStored();
+                int stored = (int) storedPower();
                 int need = (int) powerPerShot;
+                // 纯发电网（无电池）时存量恒为 0，显示"0/10000"会误导成"永远缺电"，改为直供提示
+                if (stored <= 0 && hasPower()) {
+                    return Core.bundle.format("block.silicon-asat-interceptor.ui.powerDirect", need);
+                }
                 // 颜色写在 bundle 里（Label 没有 Prov<Color> 重载，不能在 .color() 里按状态切换）
                 return canAffordShot()
                         ? Core.bundle.format("block.silicon-asat-interceptor.ui.power", stored, need)

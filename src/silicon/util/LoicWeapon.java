@@ -113,10 +113,13 @@ public class LoicWeapon extends Weapon {
         float bestDst = Float.MAX_VALUE;
         Teamc best = null;
 
-        // 地面建筑
+        // 地面建筑：**永远只打敌方**。
+        // 这里刻意不使用沙盒放宽（selfOk）——放宽的本意是"沙盒里没有第二个队，允许打己方卫星以便自测"，
+        // 但它一旦作用到建筑分支，就会让 LOIC 去轰炸自己的基地（实测到的"乱开火"）。
+        // 卫星分支保留放宽，因为靶标卫星可以直接刷成敌方队伍，建筑不需要这种便利。
         if (ground) {
             for (Building b : Groups.build) {
-                if (b.team == Team.derelict || (b.team == unit.team && !selfOk)) continue;
+                if (b.team == Team.derelict || b.team == unit.team) continue;
                 if (!unit.type.targetUnderBlocks && b.block.underBullets) continue;
                 float d = Mathf.dst(x, y, b.x, b.y);
                 if (d > limit || d >= bestDst) continue;
@@ -190,7 +193,8 @@ public class LoicWeapon extends Weapon {
         float limit = range + Math.abs(shootY);
         if (target instanceof Building b) {
             if (!b.isValid() || b.team == Team.derelict) return true;
-            if (b.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return true;
+            // 与 findTarget 对称：建筑永远只打敌方（不使用沙盒放宽，见那里的说明）
+            if (b.team == unit.team) return true;
             if (!unit.type.targetUnderBlocks && b.block.underBullets) return true;
             return !b.within(x, y, limit + b.hitSize() / 2f);
         }
