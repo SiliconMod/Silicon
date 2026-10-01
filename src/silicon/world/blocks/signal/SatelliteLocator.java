@@ -109,10 +109,15 @@ public class SatelliteLocator extends Block {
             super.onRemoved();
         }
 
-        /** 配置面板：只有上报开关（面板不放状态说明，与官方配置面板保持一致） */
+        /** 配置面板：一行状态数值 + 上报开关（不给解释文字，与官方面板风格一致） */
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
+            table.label(() -> Core.bundle.format("block.silicon-satellite-locator.ui.status",
+                            detected.size, Core.bundle.get(reporting
+                                    ? "block.silicon-satellite-locator.on"
+                                    : "block.silicon-satellite-locator.off")))
+                    .color(Color.lightGray).pad(4f).row();
             table.button(Core.bundle.get(reporting
                             ? "block.silicon-satellite-locator.report.off"
                             : "block.silicon-satellite-locator.report.on"),

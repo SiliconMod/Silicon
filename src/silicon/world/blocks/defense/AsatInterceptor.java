@@ -84,7 +84,7 @@ public class AsatInterceptor extends Turret {
         cooldownTime = 90f;
         minWarmup = 0.75f;
         // 面板保留（只读状态），但不再需要玩家配任何东西：情报按队伍自动共享
-        configurable = false;
+        configurable = true;
         consumePower(600f / 60f);
     }
 
@@ -138,14 +138,13 @@ public class AsatInterceptor extends Turret {
         /** 目标轨道短名：不需要了（面板不再显示诊断信息），保留此注释以免有人重新引入时忘了
          *  {@code SatelliteConsole.orbitKeyShort} 在它的内部类里、外部访问不到 */
 
+        /** 情报里落在射程内的目标数（面板显示用） */
+        public int inRange = 0;
+
         /** 锁定进度（0~1），绘制与面板共用 */
         public float lockProgress() {
             // 注意用 java.lang.Math.max：arc 的 Mathf.max 只有 int 重载
             return target == null ? 0f : Mathf.clamp(lockTimer / Math.max(lockTime(), 1f));
-        }
-
-        public int intelCount() {
-            return SatelliteIntel.get(team, Time.time).size;
         }
 
         /**
@@ -158,15 +157,20 @@ public class AsatInterceptor extends Turret {
             Unit best = null;
             float bestDst = Float.MAX_VALUE;
             float range = range();
+            int count = 0;
             for (Unit u : intel) {
                 if (!u.isValid() || u.team == Team.derelict) continue;
                 // 沙盒自测放宽（与定位器同一判据）：沙盒里没有第二个队，只打敌方则无法验证
                 if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
                 float dst = Mathf.dst(x, y, u.x, u.y);
-                if (dst > range || dst >= bestDst) continue;
-                bestDst = dst;
-                best = u;
+                if (dst > range) continue;
+                count++;
+                if (dst < bestDst) {
+                    bestDst = dst;
+                    best = u;
+                }
             }
+            inRange = count;
             if (best != target) {
                 lockTimer = 0f; // 换目标：重新锁定
                 if (best != null) acquireAt = Time.time; // 新取得目标：播一次锁定标记
@@ -299,6 +303,33 @@ public class AsatInterceptor extends Turret {
 
             Lines.stroke(1f);
             Draw.z(prevZ);
+        }
+
+        /**
+         * 配置面板：只给**状态数值**，不写解释（与官方面板风格一致）。
+         * 这三行覆盖了塔唯二会卡住的地方：有没有目标、电量够不够一发。
+         * 另外两处静默门控（缺电时引擎把 efficiency 置 0，连 shootWarmup 都不增长）从数值上也能看出来。
+         */
+        @Override
+        public void buildConfiguration(Table table) {
+            table.clearChildren();
+            table.label(() -> {
+                int total = SatelliteIntel.get(team, Time.time).size;
+                return Core.bundle.format("block.silicon-asat-interceptor.ui.intel", total, inRange);
+            }).color(Color.lightGray).pad(3f).row();
+            table.label(() -> {
+                int stored = power == null || power.graph == null ? 0 : (int) power.graph.getBatteryStored();
+                int need = (int) powerPerShot;
+                // 颜色写在 bundle 里（Label 没有 Prov<Color> 重载，不能在 .color() 里按状态切换）
+                return canAffordShot()
+                        ? Core.bundle.format("block.silicon-asat-interceptor.ui.power", stored, need)
+                        : Core.bundle.format("block.silicon-asat-interceptor.ui.powerLow", stored, need);
+            }).color(Color.lightGray).pad(3f).row();
+            table.label(() -> target instanceof Unit u && u.isValid()
+                            ? Core.bundle.format("block.silicon-asat-interceptor.ui.locking",
+                                    (int) (lockProgress() * 100f))
+                            : Core.bundle.get("block.silicon-asat-interceptor.ui.none"))
+                    .color(Color.lightGray).pad(3f).row();
         }
     }
 }
