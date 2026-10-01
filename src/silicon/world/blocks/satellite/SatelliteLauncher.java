@@ -474,26 +474,28 @@ public class SatelliteLauncher extends Block {
             }
         }
 
-        /** 配置面板：选择卫星种类（生产所需种类） */
+        /** 配置面板：选择卫星种类（生产所需种类）。面板底色与其它信号类方块一致（Styles.grayPanel） */
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
-            table.top();
-            ButtonGroup<TextButton> group = new ButtonGroup<>();
-            TextButton signalBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.signal"), Styles.flatTogglet);
-            signalBtn.setChecked(selectedType == TYPE_SIGNAL);
-            // configure 同步（服务器权威下发，各端选中类型一致）；乐观先设本地保证即时反馈
-            signalBtn.clicked(() -> { selectedType = TYPE_SIGNAL; configure(TYPE_SIGNAL); });
-            group.add(signalBtn);
-            table.add(signalBtn).size(200f, 44f).pad(3f);
-            table.row();
-            // 近地轨道离子炮（LOIC）：正常模式可用的对地武器卫星，轨道被限定在 LEO（见 TYPE_ION 注释）
-            TextButton ionBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.ion"), Styles.flatTogglet);
-            ionBtn.setChecked(selectedType == TYPE_ION);
-            ionBtn.clicked(() -> { selectedType = TYPE_ION; configure(TYPE_ION); });
-            group.add(ionBtn);
-            table.add(ionBtn).size(200f, 44f).pad(3f);
-            table.row();
+            table.table(Styles.grayPanel, t -> {
+                t.top();
+                ButtonGroup<TextButton> group = new ButtonGroup<>();
+                TextButton signalBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.signal"), Styles.flatTogglet);
+                signalBtn.setChecked(selectedType == TYPE_SIGNAL);
+                // configure 同步（服务器权威下发，各端选中类型一致）；乐观先设本地保证即时反馈
+                signalBtn.clicked(() -> { selectedType = TYPE_SIGNAL; configure(TYPE_SIGNAL); });
+                group.add(signalBtn);
+                t.add(signalBtn).size(200f, 44f).pad(3f);
+                t.row();
+                // 近地轨道离子炮（LOIC）：正常模式可用的对地武器卫星，轨道被限定在 LEO（见 TYPE_ION 注释）
+                TextButton ionBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.ion"), Styles.flatTogglet);
+                ionBtn.setChecked(selectedType == TYPE_ION);
+                ionBtn.clicked(() -> { selectedType = TYPE_ION; configure(TYPE_ION); });
+                group.add(ionBtn);
+                t.add(ionBtn).size(200f, 44f).pad(3f);
+                t.row();
+            });
         }
 
         /** 选中面板（按原版空军工厂样式）：需求材料+石油（图标+数量角标下边缘居中）、进度条、石油条、电力条（长度与原版 bar 一致） */

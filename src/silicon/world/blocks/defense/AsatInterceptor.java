@@ -390,36 +390,39 @@ public class AsatInterceptor extends Turret {
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
-            table.label(() -> {
-                int total = SatelliteIntel.get(team, selectedSignal, Time.time).size;
-                return Core.bundle.format("block.silicon-asat-interceptor.ui.intel", total, inRange);
-            }).color(Color.lightGray).pad(3f).row();
-            table.label(() -> Core.bundle.format("block.silicon-signal-bind.current",
-                            selectedSignal == null || selectedSignal.isEmpty()
-                                    ? Core.bundle.get("block.silicon-signal-bind.nobind")
-                                    : selectedSignal))
-                    .color(Color.lightGray).pad(3f).row();
-            table.label(() -> {
-                int stored = (int) storedPower();
-                int need = (int) powerPerShot;
-                // 纯发电网（无电池）时存量恒为 0，显示"0/10000"会误导成"永远缺电"，改为直供提示
-                if (stored <= 0 && hasPower()) {
-                    return Core.bundle.format("block.silicon-asat-interceptor.ui.powerDirect", need);
-                }
-                // 颜色写在 bundle 里（Label 没有 Prov<Color> 重载，不能在 .color() 里按状态切换）
-                return canAffordShot()
-                        ? Core.bundle.format("block.silicon-asat-interceptor.ui.power", stored, need)
-                        : Core.bundle.format("block.silicon-asat-interceptor.ui.powerLow", stored, need);
-            }).color(Color.lightGray).pad(3f).row();
-            table.label(() -> target instanceof Unit u && u.isValid()
-                            ? Core.bundle.format("block.silicon-asat-interceptor.ui.locking",
-                                    (int) (lockProgress() * 100f))
-                            : Core.bundle.get("block.silicon-asat-interceptor.ui.none"))
-                    .color(Color.lightGray).pad(3f).row();
-            // 信号绑定：必须与定位器绑定同一编码才有情报
-            SignalBindUI.build(table, team, () -> selectedSignal, code -> {
-                selectedSignal = code;
-                configure(code == null ? "" : code);
+            table.table(mindustry.ui.Styles.grayPanel, t -> {
+                t.top();
+                t.label(() -> {
+                    int total = SatelliteIntel.get(team, selectedSignal, Time.time).size;
+                    return Core.bundle.format("block.silicon-asat-interceptor.ui.intel", total, inRange);
+                }).color(Color.lightGray).pad(3f).row();
+                t.label(() -> Core.bundle.format("block.silicon-signal-bind.current",
+                                selectedSignal == null || selectedSignal.isEmpty()
+                                        ? Core.bundle.get("block.silicon-signal-bind.nobind")
+                                        : selectedSignal))
+                        .color(Color.lightGray).pad(3f).row();
+                t.label(() -> {
+                    int stored = (int) storedPower();
+                    int need = (int) powerPerShot;
+                    // 纯发电网（无电池）时存量恒为 0，显示"0/10000"会误导成"永远缺电"，改为直供提示
+                    if (stored <= 0 && hasPower()) {
+                        return Core.bundle.format("block.silicon-asat-interceptor.ui.powerDirect", need);
+                    }
+                    // 颜色写在 bundle 里（Label 没有 Prov<Color> 重载，不能在 .color() 里按状态切换）
+                    return canAffordShot()
+                            ? Core.bundle.format("block.silicon-asat-interceptor.ui.power", stored, need)
+                            : Core.bundle.format("block.silicon-asat-interceptor.ui.powerLow", stored, need);
+                }).color(Color.lightGray).pad(3f).row();
+                t.label(() -> target instanceof Unit u && u.isValid()
+                                ? Core.bundle.format("block.silicon-asat-interceptor.ui.locking",
+                                        (int) (lockProgress() * 100f))
+                                : Core.bundle.get("block.silicon-asat-interceptor.ui.none"))
+                        .color(Color.lightGray).pad(3f).row();
+                // 信号绑定：必须与定位器绑定同一编码才有情报
+                SignalBindUI.build(t, team, () -> selectedSignal, code -> {
+                    selectedSignal = code;
+                    configure(code == null ? "" : code);
+                });
             });
         }
 

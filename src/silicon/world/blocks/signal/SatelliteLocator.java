@@ -130,28 +130,31 @@ public class SatelliteLocator extends Block {
             super.onRemoved();
         }
 
-        /** 配置面板：状态数值 + 上报开关 + 信号绑定（不给解释文字，与官方面板风格一致） */
+        /** 配置面板：状态数值 + 上报开关 + 信号绑定。面板底色与其它信号类方块一致（Styles.grayPanel） */
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
-            table.label(() -> Core.bundle.format("block.silicon-satellite-locator.ui.status",
-                            detected.size, Core.bundle.get(reporting
-                                    ? "block.silicon-satellite-locator.on"
-                                    : "block.silicon-satellite-locator.off")))
-                    .color(Color.lightGray).pad(4f).row();
-            table.label(() -> Core.bundle.format("block.silicon-signal-bind.current",
-                            selectedSignal == null || selectedSignal.isEmpty()
-                                    ? Core.bundle.get("block.silicon-signal-bind.nobind")
-                                    : selectedSignal))
-                    .color(Color.lightGray).pad(3f).row();
-            table.button(Core.bundle.get(reporting
-                            ? "block.silicon-satellite-locator.report.off"
-                            : "block.silicon-satellite-locator.report.on"),
-                    mindustry.ui.Styles.defaultt, () -> configure(!reporting)).size(220f, 40f).pad(4f).row();
-            // 信号绑定：发布到该编码，只有绑定同一编码的拦截塔能读到
-            SignalBindUI.build(table, team, () -> selectedSignal, code -> {
-                selectedSignal = code;
-                configure(code == null ? "" : code);
+            table.table(mindustry.ui.Styles.grayPanel, t -> {
+                t.top();
+                t.label(() -> Core.bundle.format("block.silicon-satellite-locator.ui.status",
+                                detected.size, Core.bundle.get(reporting
+                                        ? "block.silicon-satellite-locator.on"
+                                        : "block.silicon-satellite-locator.off")))
+                        .color(Color.lightGray).pad(4f).row();
+                t.label(() -> Core.bundle.format("block.silicon-signal-bind.current",
+                                selectedSignal == null || selectedSignal.isEmpty()
+                                        ? Core.bundle.get("block.silicon-signal-bind.nobind")
+                                        : selectedSignal))
+                        .color(Color.lightGray).pad(3f).row();
+                t.button(Core.bundle.get(reporting
+                                ? "block.silicon-satellite-locator.report.off"
+                                : "block.silicon-satellite-locator.report.on"),
+                        mindustry.ui.Styles.defaultt, () -> configure(!reporting)).size(220f, 40f).pad(4f).row();
+                // 信号绑定：发布到该编码，只有绑定同一编码的拦截塔能读到
+                SignalBindUI.build(t, team, () -> selectedSignal, code -> {
+                    selectedSignal = code;
+                    configure(code == null ? "" : code);
+                });
             });
         }
 
