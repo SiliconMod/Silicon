@@ -72,7 +72,19 @@ def run_gh(args, timeout=60, stdin_data=None):
             input=stdin_data,
             capture_output=True, text=True, timeout=timeout, env=env,
         )
-        return p.returncode, p.stdout.strip()
+        rc = p.returncode
+        out = p.stdout.strip()
+        # 【修 2026-10-01】此前无论成败都只交回 p.stdout，而 gh 的错误文本（HTTP 状态码、
+        # GitHub 返回的 message）整条写在 stderr 上、随 capture_output 一起被丢弃 —— 于是
+        # 422 这类失败在日志里只剩「rc!=0 + 输出为空」这一个信号，完全无法区分「限流/权限/
+        # 认证」与「payload 不被接受」。行内评论那段刚修好「payload 从未送进 stdin 导致
+        # 8/8 被 422」；若还存在别的 422 成因（例如 LLM 给出的 path/line 不在 diff 内，
+        # :314 的守卫只挡空值、不校验是否在 diff 内），没有这段日志就只能靠猜。
+        # 返回面刻意保持 (returncode, stdout) 二元组：3 个调用点（:248/:325/:339）都无需改动，
+        # 成功路径的返回值与之前逐字节一致。
+        if rc != 0 and p.stderr.strip():
+            log("error: gh api rc=%d: %s" % (rc, p.stderr.strip()))
+        return rc, out
     except subprocess.TimeoutExpired:
         log("error: gh api timed out after %ss" % timeout)
         return 1, ""
