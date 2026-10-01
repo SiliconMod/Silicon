@@ -56,6 +56,26 @@ public class SatelliteUnits {
     public static UnitType signalLeo, signalMeo, signalGeo, testSso;
     /** 近地轨道离子炮（LOIC）专用机型：唯一挂武器的卫星，只在 LEO 使用 */
     public static UnitType ionLeo;
+    /**
+     * 靶标卫星：**唯一的可被攻击卫星**，供 LOIC 与反卫星拦截塔验证整条攻击链路。
+     * <p>
+     * 它同样走 {@link OrbitSatelliteController}，因此天然满足所有攻击侧的索敌条件：
+     * <ul>
+     *   <li>LOIC 的 {@code isLowOrbitSatellite()} 只认控制器类型与轨道，本机型取 LEO，可被索敌；</li>
+     *   <li>卫星定位器按控制器类型全图探测，因此它也会被探测、被拦截塔锁定；</li>
+     *   <li>血量刻意高于普通卫星（见 {@link #TARGET_HEALTH}），便于观察连续命中与弹夹消耗。</li>
+     * </ul>
+     * <b>无需任何生成逻辑</b>：直接放置/刷出即可。缺名册的轨道卫星会被
+     * {@code SatelliteManager.onWorldLoaded()} 的补建路径自动登记（控制器每 60 帧兜底触发一次），
+     * 登记后即按 LEO 轨迹运动。
+     */
+    public static UnitType targetSatellite;
+
+    /**
+     * 靶标卫星血量：LOIC 单发 10000，取 30000 即 **3 发击落**——
+     * 普通卫星的 400 血是一发就没，看不出弹夹消耗与连续命中，靶子需要能挨几发。
+     */
+    public static final float TARGET_HEALTH = 30000f;
 
     public static void load() {
         // 名字不带 mod 前缀：MappableContent 构造时会经 content.transformName 无条件加 "silicon-" 前缀
@@ -79,6 +99,12 @@ public class SatelliteUnits {
         // 需要停火请走控制台的「自动」开关（它只影响 LoicWeapon.shoot，不碰引擎这层）。
         ionLeo = orbitSatellite("satellite-loic", SatelliteConsole.ORBIT_LEO);
         ionLeo.weapons.add(ionWeapon());
+
+        // 靶标卫星：放在 LEO（LOIC 的作战轨道），血量为普通卫星的 75 倍。
+        // 注意不能设 hidden=true——沙盒单位面板与地图编辑器都用 !isHidden() 过滤，
+        // 隐藏了就再也刷不出来，靶子也就没有意义了。
+        targetSatellite = orbitSatellite("satellite-target", SatelliteConsole.ORBIT_LEO);
+        targetSatellite.health = TARGET_HEALTH;
     }
 
     /**
