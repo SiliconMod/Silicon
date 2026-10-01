@@ -111,6 +111,8 @@ public class Silicon extends Mod {
         Events.on(EventType.WorldLoadEvent.class, e -> {
             SignalSource.markDirty();
             SignalRelay.markDirty();
+            // 诊断：世界加载探针（不依赖是否已发射卫星）——用来区分"世界没加载"与"加载了但没有卫星"
+            silicon.util.LoicWeapon.diagWorldLoaded();
             // 名册↔卫星实体对账：存档读入时 WorldLoadEvent 早于单位读入（readMap→endMapLoad→readEntities），
             // 此刻 Groups.unit 还没有卫星，这里的调用只覆盖"实体先于事件"的路径（如直接进新图）
             SatelliteManager.onWorldLoaded();
@@ -372,7 +374,7 @@ public class Silicon extends Mod {
                 addSection(st, "setting.silicon.group.hub");
                 st.checkPref("hubDebugLog", false, v -> silicon.world.blocks.distribution.ItemTransferHub.debugFlows = v);
                 // LOIC 开火链路诊断：打开后每颗卫星每 60 tick 输出一行状态（武器更新/索敌/校验/开火四个阶段）
-                st.checkPref("loicDebugLog", false, v -> silicon.util.LoicWeapon.debug = v);
+                st.checkPref("loicDebugLog", true, v -> silicon.util.LoicWeapon.debug = v);
                 st.sliderPref("hubLinkOpacity", 100, 0, 100, 5, i -> i + "%");
 
                 // —— 界面 ——
@@ -402,7 +404,7 @@ public class Silicon extends Mod {
             // 启动时从持久化设置恢复调试开关（checkPref 的变更回调只在用户手动切换时触发，
             // 不初始化的话每次启动都要重新关闭再打开才生效）
             silicon.world.blocks.distribution.ItemTransferHub.debugFlows = Core.settings.getBool("hubDebugLog", false);
-            silicon.util.LoicWeapon.debug = Core.settings.getBool("loicDebugLog", false);
+            silicon.util.LoicWeapon.debug = Core.settings.getBool("loicDebugLog", true);
 
             // 卫星状态广播（服务器 → 客机）：应用主机权威状态（在轨数/归属信号/待发射数镜像）。
             // 包处理器在网络线程回调——一切状态/UI 操作必须 post 回主线程

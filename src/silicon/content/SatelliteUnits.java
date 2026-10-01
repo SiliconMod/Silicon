@@ -133,6 +133,15 @@ public class SatelliteUnits {
             shootCone = 360f;  // 不限制射界：目标可能在任意方向
             x = 0f;
             y = 0f;
+            // ★ 这两行是"能不能索敌"的总开关，缺一不可（引擎源码 Weapon.java:59/65/318）：
+            //     controllable 默认 true → `!controllable` 为 false
+            //     autoTarget   默认 false
+            //   而索敌分支是 `if(!controllable && autoTarget){ mount.target = findTarget(...) }`，
+            //   两个条件都不满足时 findTarget() 永不调用，mount.target 恒为 null，永远不开火。
+            //   卫星用的是自定义 OrbitSatelliteController（不是 AIController），
+            //   因此 AIController.updateWeapons() 那条备选路径也不会跑——必须让武器自己索敌。
+            controllable = false;
+            autoTarget = true;
         }};
     }
 

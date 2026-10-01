@@ -247,8 +247,19 @@ public class LoicWeapon extends Weapon {
     // 输出**不走引擎日志**：last_log.txt 每次启动都会被清空重写，一次没进图的启动就会把
     // 上一次的现场冲掉（已实际踩到）。这里直接追加写独立文件，除非手工删除否则不会丢。
 
-    /** 诊断开关（默认关）。设置界面可勾选，或控制台执行 `silicon.loic.debug = true` */
-    public static boolean debug = false;
+    /**
+     * 诊断开关（<b>默认开</b>）。
+     * <p>
+     * 曾经默认关、要求玩家手动勾选，结果连续多轮测试都因为没人勾选而拿不到任何运行时数据——
+     * 诊断输出被自己的开关挡住了。现在默认开，并配合行数上限控制体积。
+     * 设置界面仍可关闭。
+     */
+    public static boolean debug = true;
+
+    /** 诊断文件行数上限（防无限增长；达到后停写并留一行标记） */
+    private static final int DIAG_MAX_LINES = 600;
+    private static int diagLines = 0;
+    private static boolean diagLimitHit = false;
 
     /** 独立诊断文件（追加写，不经引擎日志系统，避免被 last_log.txt 覆盖） */
     private static final String DIAG_FILE = "silicon-loic-diag.log";
@@ -278,9 +289,22 @@ public class LoicWeapon extends Weapon {
      * 写失败绝不影响游戏逻辑（整段包在 try 里，异常直接吞掉）。
      */
     private static void diagLine(String text) {
+        if (diagLimitHit) return;
         try {
-            // 用 Vars.dataDirectory（%APPDATA%\Mindustry）直接构造，避开 arc.Files 实例问题
-            mindustry.Vars.dataDirectory.child(DIAG_FILE).writeString(text + "\n", true);
+            // 用 java.io.FileWriter 显式 flush：arc 的 Fi.writeString 受缓冲影响，
+            // 之前的会话里出现过"世界已加载但文件仍是启动阶段内容"的假象。
+            java.io.File target = mindustry.Vars.dataDirectory.child(DIAG_FILE).file();
+            java.io.FileWriter fw = new java.io.FileWriter(target, true);
+            fw.write(text + "\n");
+            fw.flush();
+            fw.close();
+            if (++diagLines >= DIAG_MAX_LINES) {
+                diagLimitHit = true;
+                java.io.FileWriter end = new java.io.FileWriter(target, true);
+                end.write("[diag-limit] reached " + DIAG_MAX_LINES + " lines\n");
+                end.flush();
+                end.close();
+            }
         } catch (Throwable ignored) {
             // 诊断写失败不影响游戏
         }
@@ -298,4 +322,24 @@ public class LoicWeapon extends Weapon {
 
     /** 上一次诊断时看到的目标（用于区分"从未找到过目标"与"目标被中途清掉"） */
     private static final ObjectMap<Integer, Boolean> debugHadTarget = new ObjectMap<>();
+
+    /**
+     * 世界加载探针：由 {@code WorldLoadEvent} 调用，**不受 debug 开关控制**。
+     * <p>
+     * 用途：区分"世界根本没加载"与"加载了但没有卫星/武器未更新"。这条永远写，因为它是判定基准。
+     */
+    public static void diagWorldLoaded() {
+        int sats = 0;
+        int armed = 0;
+        try {
+            for (Unit u : Groups.unit) {
+                if (!(u.controller() instanceof OrbitSatelliteController)) continue;
+                sats++;
+                if (u.type != null && u.type.hasWeapons() && u.type.weapons.size > 0) armed++;
+            }
+        } catch (Throwable ignored) {
+        }
+        diagLine("[worldLoaded] t=" + System.currentTimeMillis() + " sats=" + sats + " armedTypes=" + armed
+                + " debug=" + debug);
+    }
 }
