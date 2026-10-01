@@ -72,7 +72,7 @@ public class SatelliteUnits {
     public static UnitType targetSatellite;
 
     /**
-     * 靶标卫星血量：1000 —— LOIC 单发 10000，因此**一发即碎**，符合"靶子"的直觉；
+     * 靶标卫星血量：1000 —— LOIC 单发 2000，因此**一发即碎**，符合"靶子"的直觉；
      * 但仍高于普通卫星的 400（普通卫星被 ASAT 拦截塔两发击落，靶标需要略耐打一点才看得出命中）。
      */
     public static final float TARGET_HEALTH = 1000f;
@@ -116,7 +116,7 @@ public class SatelliteUnits {
      * "攻击卫星"关闭，会连更远的建筑一起漏掉。
      */
     /** 单次打击的中心伤害（溅射边缘由引擎按距离衰减） */
-    public static final float ION_DAMAGE = 10000f;
+    public static final float ION_DAMAGE = 2000f;
     /** 溅射半径（格） */
     public static final float ION_RADIUS_TILES = 10f;
     /**

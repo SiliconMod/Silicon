@@ -61,7 +61,7 @@
   详见 [docs/blocks/AsatInterceptor.md](docs/blocks/AsatInterceptor.md) 与 [docs/blocks/SatelliteLocator.md](docs/blocks/SatelliteLocator.md)。
 - **离子炮（LOIC，第二种卫星用途）**：近地轨道离子炮卫星——只能发到 LEO，成本是信号卫星的两倍
   （硅 8000 · 钍 3000 · 塑钢 2000 · 巨浪合金 2000，生产 120 秒）。它是**卫星单位自带的武器**：
-  1 秒连射、**5 发弹夹**（每 30 秒回 1 发）、单发 **10000 伤害 / 10 格溅射**，对地打建筑，
+  1 秒连射、**5 发弹夹**（每 30 秒回 1 发）、单发 **2000 伤害 / 10 格溅射**，对地打建筑，
   也能打**低轨卫星**（LEO/SSO）——在卫星控制台的在轨列表里按颗切换「自动」（自动发射）与「对星」。
   它同时也是**最容易被反制**的轨道（LEO 锁定难度 ×1.0），因此与拦截塔构成攻防闭环。
   详见 [docs/blocks/LOIC.md](docs/blocks/LOIC.md)。
