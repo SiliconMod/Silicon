@@ -17,6 +17,7 @@ import mindustry.graphics.Layer;
 import mindustry.world.Block;
 import silicon.util.OrbitSatelliteController;
 import silicon.util.SatelliteIntel;
+import silicon.util.SignalBindUI;
 import silicon.util.SatelliteManager;
 
 /**
@@ -49,6 +50,15 @@ public class SatelliteLocator extends Block {
         // 唯一的"配置"是开关上报：关掉它，本队的拦截塔就会在几秒内失去目标
         config(Boolean.class, (SatelliteLocatorBuild b, Boolean v) -> b.reporting = v);
         configClear((SatelliteLocatorBuild b) -> b.reporting = true);
+        // 信号绑定：探测结果发布到该编码，只有绑定了同一编码的拦截塔能读到（与卫星控制台同一套校验）
+        config(String.class, (SatelliteLocatorBuild b, String value) -> {
+            if (value == null || value.isEmpty()) {
+                b.selectedSignal = null;
+            } else if (silicon.world.meta.Signal.isValidCode(value)) {
+                b.selectedSignal = value;
+            }
+        });
+        configClear((SatelliteLocatorBuild b) -> b.selectedSignal = null);
         // 全图探测不便宜：待机耗电很高，养一座是一笔持续开销
         consumePower(2000f / 60f);
     }
@@ -56,6 +66,8 @@ public class SatelliteLocator extends Block {
     public class SatelliteLocatorBuild extends Building {
         /** 是否向外发布情报（面板里可关；关掉后本队拦截塔在 3 秒内失去目标） */
         public boolean reporting = true;
+        /** 绑定的信号编码（null = 未绑定，此时不发布任何情报） */
+        public String selectedSignal = null;
         private int refreshTimer = 0;
         /** 本端上次探测到的敌星（绘制与面板用） */
         public final Seq<Unit> detected = new Seq<>();
@@ -66,11 +78,20 @@ public class SatelliteLocator extends Block {
 
         @Override
         public void updateTile() {
-            boolean on = enabled && hasPower() && reporting;
+            boolean bound = selectedSignal != null && !selectedSignal.isEmpty();
+            // 信号源被拆/失效 → 绑定自动解除（与卫星控制台同一判据）：
+            // 没有存活信号源，编码就不再是有效频道，继续发布等于对着空频道广播。
+            if (bound && !SignalChannel.hasLiveSource(team, selectedSignal)) {
+                selectedSignal = null;
+                configure("");
+                bound = false;
+            }
+            boolean on = enabled && hasPower() && reporting && bound;
             if (!on) {
                 if (detected.size > 0) detected.clear();
                 lastCount = 0;
-                SatelliteIntel.clearFrom(team); // 断电/被关闭/停止上报即撤稿
+                // 断电/被关闭/停止上报/未绑定信号 → 撤稿（只撤自己那条编码）
+                if (bound) SatelliteIntel.clearFrom(team, selectedSignal);
                 return;
             }
             if (++refreshTimer < refreshInterval) return;
@@ -86,7 +107,7 @@ public class SatelliteLocator extends Block {
             // **两端都发布**：客机侧的情报只服务**本地视觉**（塔的转向、锁定环、取得目标的特效），
             // 伤害与扣电仍被 isAuthority 挡在权威端。若只在权威端发布，联机时己方炮塔在客机屏幕上
             // 会是一副"不转向、不锁定、没有特效"的样子。
-            SatelliteIntel.publish(team, detected, Time.time);
+            SatelliteIntel.publish(team, selectedSignal, detected, Time.time);
             // 新目标出现时打一发扫描脉冲（数量增加即视为"发现"；持续不变不再重放，避免刷屏）
             if (detected.size > lastCount) pingAt = Time.time;
             lastCount = detected.size;
@@ -105,11 +126,11 @@ public class SatelliteLocator extends Block {
 
         @Override
         public void onRemoved() {
-            SatelliteIntel.clearFrom(team);
+            SatelliteIntel.clearFrom(team, selectedSignal);
             super.onRemoved();
         }
 
-        /** 配置面板：一行状态数值 + 上报开关（不给解释文字，与官方面板风格一致） */
+        /** 配置面板：状态数值 + 上报开关 + 信号绑定（不给解释文字，与官方面板风格一致） */
         @Override
         public void buildConfiguration(Table table) {
             table.clearChildren();
@@ -118,10 +139,20 @@ public class SatelliteLocator extends Block {
                                     ? "block.silicon-satellite-locator.on"
                                     : "block.silicon-satellite-locator.off")))
                     .color(Color.lightGray).pad(4f).row();
+            table.label(() -> Core.bundle.format("block.silicon-signal-bind.current",
+                            selectedSignal == null || selectedSignal.isEmpty()
+                                    ? Core.bundle.get("block.silicon-signal-bind.nobind")
+                                    : selectedSignal))
+                    .color(Color.lightGray).pad(3f).row();
             table.button(Core.bundle.get(reporting
                             ? "block.silicon-satellite-locator.report.off"
                             : "block.silicon-satellite-locator.report.on"),
                     mindustry.ui.Styles.defaultt, () -> configure(!reporting)).size(220f, 40f).pad(4f).row();
+            // 信号绑定：发布到该编码，只有绑定同一编码的拦截塔能读到
+            SignalBindUI.build(table, team, () -> selectedSignal, code -> {
+                selectedSignal = code;
+                configure(code == null ? "" : code);
+            });
         }
 
         @Override
@@ -159,18 +190,23 @@ public class SatelliteLocator extends Block {
         public void write(Writes write) {
             super.write(write);
             write.bool(reporting);
+            write.str(selectedSignal == null ? "" : selectedSignal); // v2
         }
 
-        /** 存档版本：1 = bool(reporting) */
+        /** 存档版本：1 = bool(reporting)；2 = + 绑定的信号编码 */
         @Override
         public byte version() {
-            return 1;
+            return 2;
         }
 
         @Override
         public void read(Reads read, byte revision) {
             super.read(read, revision);
             reporting = read.bool();
+            if (revision >= 2) {
+                String s = read.str();
+                selectedSignal = s.isEmpty() ? null : s;
+            }
         }
     }
 }

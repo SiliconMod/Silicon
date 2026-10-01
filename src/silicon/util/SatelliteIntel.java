@@ -21,7 +21,7 @@ public class SatelliteIntel {
     /** 单次快照的条目上限（防止极端情况下快照过大） */
     public static final int MAX_ENTRIES = 64;
 
-    private static final ObjectMap<Team, Snapshot> map = new ObjectMap<>();
+    private static final ObjectMap<Team, ObjectMap<String, Snapshot>> map = new ObjectMap<>();
     private static final Seq<Unit> EMPTY = new Seq<>(0);
 
     public static class Snapshot {
@@ -31,17 +31,23 @@ public class SatelliteIntel {
     }
 
     /**
-     * 发布/覆盖某队的探测快照（由定位器每 tick 调用）。
+     * 发布/覆盖某队某编码的探测快照（由定位器每 tick 调用）。
      *
+     * @param code  定位器绑定的信号编码（空值直接忽略：未绑定信号的定位器不发布任何情报）
      * @param units 本次探测到的敌方卫星（最多 {@link #MAX_ENTRIES} 条）
      * @param now   当前时间（{@code Time.time}），用于过期判定
      */
-    public static void publish(Team team, Seq<Unit> units, float now) {
-        if (team == null) return;
-        Snapshot s = map.get(team);
+    public static void publish(Team team, String code, Seq<Unit> units, float now) {
+        if (team == null || code == null || code.isEmpty()) return;
+        ObjectMap<String, Snapshot> byCode = map.get(team);
+        if (byCode == null) {
+            byCode = new ObjectMap<>();
+            map.put(team, byCode);
+        }
+        Snapshot s = byCode.get(code);
         if (s == null) {
             s = new Snapshot();
-            map.put(team, s);
+            byCode.put(code, s);
         }
         s.units.clear();
         int n = Math.min(units.size, MAX_ENTRIES);
@@ -52,16 +58,32 @@ public class SatelliteIntel {
     }
 
     /**
-     * 取某队当前**仍有效**的定位快照；过期或从未发布则返回空。
+     * 取某队某编码当前**仍有效**的定位快照；过期、未发布或未绑定编码则返回空。
      * 返回的是内部对象，调用方只读遍历，不要修改。
      */
-    public static Seq<Unit> get(Team team, float now) {
-        Snapshot s = map.get(team);
+    public static Seq<Unit> get(Team team, String code, float now) {
+        if (team == null || code == null || code.isEmpty()) return EMPTY;
+        ObjectMap<String, Snapshot> byCode = map.get(team);
+        if (byCode == null) return EMPTY;
+        Snapshot s = byCode.get(code);
         if (s == null || now - s.updatedAt > STALE_TICKS) return EMPTY;
         return s.units;
     }
 
-    /** 定位器断电/被拆时清理本队条目（过期机制之外的一道保险） */
+    /** 定位器断电/被拆时清理该队该编码的条目（过期机制之外的一道保险） */
+    public static void clearFrom(Team team, String code) {
+        if (team == null) return;
+        ObjectMap<String, Snapshot> byCode = map.get(team);
+        if (byCode == null) return;
+        if (code == null || code.isEmpty()) {
+            map.remove(team);
+            return;
+        }
+        byCode.remove(code);
+        if (byCode.isEmpty()) map.remove(team);
+    }
+
+    /** 清理某队全部编码（换队/整体重置用） */
     public static void clearFrom(Team team) {
         if (team != null) map.remove(team);
     }

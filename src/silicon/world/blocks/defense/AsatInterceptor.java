@@ -20,6 +20,7 @@ import mindustry.world.blocks.defense.turrets.Turret;
 import silicon.util.OrbitSatelliteController;
 import silicon.util.SatelliteIntel;
 import silicon.util.SatelliteManager;
+import silicon.util.SignalBindUI;
 import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.signal.SignalChannel;
 
@@ -85,12 +86,22 @@ public class AsatInterceptor extends Turret {
         rotateSpeed = 3f;
         cooldownTime = 90f;
         minWarmup = 0.75f;
-        // 面板保留（只读状态），但不再需要玩家配任何东西：情报按队伍自动共享
+        // 面板保留（只读状态 + 信号绑定），情报不再按队伍自动共享：必须绑定与定位器相同的编码
         configurable = true;
+        config(String.class, (AsatInterceptorBuild b, String value) -> {
+            if (value == null || value.isEmpty()) {
+                b.selectedSignal = null;
+            } else if (silicon.world.meta.Signal.isValidCode(value)) {
+                b.selectedSignal = value;
+            }
+        });
+        configClear((AsatInterceptorBuild b) -> b.selectedSignal = null);
         consumePower(600f / 60f);
     }
 
     public class AsatInterceptorBuild extends TurretBuild {
+        /** 绑定的信号编码（null = 未绑定，此时没有目标：情报不再按队伍自动共享） */
+        public String selectedSignal = null;
         /** 已经锁定当前目标的时间（tick）；换目标或丢失即归零 */
         public float lockTimer = 0f;
         /** 最近一次"取得新目标"的时间（Time.time，单位 tick；绘制锁定标记用） */
@@ -195,7 +206,17 @@ public class AsatInterceptor extends Turret {
          */
         @Override
         protected void findTarget() {
-            Seq<Unit> intel = SatelliteIntel.get(team, Time.time);
+            // 信号源消失 → 视为无情报（不清绑定：信号源恢复后自动续接，与卫星控制台同一判据）
+            if (selectedSignal != null && !selectedSignal.isEmpty()
+                    && !SignalChannel.hasLiveSource(team, selectedSignal)) {
+                inRange = 0;
+                if (target != null) {
+                    lockTimer = 0f;
+                    target = null;
+                }
+                return;
+            }
+            Seq<Unit> intel = SatelliteIntel.get(team, selectedSignal, Time.time);
             Unit best = null;
             float bestDst = Float.MAX_VALUE;
             float range = range();
@@ -229,7 +250,7 @@ public class AsatInterceptor extends Turret {
          * `timer(timerTarget, …)` 到点时跑（无目标用 targetInterval、有目标用 newTargetInterval，最长 40 tick）。
          * 若不在这里查情报，定位器撤稿（断电/被拆/停止上报）之后的那段时间里，塔仍会对着一个已经
          * "看不见"的目标继续锁定、甚至开火——与"信息依赖"的语义不符。
-         * `SatelliteIntel.get` 是按 Team 的 O(1) 查表，每 tick 调用的开销可忽略。
+         * `SatelliteIntel.get` 是按 (Team, 编码) 的 O(1) 查表，每 tick 调用的开销可忽略。
          */
         @Override
         protected boolean validateTarget() {
@@ -238,7 +259,7 @@ public class AsatInterceptor extends Turret {
             if (u.team == Team.derelict) return false;
             if (u.team == team && !SatelliteManager.testSatelliteAvailable()) return false;
             if (!u.within(x, y, range())) return false;
-            return SatelliteIntel.get(team, Time.time).contains(u);
+            return SatelliteIntel.get(team, selectedSignal, Time.time).contains(u);
         }
 
         /**
@@ -370,9 +391,14 @@ public class AsatInterceptor extends Turret {
         public void buildConfiguration(Table table) {
             table.clearChildren();
             table.label(() -> {
-                int total = SatelliteIntel.get(team, Time.time).size;
+                int total = SatelliteIntel.get(team, selectedSignal, Time.time).size;
                 return Core.bundle.format("block.silicon-asat-interceptor.ui.intel", total, inRange);
             }).color(Color.lightGray).pad(3f).row();
+            table.label(() -> Core.bundle.format("block.silicon-signal-bind.current",
+                            selectedSignal == null || selectedSignal.isEmpty()
+                                    ? Core.bundle.get("block.silicon-signal-bind.nobind")
+                                    : selectedSignal))
+                    .color(Color.lightGray).pad(3f).row();
             table.label(() -> {
                 int stored = (int) storedPower();
                 int need = (int) powerPerShot;
@@ -390,6 +416,32 @@ public class AsatInterceptor extends Turret {
                                     (int) (lockProgress() * 100f))
                             : Core.bundle.get("block.silicon-asat-interceptor.ui.none"))
                     .color(Color.lightGray).pad(3f).row();
+            // 信号绑定：必须与定位器绑定同一编码才有情报
+            SignalBindUI.build(table, team, () -> selectedSignal, code -> {
+                selectedSignal = code;
+                configure(code == null ? "" : code);
+            });
+        }
+
+        @Override
+        public void write(arc.util.io.Writes write) {
+            super.write(write);
+            write.str(selectedSignal == null ? "" : selectedSignal);
+        }
+
+        /** 存档版本：1 = 绑定的信号编码 */
+        @Override
+        public byte version() {
+            return 1;
+        }
+
+        @Override
+        public void read(arc.util.io.Reads read, byte revision) {
+            super.read(read, revision);
+            if (revision >= 1) {
+                String s = read.str();
+                selectedSignal = s.isEmpty() ? null : s;
+            }
         }
     }
 }
