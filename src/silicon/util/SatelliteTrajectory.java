@@ -15,22 +15,25 @@ import mindustry.graphics.Layer;
 import silicon.world.blocks.satellite.SatelliteConsole;
 
 /**
- * 卫星轨迹预览：鼠标指向某颗在轨卫星时，画出它 **±100 秒**的星下点轨迹。
+ * 卫星轨迹预览：鼠标指向某颗在轨卫星时，画出它 **±50 秒**的星下点轨迹。
  * <p>
  * 为什么是精确的：位置是**相位的纯函数**——`scanU(r)` 直接返回存档字段 `phase`，
  * 而 {@link OrbitSatelliteController} 每帧按 `phase += delta / 周期` 自累加。
- * 所以"t 秒后的位置"就是 `scanXAt(orbit, phase + t × 60 / 周期)`，不需要模拟推演、也不依赖全局时钟。
+ * 所以"t 秒后的位置"就是推进同一个相位再取 `scanXAt/scanYAt`，不需要模拟推演、也不依赖全局时钟。
  * <p>
  * 两段用不同颜色区分：**过去**（冷色、半透明）与**未来**（暖色、高亮）。轨迹的透明度还会乘上该处的
  * `presence`（存在度），于是回绕边界附近自然淡出——这也解释了"卫星为什么会在那里消失/出现"。
+ * <p>
+ * <b>边界处理</b>：采样点一律裁剪到地图矩形内，跨越回绕轴的相邻点直接断开（否则会连出一条横穿全图的
+ * 长直线）；同时按轴分别判断回绕，避免正弦轴被误当成回绕轴而画出斜线。
  * <p>
  * 定点轨道（GEO）没有轨迹可画，只在悬停时标记当前位置。
  */
 public class SatelliteTrajectory {
     /** 预览的时间半窗（秒）：向前向后各这么多 */
-    public static final float PREVIEW_SECONDS = 100f;
+    public static final float PREVIEW_SECONDS = 50f;
     /** 采样步长（秒）：越小越平滑，代价是每段更多次位置计算 */
-    public static final float SAMPLE_STEP = 2f;
+    public static final float SAMPLE_STEP = 1f;
     /** 悬停判定容差（世界像素，叠加在卫星视觉尺寸之上） */
     public static final float HOVER_PAD = 6f;
 
@@ -80,7 +83,8 @@ public class SatelliteTrajectory {
 
     static void drawTrajectory(SatelliteManager.SatelliteRecord r) {
         int orbit = r.orbit;
-        float u0 = SatelliteManager.scanU(r);
+        if (Vars.world == null || Vars.world.unitWidth() <= 0 || Vars.world.unitHeight() <= 0) return;
+
         float x0 = SatelliteManager.scanX(r), y0 = SatelliteManager.scanY(r);
 
         float prevZ = Draw.z();
@@ -89,8 +93,8 @@ public class SatelliteTrajectory {
         if (orbit != SatelliteConsole.ORBIT_GEO) {
             // 每秒推进的相位：period 的单位是 tick，60 tick = 1 秒
             float duPerSecond = 60f / SatelliteManager.orbitPeriod(orbit);
-            drawSegment(orbit, u0, -PREVIEW_SECONDS, 0f, duPerSecond, PAST_COLOR, 0.5f);
-            drawSegment(orbit, u0, 0f, PREVIEW_SECONDS, duPerSecond, FUTURE_COLOR, 0.95f);
+            drawSegment(orbit, r, -PREVIEW_SECONDS, 0f, duPerSecond, PAST_COLOR, 0.5f);
+            drawSegment(orbit, r, 0f, PREVIEW_SECONDS, duPerSecond, FUTURE_COLOR, 0.95f);
 
             // 覆盖圆：这颗卫星此刻能罩到哪。信号强度本身由 H 覆盖负责（按住/切换 H 键），
             // 这里只画几何范围，让"轨迹经过哪里"与"覆盖到哪里"能在同一屏上看清。
@@ -109,24 +113,39 @@ public class SatelliteTrajectory {
 
     /**
      * 画一段轨迹。[fromSec, toSec] 之间按 {@link #SAMPLE_STEP} 采样，
-     * 相邻两点跨越回绕边界时**断开**（否则会画出一条横穿全图的长线）。
+     * 相邻两点跨越**回绕轴**时断开，越出地图矩形的点直接丢弃（边界裁剪）。
      */
-    static void drawSegment(int orbit, float u0, float fromSec, float toSec,
-                            float duPerSecond, Color color, float alpha) {
+    static void drawSegment(int orbit, SatelliteManager.SatelliteRecord r,
+                            float fromSec, float toSec, float duPerSecond, Color color, float alpha) {
+        float u0 = SatelliteManager.scanU(r);
+        float w = Vars.world.unitWidth(), h = Vars.world.unitHeight();
+        // 回绕轴：LEO/MEO 走 X，SSO 走 Y；另一轴是正弦摆动，不存在回绕
+        boolean wrapX = orbit != SatelliteConsole.ORBIT_SSO;
+        float wrapLimit = (wrapX ? w : h) * 0.5f;
+
         float prevX = Float.NaN, prevY = Float.NaN;
-        float wrapLimit = Vars.world.unitWidth() * 0.5f;
-        for (float t = fromSec; t <= toSec + 0.001f; t += SAMPLE_STEP) {
+        for (float t = fromSec; t <= toSec + 0.0001f; t += SAMPLE_STEP) {
             float u = u0 + t * duPerSecond;
             float x = SatelliteManager.scanXAt(orbit, u);
             float y = SatelliteManager.scanYAt(orbit, u);
             // 回绕附近的存在度：轨迹在那里自然淡出，与卫星本体的淡入淡出一致
             float fade = SatelliteManager.presence(orbit, u);
-            if (!Float.isNaN(prevX) && fade > 0.02f && Math.abs(x - prevX) < wrapLimit) {
+            // 边界裁剪：越出地图矩形的采样点不画（回绕轴允许贴边，但不出界）
+            boolean inside = x >= 0f && x <= w && y >= 0f && y <= h;
+            boolean contiguous = !Float.isNaN(prevX)
+                    && (!wrapX || Math.abs(x - prevX) < wrapLimit);
+            if (inside && contiguous && fade > 0.02f) {
                 Lines.stroke(2f, color.a(alpha * fade));
                 Lines.line(prevX, prevY, x, y);
             }
-            prevX = x;
-            prevY = y;
+            // 出界后重置链头，避免用一条长线跨过缺口
+            if (inside) {
+                prevX = x;
+                prevY = y;
+            } else {
+                prevX = Float.NaN;
+                prevY = Float.NaN;
+            }
         }
     }
 }
