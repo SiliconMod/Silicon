@@ -90,8 +90,8 @@ public class SatelliteLocator extends Block {
             if (!on) {
                 if (detected.size > 0) detected.clear();
                 lastCount = 0;
-                // 断电/被关闭/停止上报/未绑定信号 → 撤稿（只撤自己那条编码）
-                if (bound) SatelliteIntel.clearFrom(team, selectedSignal);
+                // 断电/被关闭/停止上报/未绑定信号 → 撤稿（只撤自己那份，同编码的其它定位器不受影响）
+                if (bound) SatelliteIntel.clearPublisher(team, selectedSignal, id);
                 return;
             }
             if (++refreshTimer < refreshInterval) return;
@@ -107,7 +107,7 @@ public class SatelliteLocator extends Block {
             // **两端都发布**：客机侧的情报只服务**本地视觉**（塔的转向、锁定环、取得目标的特效），
             // 伤害与扣电仍被 isAuthority 挡在权威端。若只在权威端发布，联机时己方炮塔在客机屏幕上
             // 会是一副"不转向、不锁定、没有特效"的样子。
-            SatelliteIntel.publish(team, selectedSignal, detected, Time.time);
+            SatelliteIntel.publish(team, selectedSignal, id, detected, Time.time);
             // 新目标出现时打一发扫描脉冲（数量增加即视为"发现"；持续不变不再重放，避免刷屏）
             if (detected.size > lastCount) pingAt = Time.time;
             lastCount = detected.size;
@@ -126,7 +126,7 @@ public class SatelliteLocator extends Block {
 
         @Override
         public void onRemoved() {
-            SatelliteIntel.clearFrom(team, selectedSignal);
+            SatelliteIntel.clearPublisher(team, selectedSignal, id);
             super.onRemoved();
         }
 
