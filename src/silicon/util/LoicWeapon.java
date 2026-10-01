@@ -130,28 +130,37 @@ public class LoicWeapon extends Weapon {
     }
 
     /**
-     * 与自定义 findTarget 对称的目标校验。
+     * 目标<b>失效判定</b>，与自定义索敌对称。
      * <p>
-     * 不能沿用 Weapon.checkTarget：它内部调用 Units.invalidateTarget，会把沙盒己方建筑和
-     * `targetable=false` 的卫星再次判为无效。结果就是 findTarget 明明找到了目标，Weapon.update
-     * 下一步却把 target 清掉，shoot 永远不会执行。
+     * <b>语义务必看清</b>：引擎在 {@code Weapon.update()} 里的用法是
+     * <pre>
+     * if(mount.target != null &amp;&amp; checkTarget(unit, mount.target, mountX, mountY, bullet.range)){
+     *     mount.target = null;   // 返回 true = 失效 = 清空目标
+     * }
+     * </pre>
+     * 也就是说本方法返回 {@code true} 表示"该目标应被清除"。基类实现走
+     * {@code Units.invalidateTarget}，会把沙盒己方建筑与 {@code targetable=false} 的卫星判为失效。
+     * <p>
+     * 这里改为按本武器的实际目标类型判断：**仍在射程内且类型合法就返回 false（保留）**，
+     * 只有真的不可用（实体消失、被拆、越界、开关关闭）才返回 true。
      */
     @Override
     protected boolean checkTarget(Unit unit, Teamc target, float x, float y, float range) {
-        if (target == null) return false;
+        float limit = range + Math.abs(shootY);
         if (target instanceof Building b) {
-            if (!b.isValid() || b.team == Team.derelict) return false;
-            if (b.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return false;
-            return b.within(x, y, range + Math.abs(shootY) + b.hitSize() / 2f);
+            if (!b.isValid() || b.team == Team.derelict) return true;
+            if (b.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return true;
+            if (!unit.type.targetUnderBlocks && b.block.underBullets) return true;
+            return !b.within(x, y, limit + b.hitSize() / 2f);
         }
         if (target instanceof Unit u) {
-            if (!isLowOrbitSatellite(u)) return false;
-            if (u.team == Team.derelict) return false;
-            if (u.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return false;
-            if (!state(unit.id).attackSats) return false;
-            return u.within(x, y, range + Math.abs(shootY) + u.hitSize() / 2f);
+            if (!u.isValid() || u.team == Team.derelict) return true;
+            if (!isLowOrbitSatellite(u)) return true;
+            if (!state(unit.id).attackSats) return true;
+            if (u.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return true;
+            return !u.within(x, y, limit + u.hitSize() / 2f);
         }
-        return false;
+        return true;
     }
 
     /** 开火：先扣弹药，"自动发射"关闭或弹夹为空都不发射 */
