@@ -285,28 +285,35 @@ public class SatelliteUnits {
                 // 无贴图兜底：程序化卫星造型（队色环+核心+太阳能板线）；
                 // 交付 sprites/units/<机型名>.png 后自动切换为贴图绘制（load() 里的兜底负责命名兼容）
                 if (!region.found()) {
+                    // 无贴图兜底造型本身就是队色绘制（队色环 + 核心），不需要再叠外置标记
                     drawFallback(unit, p);
                 } else {
                     Draw.color(1f, 1f, 1f, p);
                     Draw.rect(region, unit.x, unit.y, unit.rotation - 90f);
                     Draw.color();
+                    // 贴图不含队伍信息：补一圈**外置**队伍标记（画在贴图之外，不遮挡本体）
+                    drawTeamMarker(unit, p);
                 }
-                // 贴图不含队伍信息：叠加可远距离识别的队伍色环、四向标记和中心徽记，
-                // 比单个队色点更接近原版单位的 teamRegion 视觉语义。
-                drawTeamMarker(unit, p);
             }
 
+            /**
+             * 队伍标识：**必须画在卫星贴图之外**。
+             * <p>
+             * 卫星贴图是 32×32（半径约 16px），早先这里用 r=5.2 的环 + 中心实心圆，
+             * 等于直接在卫星本体中心盖了一层，把贴图挡得看不清。
+             * 现在环与四向标记都取 17.5px 以上，只围绕卫星外缘，不覆盖任何贴图像素。
+             */
             void drawTeamMarker(Unit unit, float alpha) {
                 Color tc = unit.team.color;
-                float r = 5.2f;
-                Draw.color(tc, alpha);
-                Lines.stroke(1.5f);
+                float r = 17.5f;
+                Draw.color(tc, alpha * 0.9f);
+                Lines.stroke(1.4f);
                 Lines.circle(unit.x, unit.y, r);
-                Lines.line(unit.x - r - 2f, unit.y, unit.x - r + 0.5f, unit.y);
-                Lines.line(unit.x + r - 0.5f, unit.y, unit.x + r + 2f, unit.y);
-                Lines.line(unit.x, unit.y - r - 2f, unit.x, unit.y - r + 0.5f);
-                Lines.line(unit.x, unit.y + r - 0.5f, unit.x, unit.y + r + 2f);
-                Fill.circle(unit.x, unit.y, 2.3f);
+                // 四向短标记：全部位于环外，进一步强化远距离的队伍辨识
+                Lines.line(unit.x - r - 3f, unit.y, unit.x - r - 0.5f, unit.y);
+                Lines.line(unit.x + r + 0.5f, unit.y, unit.x + r + 3f, unit.y);
+                Lines.line(unit.x, unit.y - r - 3f, unit.x, unit.y - r - 0.5f);
+                Lines.line(unit.x, unit.y + r + 0.5f, unit.x, unit.y + r + 3f);
                 Lines.stroke(1f);
                 Draw.reset();
             }
