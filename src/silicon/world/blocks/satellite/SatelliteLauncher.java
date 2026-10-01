@@ -70,12 +70,27 @@ public class SatelliteLauncher extends Block {
     public static final int COST_CRYOFLUID_ION = 2000;
     /** 离子炮卫星生产耗时（120 秒，是信号卫星的两倍） */
     public static final float PRODUCE_TIME_ION = 60f * 120f;
-    /** 生产所需物品材料 */
+    /** 生产所需物品材料（信号卫星） */
     public static final ItemStack[] PRODUCTION_ITEMS = with(
             Items.copper, 5000,
             Items.silicon, 5000,
             Items.plastanium, 1250,
             Items.surgeAlloy, 1250
+    );
+
+    /**
+     * 所有类型配方的材料**并集**：发射中枢的输入过滤与容量按它算。
+     * <p>
+     * 之前输入过滤用的是 {@link #PRODUCTION_ITEMS}（信号卫星那一套：铜/硅/塑钢/巨浪），
+     * 于是**离子炮需要的钍被 {@code acceptItem} 直接拒收**——表现为"钍送不进去、配方永远凑不齐"。
+     * 数量取各类型的最大值，仅用于容量核算（过滤只看材料种类）。
+     */
+    public static final ItemStack[] ALL_PRODUCTION_ITEMS = with(
+            Items.copper, 5000,
+            Items.silicon, 8000,
+            Items.thorium, 3000,
+            Items.plastanium, 2000,
+            Items.surgeAlloy, 2000
     );
 
     /** 卫星种类：信号卫星 */
@@ -163,7 +178,8 @@ public class SatelliteLauncher extends Block {
         // 材料储存（物品 + 液体：石油/冷冻液）
         hasItems = true;
         acceptsItems = true;
-        itemCapacity = 5000 + 5000 + 1250 + 1250;
+        /** 物品容量：按所有类型里最大的那套配方算（离子炮 硅8000+钍3000+塑钢2000+巨浪2000 = 15000） */
+        itemCapacity = 15000;
         hasLiquids = true;
         liquidCapacity = OIL_CAPACITY + COST_CRYOFLUID;
         // 卫星种类走 configure 同步（服务器权威下发，各端选中类型一致）
@@ -184,7 +200,7 @@ public class SatelliteLauncher extends Block {
         super.setStats();
         stats.add(Stat.powerCapacity, LAUNCH_POWER, StatUnit.powerSecond);
         stats.add(Stat.productionTime, produceTime(TYPE_SIGNAL) / 60f, StatUnit.seconds);
-        for (ItemStack stack : PRODUCTION_ITEMS) {
+        for (ItemStack stack : ALL_PRODUCTION_ITEMS) {
             stats.add(Stat.input, stack);
         }
     }
@@ -322,11 +338,11 @@ public class SatelliteLauncher extends Block {
             }
         }
 
-        /** 物品输入：仅接受生产所需材料（铜/硅/塑钢/巨浪合金），且未满库存（override 默认的 consumesItem 检查） */
+        /** 物品输入：接受**所有类型**的生产材料（并集，含离子炮要的钍），且未满库存 */
         @Override
         public boolean acceptItem(Building source, Item item) {
             if (items.get(item) >= itemCapacity) return false;
-            for (ItemStack stack : PRODUCTION_ITEMS) {
+            for (ItemStack stack : ALL_PRODUCTION_ITEMS) {
                 if (stack.item == item) return true;
             }
             return false;
