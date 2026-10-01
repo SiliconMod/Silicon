@@ -84,7 +84,7 @@ public class AsatInterceptor extends Turret {
         cooldownTime = 90f;
         minWarmup = 0.75f;
         // 面板保留（只读状态），但不再需要玩家配任何东西：情报按队伍自动共享
-        configurable = true;
+        configurable = false;
         consumePower(600f / 60f);
     }
 
@@ -93,8 +93,6 @@ public class AsatInterceptor extends Turret {
         public float lockTimer = 0f;
         /** 最近一次"取得新目标"的时间（Time.time，单位 tick；绘制锁定标记用） */
         public float acquireAt = Float.NEGATIVE_INFINITY;
-        /** 情报里落在射程内的目标数（面板诊断"看不到"与"够不着"用） */
-        public int inRange = 0;
         /** 缓存的信号可用度（0~1，节流更新） */
         private float quality = 0f;
         private int qualityTimer = 0;
@@ -137,18 +135,8 @@ public class AsatInterceptor extends Turret {
             return (lockTimeMin + (lockTimeMax - lockTimeMin) * (1f - quality)) * orbitLockFactor();
         }
 
-        /** 目标轨道短名（无目标时为 null）。控制台的 orbitKeyShort 在它的内部类里，这里自带一份 */
-        public String targetOrbitName() {
-            if (target instanceof Unit u && u.controller() instanceof OrbitSatelliteController c) {
-                switch (c.orbit) {
-                    case SatelliteConsole.ORBIT_LEO: return "LEO";
-                    case SatelliteConsole.ORBIT_MEO: return "MEO";
-                    case SatelliteConsole.ORBIT_GEO: return "GEO";
-                    default: return "SSO";
-                }
-            }
-            return null;
-        }
+        /** 目标轨道短名：不需要了（面板不再显示诊断信息），保留此注释以免有人重新引入时忘了
+         *  {@code SatelliteConsole.orbitKeyShort} 在它的内部类里、外部访问不到 */
 
         /** 锁定进度（0~1），绘制与面板共用 */
         public float lockProgress() {
@@ -156,14 +144,12 @@ public class AsatInterceptor extends Turret {
             return target == null ? 0f : Mathf.clamp(lockTimer / Math.max(lockTime(), 1f));
         }
 
-        /** 本队当前可用的情报目标数（面板显示用） */
         public int intelCount() {
             return SatelliteIntel.get(team, Time.time).size;
         }
 
         /**
          * 覆写索敌：目标来自本队定位器的情报（自动连接，无需配对），再取射程内最近的一颗。
-         * 顺带统计"情报里射程内有几颗"，供面板区分「看不到」与「够不着」两种待机原因。
          * 换目标会清零锁定进度。
          */
         @Override
@@ -172,20 +158,15 @@ public class AsatInterceptor extends Turret {
             Unit best = null;
             float bestDst = Float.MAX_VALUE;
             float range = range();
-            int count = 0;
             for (Unit u : intel) {
                 if (!u.isValid() || u.team == Team.derelict) continue;
                 // 沙盒自测放宽（与定位器同一判据）：沙盒里没有第二个队，只打敌方则无法验证
                 if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
                 float dst = Mathf.dst(x, y, u.x, u.y);
-                if (dst > range) continue;
-                count++;
-                if (dst < bestDst) {
-                    bestDst = dst;
-                    best = u;
-                }
+                if (dst > range || dst >= bestDst) continue;
+                bestDst = dst;
+                best = u;
             }
-            inRange = count;
             if (best != target) {
                 lockTimer = 0f; // 换目标：重新锁定
                 if (best != null) acquireAt = Time.time; // 新取得目标：播一次锁定标记
@@ -318,37 +299,6 @@ public class AsatInterceptor extends Turret {
 
             Lines.stroke(1f);
             Draw.z(prevZ);
-        }
-
-        /**
-         * 面板（保留，只读）：把"卡在哪一道门"说清楚——
-         * 无情报 / 有情报但都够不着 / 射程内有目标但要等锁定 / 电量不足。
-         */
-        @Override
-        public void buildConfiguration(Table table) {
-            table.clearChildren();
-            table.label(() -> {
-                int total = intelCount();
-                if (total == 0) return Core.bundle.get("block.silicon-asat-interceptor.intel.none");
-                if (inRange == 0) {
-                    return Core.bundle.format("block.silicon-asat-interceptor.intel.outOfRange", total);
-                }
-                return Core.bundle.format("block.silicon-asat-interceptor.intel", inRange, total);
-            }).color(Color.lightGray).pad(4f).row();
-            table.label(() -> {
-                String orbit = targetOrbitName();
-                return orbit == null
-                        ? Core.bundle.get("block.silicon-asat-interceptor.targetOrbit.none")
-                        : Core.bundle.format("block.silicon-asat-interceptor.targetOrbit",
-                                orbit, orbitLockFactor());
-            }).color(Color.lightGray).pad(2f).row();
-            table.label(() -> Core.bundle.format("block.silicon-asat-interceptor.lock",
-                            (int) (lockTime() / 60f * 10f) / 10f))
-                    .color(Color.lightGray).pad(2f).row();
-            table.label(() -> canAffordShot()
-                            ? Core.bundle.get("block.silicon-asat-interceptor.power.ok")
-                            : Core.bundle.get("block.silicon-asat-interceptor.power.low"))
-                    .color(Color.lightGray).pad(2f).row();
         }
     }
 }

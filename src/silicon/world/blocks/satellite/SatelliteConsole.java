@@ -452,11 +452,55 @@ public class SatelliteConsole extends Block {
 
         /** 绑定中枢当前选择的种类（未绑定时按信号卫星处理） */
         int boundType() {
+            // boundHub 可能为 null（未绑定信号 / 中枢被拆）：必须先判空，否则面板渲染时抛 NPE
+            if (boundHub == null) return TYPE_SIGNAL;
             // 已锁定（生产中或已生产完）的那一颗用 lockedType：轨道灰化必须与发射判定（launch 里
             // 同样读 lockedType）保持一致，否则会出现"按钮允许这个轨道、点发射却被拒"的错位。
             // 尚未开始生产时用 selectedType，此时它就是在预览"下一颗"。
             if (boundHub.produced || boundHub.progress > 0f) return boundHub.lockedType;
             return boundHub.selectedType;
+        }
+
+        /**
+         * 类型选择按钮行（发射页）：与发射中枢面板的三个选项一致，点击即设置**绑定的中枢**。
+         * <p>
+         * 类型本身属于生产、权威在中枢（`configure` 会走服务器同步）；放在这里是因为操作发射时
+         * 不该为了选个类型再跑一趟中枢——玩家会在控制台找"发射"，找不到入口就等于不能发射。
+         */
+        void rebuildTypeRow(Table table) {
+            table.row();
+            table.label(() -> Core.bundle.get("block.silicon-satellite-console.type.title"))
+                    .color(Color.lightGray).pad(2f);
+            table.row();
+            Table row = new Table();
+            ButtonGroup<TextButton> group = new ButtonGroup<>();
+            group.setMinCheckCount(0);
+            arc.struct.Seq<TextButton> btns = new arc.struct.Seq<>();
+            arc.struct.IntSeq types = new arc.struct.IntSeq();
+            for (int t = TYPE_SIGNAL; t < SatelliteLauncher.TYPE_COUNT; t++) {
+                // 测试卫星沙盒专属：与中枢面板同一判据
+                if (t == SatelliteLauncher.TYPE_TEST && !SatelliteManager.testSatelliteAvailable()) continue;
+                final int type = t;
+                TextButton btn = new TextButton(typeShortName(type), Styles.flatTogglet);
+                btn.setChecked(boundType() == type);
+                btn.clicked(() -> {
+                    if (boundHub != null) boundHub.configure(type);
+                });
+                group.add(btn);
+                btns.add(btn);
+                types.add(type);
+                row.add(btn).size(96f, 40f).pad(2f);
+            }
+            table.add(row).pad(2f);
+            // 中枢的配置变化（或换绑）后按钮要跟着走：每帧回读，避免出现"选中态与中枢不符"
+            row.update(() -> {
+                int cur = boundType();
+                for (int i = 0; i < btns.size; i++) {
+                    TextButton b = btns.get(i);
+                    boolean want = cur == types.get(i);
+                    if (b.isChecked() != want) b.setChecked(want);
+                }
+            });
         }
 
         /**
@@ -535,6 +579,8 @@ public class SatelliteConsole extends Block {
                 configure("");
                 rebuildSourceButtons(srcTable, search.getText().trim());
             }).size(88f, 40f).padTop(2f);
+            // 类型区（与中枢面板一致；直接在这里选，不必再跑一趟中枢）
+            rebuildTypeRow(table);
             // 轨道区
             rebuildOrbitRow(table);
             table.row();

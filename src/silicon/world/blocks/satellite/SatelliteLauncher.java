@@ -451,8 +451,6 @@ public class SatelliteLauncher extends Block {
         public void buildConfiguration(Table table) {
             table.clearChildren();
             table.top();
-            table.add(Core.bundle.get("block.silicon-satellite-launcher.type")).pad(4f);
-            table.row();
             ButtonGroup<TextButton> group = new ButtonGroup<>();
             TextButton signalBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.signal"), Styles.flatTogglet);
             signalBtn.setChecked(selectedType == TYPE_SIGNAL);
