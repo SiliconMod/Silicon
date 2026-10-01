@@ -129,6 +129,31 @@ public class LoicWeapon extends Weapon {
         return best;
     }
 
+    /**
+     * 与自定义 findTarget 对称的目标校验。
+     * <p>
+     * 不能沿用 Weapon.checkTarget：它内部调用 Units.invalidateTarget，会把沙盒己方建筑和
+     * `targetable=false` 的卫星再次判为无效。结果就是 findTarget 明明找到了目标，Weapon.update
+     * 下一步却把 target 清掉，shoot 永远不会执行。
+     */
+    @Override
+    protected boolean checkTarget(Unit unit, Teamc target, float x, float y, float range) {
+        if (target == null) return false;
+        if (target instanceof Building b) {
+            if (!b.isValid() || b.team == Team.derelict) return false;
+            if (b.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return false;
+            return b.within(x, y, range + Math.abs(shootY) + b.hitSize() / 2f);
+        }
+        if (target instanceof Unit u) {
+            if (!isLowOrbitSatellite(u)) return false;
+            if (u.team == Team.derelict) return false;
+            if (u.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return false;
+            if (!state(unit.id).attackSats) return false;
+            return u.within(x, y, range + Math.abs(shootY) + u.hitSize() / 2f);
+        }
+        return false;
+    }
+
     /** 开火：先扣弹药，"自动发射"关闭或弹夹为空都不发射 */
     @Override
     protected void shoot(Unit unit, WeaponMount mount, float shootX, float shootY, float rotation) {
