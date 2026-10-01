@@ -248,6 +248,14 @@ public class SatelliteManager {
             Seq<SatelliteRecord> list = satRecords.get(team);
             SatelliteRecord r = list.find(x -> x.unitId == unit.id);
             if (r != null) {
+                // 所有击落来源统一从 UnitDestroyEvent 进入这里，避免只在某个攻击器的 shoot() 里播报而漏报。
+                if (isAuthority()) {
+                    String name = unit.type == null ? "Satellite" : unit.type.localizedName;
+                    MessageSystem.instance.post(MessageSystem.info(
+                            Core.bundle.get("satellite.destroyed.title"),
+                            Core.bundle.format("satellite.destroyed", name), 8f));
+                    Call.sendMessage(Core.bundle.format("satellite.destroyed", name));
+                }
                 list.remove(r);
                 if (list.isEmpty()) satRecords.remove(team);
                 broadcastState(team);

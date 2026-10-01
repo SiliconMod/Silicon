@@ -303,8 +303,6 @@ public class AsatInterceptor extends Turret {
                 // 击落反馈：卫星本体很小、又在高空，两颗星体积的爆炸比默认命中特效更像"打下来了"
                 Fx.explosion.at(wx, wy);
                 Fx.sparkExplosion.at(wx, wy);
-                Call.sendMessage(Core.bundle.format("block.silicon-asat-interceptor.kill",
-                        u.type.localizedName));
             } else {
                 Fx.hitBulletBig.at(wx, wy);
             }

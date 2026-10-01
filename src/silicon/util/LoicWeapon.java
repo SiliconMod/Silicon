@@ -255,7 +255,6 @@ public class LoicWeapon extends Weapon {
             if (target.health <= 0f && target.isValid()) target.kill();
             if (!target.isValid()) {
                 Fx.blastExplosion.at(hitX, hitY);
-                Call.sendMessage(Core.bundle.format("block.silicon-loic.kill", target.type.localizedName));
             }
             return;
         }
