@@ -73,8 +73,9 @@ public class Silicon extends Mod {
 
     /** 卫星状态周期广播计时（约 30 tick / 0.5s） */
     private static int satelliteBroadcastTick = 0;
-    /** sat-launch 速率限制（tick）：同一控制台两次请求的最小间隔，挡客户端重放刷扫描 */
-    public static final float LAUNCH_REQUEST_COOLDOWN = 30f;
+    /** sat-launch 速率限制（tick）：同一控制台两次请求的最小间隔，挡客户端重放刷扫描。
+     *  单位是 tick 而非秒（与 {@code Time.time} 的量纲一致），30 tick ≈ 0.5 秒。 */
+    public static final int LAUNCH_REQUEST_COOLDOWN_TICKS = 30;
 
     public Silicon() {
         Events.on(EventType.ClientLoadEvent.class, e -> {
@@ -102,19 +103,23 @@ public class Silicon extends Mod {
         // 注:hub network id 计数器不再在此 reset——读档顺序是构造(占号)→read 用存档 id
         // 覆盖→WorldLoadEvent,reset 反而制造撞号;现由 ItemTransferHubBuild.read() 调
         // ItemTransferHubNetwork.updateCounterAfterLoad 按 max 推进。
-        // 卫星名册的清空挂在 ResetEvent（存档读入前/返回主菜单/新开局都会触发）——
-        // 读档流程是 ResetEvent 清空 → 控制台存档块（map 区域）读入重建名册 → WorldLoadEvent
-        // （此时单位实体尚未读入！）→ entities 区域读入单位 → app.post 延迟一拍做真正生效的对账。
+        // 卫星名册的清空挂在 ResetEvent —— 它覆盖"存档读入前 / 返回主菜单 / 新开局"三条路径。
+        //
+        // 读档时序（顺序很重要，注释就近标在对应调用处）：
+        //   1. ResetEvent          → SatelliteManager.reset() 清空名册
+        //   2. map 区域读入        → 各控制台的存档块重建名册（写侧由控制台代存，见 SatelliteConsole.write）
+        //   3. WorldLoadEvent      → SatelliteManager.onWorldLoaded()
+        //                            此时**单位实体尚未读入**（readMap → endMapLoad → readEntities），
+        //                            Groups.unit 里还没有卫星；这次调用只覆盖"实体先于事件"的路径（直接进新图）
+        //   4. entities 区域读入   → 卫星实体进入 Groups.unit
+        //   5. app.post（延迟一拍）→ SatelliteManager.onWorldLoaded(true)
+        //                            entities 已读完，因此这一拍能顺带剪除「名册有记录但实体不存在」的死行
         Events.on(EventType.ResetEvent.class, e -> SatelliteManager.reset());
         Events.on(EventType.WorldLoadEvent.class, e -> {
             SignalSource.markDirty();
             SignalRelay.markDirty();
-            // 名册↔卫星实体对账：存档读入时 WorldLoadEvent 早于单位读入（readMap→endMapLoad→readEntities），
-            // 此刻 Groups.unit 还没有卫星，这里的调用只覆盖"实体先于事件"的路径（如直接进新图）
-            SatelliteManager.onWorldLoaded();
-            // 存档读档真正生效的对账：entities 区域已读完（WorldLoadEvent 早于单位读入），
-            // 因此这一拍可以顺带剪除「名册有记录但实体不存在」的死行
-            Core.app.post(() -> SatelliteManager.onWorldLoaded(true));
+            SatelliteManager.onWorldLoaded();          // 步骤 3
+            Core.app.post(() -> SatelliteManager.onWorldLoaded(true)); // 步骤 5
             SignalOverlay.reset(); // 清颜色缓存/色相分配/显示状态，防跨世界累积
         });
         // 卫星实体被击落（伤害仅可能来自 scripted unit.damage()）→ 名册除名并广播
@@ -185,7 +190,7 @@ public class Silicon extends Mod {
                     // 速率限制：每个请求都会做一遍"信号范围 + 1:1 配对"扫描（O(建筑×源)），
                     // 改造客户端可高频重放刷 CPU；这里按控制台 0.5s 限流（合法双击本来也会因 produced
                     // 已清空而失败，限流只挡重放，不影响正常操作）
-                    if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN) {
+                    if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN_TICKS) {
                         // 限流必须与"真实失败"用不同回包：都回 "fail" 会让合法双击的第二次弹「发射失败」，
                         // 把"点太快"误导成"配置有问题"
                         deny.accept("busy", null);

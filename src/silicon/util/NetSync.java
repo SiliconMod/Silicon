@@ -20,7 +20,11 @@ public class NetSync {
 
     /** 把建筑配置下发到该建筑所属队伍的所有客户端(主机本地同步执行,幂等) */
     public static void sendTeamConfig(Building build, Object value) {
-        for (Player p : Groups.player) {
+        // 索引循环而非 for-each：arc 的 Seq 用 for-each 会分配迭代器，而本方法在信号源/中继器
+        // 状态变化时会被调用（一帧内可能多次）。这里不维护「队伍 → 玩家」缓存：调用点是按需触发的
+        // 变更路径而非每帧热路径，玩家数也少，O(M) 扫描足够，加缓存反而不值当维护失效逻辑。
+        for (int i = 0; i < Groups.player.size(); i++) {
+            Player p = Groups.player.index(i);
             if (p == null) continue; // 防御性空判:玩家断开清理间隙不抛 NPE
             if (p.team() == build.team) {
                 Call.tileConfig(p, build, value);

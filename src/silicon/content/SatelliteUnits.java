@@ -141,14 +141,7 @@ public class SatelliteUnits {
             @Override
             public void load() {
                 super.load();
-                // 贴图名兜底：Mindustry 用「内容名」找贴图，而 mod 内容名会被加上 "<mod>-" 前缀
-                // （MappableContent → ContentLoader.transformName），于是 sprites/units/satellite-leo.png
-                // 与 silicon-satellite-leo.png 两种命名都要能命中。super.load() 已试过带前缀的内容名，
-                // 这里再剥掉前缀试一次；两者都没有时 region.found() == false，交给 draw() 的程序化兜底。
-                if (!region.found()) {
-                    int i = name.indexOf('-');
-                    if (i > 0) region = Core.atlas.find(name.substring(i + 1));
-                }
+                region = findUnitRegion(region, name);
             }
 
             @Override
@@ -197,5 +190,19 @@ public class SatelliteUnits {
                 Draw.reset();
             }
         };
+    }
+
+    /**
+     * 贴图名兜底：Mindustry 用「内容名」找贴图，而 mod 内容名会被加上 {@code "<mod>-"} 前缀
+     * （{@code MappableContent} → {@code ContentLoader.transformName}），于是
+     * {@code sprites/units/satellite-leo.png} 与 {@code silicon-satellite-leo.png} 两种命名都要能命中。
+     * <p>
+     * {@code super.load()} 已试过带前缀的内容名；这里在它没找到时再剥掉第一段前缀试一次。
+     * 两者都没有时返回的 region 其 {@code found()} 仍为 false，交给 {@code draw()} 的程序化兜底。
+     */
+    static TextureRegion findUnitRegion(TextureRegion current, String name) {
+        if (current != null && current.found()) return current;
+        int i = name.indexOf('-');
+        return i > 0 ? Core.atlas.find(name.substring(i + 1)) : current;
     }
 }
