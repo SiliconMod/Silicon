@@ -468,10 +468,18 @@ public class SatelliteManager {
     }
 
     /** 单条记录在 (wx,wy) 处的原始强度（未折算干扰）：覆盖圆内为该轨道定值 × 存在度，圆外 0
-     *  （存在度见 {@link #presence}：回绕进出场时强度同步淡出，避免"瞬移"与"图没了信号还在"） */
+     *  （存在度见 {@link #presence}：回绕进出场时强度同步淡出，避免"瞬移"与"图没了信号还在"）
+     *  <p>
+     *  <b>LOIC 不提供信号覆盖</b>：它是武器卫星，不参与通信。这里直接返回 0，于是覆盖绘制、
+     *  强度聚合、中继器激活与绑定判定全部随之失效 —— 本方法是所有覆盖计算的唯一入口，
+     *  在这一处收口即可保证"看不到覆盖圈"与"真的没有覆盖"始终一致。 */
     public static float satelliteRawAt(SatelliteRecord r, float wx, float wy) {
         Unit u = Groups.unit.getByID(r.unitId);
         if (u == null) return 0f;
+        // 双保险：名册 type 与实体机型任一判定为 LOIC 即视为武器卫星。
+        // 只看名册 type 不够——旧存档残留值、补建时序都可能让它不准，
+        // 而机型是引擎里唯一可靠的线索（LOIC 有独立 UnitType）。
+        if (r.type == SatelliteLauncher.TYPE_ION || u.type == SatelliteUnits.ionLeo) return 0f;
         if (!u.within(wx, wy, coverageRadius(r.orbit))) return 0f;
         return satelliteStrength(r.orbit) * presence(r.orbit, scanU(r));
     }

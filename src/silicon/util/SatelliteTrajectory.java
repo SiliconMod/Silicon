@@ -94,6 +94,8 @@ public class SatelliteTrajectory {
         float prevZ = Draw.z();
         Draw.z(Layer.overlayUI + 1f);
 
+        boolean loic = hoveredUnit != null && hoveredUnit.type == SatelliteUnits.ionLeo;
+
         if (orbit != SatelliteConsole.ORBIT_GEO) {
             // 每秒推进的相位：period 的单位是 tick，60 tick = 1 秒
             float duPerSecond = 60f / SatelliteManager.orbitPeriod(orbit);
@@ -102,14 +104,16 @@ public class SatelliteTrajectory {
 
             // 覆盖圆：这颗卫星此刻能罩到哪。信号强度本身由 H 覆盖负责（按住/切换 H 键），
             // 这里只画几何范围，让"轨迹经过哪里"与"覆盖到哪里"能在同一屏上看清。
-            // GEO 的覆盖是全图（对角线），画出来会糊满屏幕，因此跳过。
-            Lines.stroke(1.4f, RANGE_COLOR.a(0.5f));
-            Lines.circle(x0, y0, SatelliteManager.coverageRadius(orbit));
+            // GEO 的覆盖是全图（对角线），画出来会糊满屏幕，因此跳过；
+            // LOIC 是武器卫星、不提供信号覆盖（见 SatelliteManager.satelliteRawAt），同样跳过。
+            if (!loic) {
+                Lines.stroke(1.4f, RANGE_COLOR.a(0.5f));
+                Lines.circle(x0, y0, SatelliteManager.coverageRadius(orbit));
+            }
         }
 
-        // 攻击范围：只对挂武器的机型（LOIC）画。这是**武器索敌射程**，与上面的信号覆盖
-        // 是两回事 —— 射程大于覆盖，所以两个圆会明显分开，便于判断"这颗能不能够到目标"。
-        if (hoveredUnit != null && hoveredUnit.type == SatelliteUnits.ionLeo) {
+        // 攻击范围：只对挂武器的机型（LOIC）画。这是**武器索敌射程**，与信号覆盖是两回事。
+        if (loic) {
             float attackRange = SatelliteUnits.ION_RANGE_TILES * 8f;
             Lines.stroke(2f, ATTACK_COLOR.a(0.85f));
             Lines.circle(x0, y0, attackRange);
