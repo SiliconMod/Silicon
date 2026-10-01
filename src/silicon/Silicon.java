@@ -145,141 +145,144 @@ public class Silicon extends Mod {
         MessageSync.init();
 
         // 卫星发射请求（客机 → 服务器）：注册在 init 而非 ClientLoadEvent——dedicated 服务器（无客户端，
-        // 不触发 ClientLoadEvent）也必须能处理发射请求。主机权威执行，失败原因定向回发，成功走全图播报+状态广播
-        if (netServer != null) {
-            netServer.addPacketHandler("sat-launch", (p, data) -> {
-                // 失败回包统一出口：每条拒绝路径都必须回包，否则请求方 UI 一直等待。
-                // why 为 null 表示该路径无需单独记日志（busy/disabled 之类已由回包值自解释）；
-                // 回包本身再兜一层 try，避免异常路径上"回包失败"把处理器掀翻。
-                java.util.function.BiConsumer<String, String> deny = (result, why) -> {
-                    try {
-                        Call.clientPacketReliable(p.con, "sat-result", result);
-                    } catch (Throwable ignored) {
-                    }
-                    if (why != null) SiliconLog.info("sat-launch: " + why + " from " + p.name);
-                };
+        // 不触发 ClientLoadEvent）也必须能处理发射请求。主机权威执行，失败原因定向回发，成功走全图播报+状态广播。
+        //
+        // 这里**无条件注册**，不加 `if (netServer != null)`：Vars.netServer 是静态字段，在本方法执行前
+        // 一定已就位（ClientLauncher:182 与 ServerLauncher:76 都早于各自的 mods.eachClass(Mod::init)），
+        // 且全代码库没有任何地方把它置回 null —— net.closeServer() 只把 net.server/net.active 置 false
+        // 并踢掉连接，netServer 对象本身常驻。所以那样的守卫恒为真、不表达任何判断。
+        // 客户端上多注册一份也无害：handler 的触发路径自带服务器判定 ——
+        // NetServer.serverPacketReliable（@Remote(targets = Loc.client)）只在服务器收到客户端包时被走到。
+        netServer.addPacketHandler("sat-launch", (p, data) -> {
+            // 失败回包统一出口：每条拒绝路径都必须回包，否则请求方 UI 一直等待。
+            // why 为 null 表示该路径无需单独记日志（busy/disabled 之类已由回包值自解释）；
+            // 回包本身再兜一层 try，避免异常路径上"回包失败"把处理器掀翻。
+            java.util.function.BiConsumer<String, String> deny = (result, why) -> {
                 try {
-                    String[] parts = data.split("\\|", -1);
-                    if (parts.length != 3) {
-                        deny.accept("fail", "malformed packet (fields)");
-                        return;
-                    }
-                    String[] xy = parts[0].split(",");
-                    if (xy.length != 2) {
-                        deny.accept("fail", "malformed packet (coords)");
-                        return;
-                    }
-                    mindustry.world.Tile tile = world.tile(
-                            Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
-                    if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
-                        // 控制台可能已被拆除/替换:给请求者明确反馈,而非无声死点击
-                        deny.accept("fail", "invalid console tile");
-                        return;
-                    }
-                    silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
-                            (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
-                    if (cb.team != p.team()) {
-                        // 只能操作本队控制台;越权请求回笼统 fail(细节只进日志,不向可疑客户端透露原因)
-                        deny.accept("fail", "team mismatch");
-                        return;
-                    }
-                    if (!cb.enabled) {
-                        deny.accept("disabled", null);
-                        return;
-                    }
-                    // 速率限制：每个请求都会做一遍"信号范围 + 1:1 配对"扫描（O(建筑×源)），
-                    // 改造客户端可高频重放刷 CPU；这里按控制台 0.5s 限流（合法双击本来也会因 produced
-                    // 已清空而失败，限流只挡重放，不影响正常操作）
-                    if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN_TICKS) {
-                        // 限流必须与"真实失败"用不同回包：都回 "fail" 会让合法双击的第二次弹「发射失败」，
-                        // 把"点太快"误导成"配置有问题"
-                        deny.accept("busy", null);
-                        return;
-                    }
-                    cb.lastLaunchRequest = Time.time;
-                    int orbit;
-                    try {
-                        orbit = Integer.parseInt(parts[2].trim());
-                        if (orbit < silicon.world.blocks.satellite.SatelliteConsole.ORBIT_LEO
-                                || orbit > silicon.world.blocks.satellite.SatelliteConsole.ORBIT_SSO) {
-                            deny.accept("fail", "orbit out of range");
-                            return;
-                        }
-                    } catch (NumberFormatException e) {
-                        deny.accept("fail", "malformed packet (orbit)");
-                        return;
-                    }
-                    // 信号编码校验：4 位字母数字或空（空=沿用控制台默认），防畸形输入进入管理器
-                    String sig = parts[1];
-                    if (!sig.isEmpty() && !sig.matches("[A-Za-z0-9]{4}")) {
-                        deny.accept("fail", "malformed signal code");
-                        return;
-                    }
-                    // 空编码 = 沿用控制台当前绑定的编码：客机在 tileConfig 到达前的首帧、或本地
-                    // selectedSignal 被 updateTile 清空而主机尚未清时，传空串会让服务端按"未绑定"处理
-                    // （launch 首行即返回 LAUNCH_NO_HUB）——把同步时序问题伪装成"没绑中枢/无信号"。
-                    // cb 就在手里，直接用它的真值。见 SatelliteConsole.launch 的注释（同一个约定）。
-                    String effSig = (sig == null || sig.isEmpty()) ? cb.selectedSignal : sig;
-                    int result = SatelliteManager.launch(p.team(),
-                            (effSig == null || effSig.isEmpty()) ? null : effSig, orbit, cb.x, cb.y);
-                    if (result != SatelliteManager.LAUNCH_OK) {
-                        deny.accept(String.valueOf(result), null);
-                    }
-                } catch (Exception e) {
-                    SiliconLog.info("sat-launch: handler error: " + e);
-                    // 异常路径也必须回包（deny 内部已再兜一层，防止回包本身抛异常）
-                    deny.accept("fail", null);
+                    Call.clientPacketReliable(p.con, "sat-result", result);
+                } catch (Throwable ignored) {
                 }
-            });
-        }
+                if (why != null) SiliconLog.info("sat-launch: " + why + " from " + p.name);
+            };
+            try {
+                String[] parts = data.split("\\|", -1);
+                if (parts.length != 3) {
+                    deny.accept("fail", "malformed packet (fields)");
+                    return;
+                }
+                String[] xy = parts[0].split(",");
+                if (xy.length != 2) {
+                    deny.accept("fail", "malformed packet (coords)");
+                    return;
+                }
+                mindustry.world.Tile tile = world.tile(
+                        Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
+                if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
+                    // 控制台可能已被拆除/替换:给请求者明确反馈,而非无声死点击
+                    deny.accept("fail", "invalid console tile");
+                    return;
+                }
+                silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
+                        (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
+                if (cb.team != p.team()) {
+                    // 只能操作本队控制台;越权请求回笼统 fail(细节只进日志,不向可疑客户端透露原因)
+                    deny.accept("fail", "team mismatch");
+                    return;
+                }
+                if (!cb.enabled) {
+                    deny.accept("disabled", null);
+                    return;
+                }
+                // 速率限制：每个请求都会做一遍"信号范围 + 1:1 配对"扫描（O(建筑×源)），
+                // 改造客户端可高频重放刷 CPU；这里按控制台 0.5s 限流（合法双击本来也会因 produced
+                // 已清空而失败，限流只挡重放，不影响正常操作）
+                if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN_TICKS) {
+                    // 限流必须与"真实失败"用不同回包：都回 "fail" 会让合法双击的第二次弹「发射失败」，
+                    // 把"点太快"误导成"配置有问题"
+                    deny.accept("busy", null);
+                    return;
+                }
+                cb.lastLaunchRequest = Time.time;
+                int orbit;
+                try {
+                    orbit = Integer.parseInt(parts[2].trim());
+                    if (orbit < silicon.world.blocks.satellite.SatelliteConsole.ORBIT_LEO
+                            || orbit > silicon.world.blocks.satellite.SatelliteConsole.ORBIT_SSO) {
+                        deny.accept("fail", "orbit out of range");
+                        return;
+                    }
+                } catch (NumberFormatException e) {
+                    deny.accept("fail", "malformed packet (orbit)");
+                    return;
+                }
+                // 信号编码校验：4 位字母数字或空（空=沿用控制台默认），防畸形输入进入管理器
+                String sig = parts[1];
+                if (!sig.isEmpty() && !sig.matches("[A-Za-z0-9]{4}")) {
+                    deny.accept("fail", "malformed signal code");
+                    return;
+                }
+                // 空编码 = 沿用控制台当前绑定的编码：客机在 tileConfig 到达前的首帧、或本地
+                // selectedSignal 被 updateTile 清空而主机尚未清时，传空串会让服务端按"未绑定"处理
+                // （launch 首行即返回 LAUNCH_NO_HUB）——把同步时序问题伪装成"没绑中枢/无信号"。
+                // cb 就在手里，直接用它的真值。见 SatelliteConsole.launch 的注释（同一个约定）。
+                String effSig = (sig == null || sig.isEmpty()) ? cb.selectedSignal : sig;
+                int result = SatelliteManager.launch(p.team(),
+                        (effSig == null || effSig.isEmpty()) ? null : effSig, orbit, cb.x, cb.y);
+                if (result != SatelliteManager.LAUNCH_OK) {
+                    deny.accept(String.valueOf(result), null);
+                }
+            } catch (Exception e) {
+                SiliconLog.info("sat-launch: handler error: " + e);
+                // 异常路径也必须回包（deny 内部已再兜一层，防止回包本身抛异常）
+                deny.accept("fail", null);
+            }
+        });
 
         // 多人暂停的服务端包处理器：必须注册在 init()——dedicated 服务器只触发 ServerLoadEvent、
         // 不触发 ClientLoadEvent，原先注册在 ClientLoadEvent 里时这四个处理器在专属服务器上
-        // 永远不会生效（与 sat-launch 同因，故移到同一位置）
-        if (netServer != null) {
-            netServer.addPacketHandler("pause", (p, time) -> {
-                // 放行判定收敛成一处：原先 admin/author、pauseMode==1、pauseMode==2+白名单
-                // 三段各自重复了「切换暂停 + 回包 + 记日志」，条件不同但动作完全相同。
-                // 语义要点：admin/author 先放行，**不受 pauseMode 限制**（pauseMode==0 也要放行），
-                // 所以这里先算 admin/author，只有它不是才去看 pauseMode。
-                boolean allowed = p.admin || p.name.equals(state.map.author());
-                if (!allowed) {
-                    if (Vars.pauseMode == 1) {
-                        allowed = true;
-                    } else if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
-                        allowed = true;
-                    }
+        // 永远不会生效（与 sat-launch 同因，故移到同一位置）。同样无条件注册，理由见上方 sat-launch 处。
+        netServer.addPacketHandler("pause", (p, time) -> {
+            // 放行判定收敛成一处：原先 admin/author、pauseMode==1、pauseMode==2+白名单
+            // 三段各自重复了「切换暂停 + 回包 + 记日志」，条件不同但动作完全相同。
+            // 语义要点：admin/author 先放行，**不受 pauseMode 限制**（pauseMode==0 也要放行），
+            // 所以这里先算 admin/author，只有它不是才去看 pauseMode。
+            boolean allowed = p.admin || p.name.equals(state.map.author());
+            if (!allowed) {
+                if (Vars.pauseMode == 1) {
+                    allowed = true;
+                } else if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
+                    allowed = true;
                 }
-                if (!allowed) return;
+            }
+            if (!allowed) return;
 
-                state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                Call.clientPacketReliable(p.con, "paused", time);
-                SiliconLog.info(p.name + " pause");
-            });
+            state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
+            Call.clientPacketReliable(p.con, "paused", time);
+            SiliconLog.info(p.name + " pause");
+        });
 
-            netServer.addPacketHandler("pause-setmode", (p, data) -> {
-                if (!p.admin && !p.name.equals(state.map.author())) return;
-                try {
-                    Vars.pauseMode = Integer.parseInt(data.trim());
-                    if (Vars.pauseMode < 0 || Vars.pauseMode > 2) Vars.pauseMode = 0;
-                } catch (NumberFormatException ignored) {}
-            });
+        netServer.addPacketHandler("pause-setmode", (p, data) -> {
+            if (!p.admin && !p.name.equals(state.map.author())) return;
+            try {
+                Vars.pauseMode = Integer.parseInt(data.trim());
+                if (Vars.pauseMode < 0 || Vars.pauseMode > 2) Vars.pauseMode = 0;
+            } catch (NumberFormatException ignored) {}
+        });
 
-            netServer.addPacketHandler("pause-grant", (p, data) -> {
-                if (!p.admin && !p.name.equals(state.map.author())) return;
-                String target = data.trim();
-                if (target.isEmpty()) return;
-                if (!Vars.pauseWhitelist.contains(target)) {
-                    Vars.pauseWhitelist.add(target);
-                }
-            });
+        netServer.addPacketHandler("pause-grant", (p, data) -> {
+            if (!p.admin && !p.name.equals(state.map.author())) return;
+            String target = data.trim();
+            if (target.isEmpty()) return;
+            if (!Vars.pauseWhitelist.contains(target)) {
+                Vars.pauseWhitelist.add(target);
+            }
+        });
 
-            netServer.addPacketHandler("pause-revoke", (p, data) -> {
-                if (!p.admin && !p.name.equals(state.map.author())) return;
-                String target = data.trim();
-                Vars.pauseWhitelist.remove(target);
-            });
-        }
+        netServer.addPacketHandler("pause-revoke", (p, data) -> {
+            if (!p.admin && !p.name.equals(state.map.author())) return;
+            String target = data.trim();
+            Vars.pauseWhitelist.remove(target);
+        });
 
         // 主界面自动检查 GitHub 更新（可在设置中关闭；有更新才显示横幅，初始隐藏）
         Events.on(EventType.ClientLoadEvent.class, e -> {
