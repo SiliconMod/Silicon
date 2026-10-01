@@ -142,3 +142,24 @@ LOIC 威胁地面  →  地面建定位器 + 拦截塔  →  拦截塔威胁卫�
 | `SatelliteUnits.ION_RANGE_TILES` | 40（索敌射程） |
 | 机型 | `SatelliteUnits.ionLeo`（内容名 `silicon-satellite-loic`，LEO 专用） |
 | 状态类 | `silicon.util.LoicWeapon.State`（ammo / autoFire / attackSats） |
+
+## 8. 验证手段
+
+改完这个武器之后，除了 `gradlew clean jar` 与 `tests/` 三套件，还可以跑一个**运行时探针**：
+`tools/LoicProbe.java`。它不启动 UI，直接在真实类路径下反射检查注册结果与引擎契约。
+
+```
+javac -encoding UTF-8 -cp "Mindustry.jar;%APPDATA%\Mindustry\mods\Silicon.jar" -d . tools\LoicProbe.java
+java -Dfile.encoding=UTF-8 -cp ".;Mindustry.jar;%APPDATA%\Mindustry\mods\Silicon.jar" LoicProbe
+```
+
+它断言的内容（当前 36 项全过）：
+
+- `SatelliteUnits` 可加载、五个机型字段存在、六个常量**值与规格一致**；
+- `LoicWeapon` 是 `Weapon` 子类，`State` 三字段默认值正确（ammo=5 / autoFire=true / attackSats=true），
+  `state()` 对同一 id 返回同一实例、对不同 id 隔离；
+- 引擎契约：`UnitType.weapons` 是 `Seq`、`Unit.mounts` 是 `WeaponMount[]`、
+  `Weapon.findTarget` / `Weapon.shoot` 均为 `protected`（可覆写）、`Unit.canShoot` / `Unit.update` 来自 `Unitc`。
+
+探针证明的是"内容注册正确、常量正确、覆写点成立"；**开火、弹药消耗、两个开关的实际拦截效果
+仍然只能在游戏里跑一局确认**（探针不会启动世界）。
