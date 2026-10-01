@@ -270,8 +270,11 @@ public class SatelliteUnits {
             @Override
             public void loadIcon() {
                 super.loadIcon();
-                // 原版 loadIcon 会把无 sprite 机型的图标指到 error 白方块——统一替换为程序化图标
-                uiIcon = fullIcon = satelliteIcon();
+                // 有正式贴图时保留 atlas 图标；只有缺图时才使用程序化图标。
+                // 旧实现无条件覆盖 uiIcon/fullIcon，导致右下角信息区永远显示同一枚程序化图标。
+                if (region == null || !region.found()) {
+                    uiIcon = fullIcon = satelliteIcon();
+                }
             }
 
             @Override

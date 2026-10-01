@@ -243,7 +243,16 @@ public class LoicWeapon extends Weapon {
             Fx.artilleryTrail.at(midX, midY, rotation);
             Fx.massiveExplosion.at(hitX, hitY);
             Fx.shockwave.at(hitX, hitY);
-            target.damage(bullet.damage);
+            float beforeHealth = target.health;
+            // 直接写入 HealthComp 的公开血量字段，绕过 hittable/targetable 相关路径，
+            // 确保靶标卫星确实掉血；普通 Unit.damage() 在该类隔离实体上表现不稳定。
+            target.health -= bullet.damage;
+            target.hitTime = 1f;
+            if (debug) {
+                dbg(unit.id, "satelliteDamage", "target=" + desc(target)
+                        + " hp=" + f2(beforeHealth) + "->" + f2(Math.max(0f, target.health)));
+            }
+            if (target.health <= 0f && target.isValid()) target.kill();
             if (!target.isValid()) {
                 Fx.blastExplosion.at(hitX, hitY);
                 Call.sendMessage(Core.bundle.format("block.silicon-loic.kill", target.type.localizedName));

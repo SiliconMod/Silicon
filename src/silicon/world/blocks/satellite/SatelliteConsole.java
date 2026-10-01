@@ -357,7 +357,7 @@ public class SatelliteConsole extends Block {
             row.label(() -> r.code == null
                             ? Core.bundle.get("block.silicon-satellite-console.nobind") : r.code)
                     .color(r.code == null ? Color.lightGray : Color.white).width(64f).pad(4f);
-            row.label(() -> typeShortName(r.type)).color(Color.lightGray).width(72f).pad(4f);
+            row.label(() -> typeShortName(r)).color(Color.lightGray).width(72f).pad(4f);
             row.label(() -> orbitKeyShort(r.orbit)).width(48f).pad(4f);
             row.label(() -> r.channel >= 1 ? String.valueOf(r.channel) : "-").width(40f).pad(4f);
             // 血量：直接读实体，每帧求值 → 掉血立刻可见。实体不在名册里说明丢失；
@@ -400,7 +400,19 @@ public class SatelliteConsole extends Block {
             }
         }
 
-        /** 卫星种类短名（信号卫星 / 离子炮卫星，bundle） */
+        /** 在轨管理显示名：优先按实体机型识别靶标/SSO，旧存档类型再回退到 type 字段。 */
+        String typeShortName(SatelliteManager.SatelliteRecord r) {
+            mindustry.gen.Unit u = Groups.unit.getByID(r.unitId);
+            if (u != null && u.type == SatelliteUnits.targetSatellite) {
+                return Core.bundle.get("block.silicon-satellite-console.type.short.target");
+            }
+            if (u != null && u.type == SatelliteUnits.testSso) {
+                return Core.bundle.get("block.silicon-satellite-console.type.short.sso");
+            }
+            return typeShortName(r.type);
+        }
+
+        /** 发射页与中枢选择器使用的可生产类型短名。 */
         String typeShortName(int type) {
             switch (type) {
                 case SatelliteLauncher.TYPE_ION:
