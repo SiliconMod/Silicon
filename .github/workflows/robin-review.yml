@@ -1,0 +1,264 @@
+name: Robin Review
+
+# 两段式审查的「审查段」（workflow_run 两段式第 ② 段，配套 robin-collect.yml 第 ① 段）。
+# 设计定案（2026-09-28，用户 TG 指令）：
+#   - 本段由 Robin Collect 成功完成触发（workflow_run 事件），发生在 **base 仓默认分支**
+#     上下文 —— token **不被 fork 降级**（与 pull_request 事件相反），故 pull-requests: write
+#     真实生效、能发 review 评论。
+#   - 满足用户四项要求：自动触发（workflow_run 自动跟跑，无 /review 代发）、能发评论
+#     （可写 token + gh api pulls/{n}/reviews）、不依赖 GH_PAT（全程只用 github.token）。
+#   - P1 信任链（R254 边界评审点 1，2026-09-29 落地）：PR 号 / head SHA / 头仓**只从
+#     workflow_run 上下文推导**（id / head_sha / head_repository.full_name / pull_requests），
+#     artifact 只提供 diff 内容 + 指纹校验。校验规则见「Resolve PR context and validate
+#     artifact」步骤：meta.json 的 run_id / head_sha / head_repo_full_name / number 必须与
+#     上下文完全一致，任一不符即 fail-closed（不发审查、不猜）。
+#     workflow_run.pull_requests 对 fork PR 可能为空（GitHub 已知行为）——为空时用
+#     head={owner}:{branch} 反查 open PR，且必须精确命中 head_sha 与头仓，多/少都拒绝。
+#     绝不用 artifact 的 PR 号调 pulls/{n}/reviews。
+#   - P3 并发（R254 边界评审点 3）：concurrency 按「头仓 + 头分支」键控（分支名 per-PR
+#     唯一，头仓区分同名分支的 fork），cancel-in-progress 使同 PR 的旧审查 run 被新 run
+#     取代；驱动脚本再按 head commit_id 去重，同一 head 只发一条 COMMENT review。
+#   - 审查引擎不是 robin action（ROUND 174 实测：robin@v2.7.2 对 workflow_run 事件
+#     落入 "No matching trigger found. Skipping." 零产出，见 robin-collect.yml 头注），
+#     而是仓内 .github/scripts/review_from_diff.py —— 复用本仓 zengate 网关 +
+#     .github/code-reviewer.md 规则 + .github/robin.yml 阈值（skip-paths/max-diff-size/max-comments）。
+#   - 工作流改动须同时推两仓（siliconmod 与 Xiaobei09 fork）的默认分支才两侧生效；
+#     试验床流程见 /root/.opencode/work/robin_fix_plan.md。
+
+on:
+  workflow_run:
+    workflows: ["Robin Collect"]
+    types: [completed]
+
+# P3 并发（R254 边界评审点 3）：每 PR 键 = 头仓 + 头分支；同一 PR 连续 synchronize 产生的
+# 旧审查 run 被新 run 取消（per-PR 并发、不串行排队），配合驱动脚本的 head 去重实现
+# 「一次 synchronize 只产一条 COMMENT」。
+concurrency:
+  group: robin-review-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read      # download-artifact 需要 actions: read
+  pull-requests: write  # 发 review 评论
+
+jobs:
+  review:
+    # 只跟读「采集成功且确实是 pull_request 事件」的 run；conclusion 只是第一道闸，
+    # 关键输出指纹（驱动脚本的 `Posted review` 行）才是第二段的成功判据（AGENTS.md 铁律）。
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-latest
+    # 预算覆盖最坏路径：网关就绪 600s + 冒烟 240s + 驱动 2×LLM 超时 600s 约 34m，取 50m 留余量
+    # （与 robin.yml 同预算口径）。
+    timeout-minutes: 50
+    env:
+      # 单一来源：就绪检查与驱动脚本的 model 都读这个值（与 robin.yml 一致）
+      MODEL: big-pickle
+      GATEWAY_PORT: '8083'
+      GATEWAY_URL: http://127.0.0.1:8083/v1
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        # workflow_run 上下文里没有 PR 分支，checkout 默认分支即可；审查用的 diff/meta
+        # 全在 artifact 里，不依赖 checkout 内容（.github/robin.yml / code-reviewer.md
+        # 取默认分支版本，与生产配置单一来源）。
+
+      - name: Download collect artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: robin-diff
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: collected
+
+      # P1 信任链（R254 边界评审点 1）：PR 号 / head SHA / 头仓只从 workflow_run 上下文
+      # 推导；artifact 只提供 diff 内容 + 指纹校验。任一指纹（run_id / head_sha /
+      # head_repo_full_name / number）与上下文不符即 fail-closed：不发审查、不猜。
+      # ⚠️heredoc 用 <<'PY' 单引号（防 shell 插值），$GITHUB_ENV 必须经 os.environ
+      #    读取（R182 实测 run 36450923441）；本步骤只写不验（R183 实测 run 36451573421）。
+      - name: Resolve PR context and validate artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          PR_HINT: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          base_repo = os.environ['BASE_REPO']
+          run_id = os.environ['RUN_ID']
+          head_sha = os.environ['HEAD_SHA']
+          head_branch = os.environ['HEAD_BRANCH']
+          head_repo = os.environ['HEAD_REPO']
+          pr_hint = os.environ.get('PR_HINT', '').strip()
+
+          def gh(*args):
+              p = subprocess.run(
+                  ["gh", "api", *args],
+                  capture_output=True, text=True, timeout=60,
+              )
+              if p.returncode != 0:
+                  print("gh api %s failed: %s" % (args[0], p.stderr[:300]), file=sys.stderr)
+              return p.returncode, p.stdout
+
+          def fail(msg):
+              print("::error::%s" % msg)
+              sys.exit(1)
+
+          # 1) 候选 PR：pull_requests[0] 优先；为空（fork PR 已知行为）则反查
+          pr = None
+          if pr_hint:
+              rc, out = gh("repos/%s/pulls/%s" % (base_repo, pr_hint))
+              if rc == 0:
+                  pr = json.loads(out)
+          if pr is None:
+              owner = head_repo.split('/')[0]
+              rc, out = gh("repos/%s/pulls?state=open&head=%s:%s" % (base_repo, owner, head_branch))
+              if rc != 0:
+                  fail("reverse lookup of open PRs failed (head=%s:%s): could not resolve PR from workflow_run context" % (owner, head_branch))
+              matches = []
+              for p in json.loads(out):
+                  ph = p.get('head') or {}
+                  if ph.get('sha') != head_sha:
+                      continue
+                  if (ph.get('repo') or {}).get('full_name') != head_repo:
+                      continue
+                  matches.append(p)
+              if len(matches) != 1:
+                  fail("head %s:%s@%s resolved to %d open PRs in %s; refusing to guess" % (
+                      owner, head_branch, head_sha[:7], len(matches), base_repo))
+              pr = matches[0]
+          if pr is None:
+              fail("pull_requests array is empty and reverse lookup failed; cannot resolve PR")
+
+          pr_number = pr['number']
+          # 2) 候选 PR 必须真的对应本次 workflow_run 的 head（防错挂/防旧 artifact 审新 head）
+          ph = pr.get('head') or {}
+          if ph.get('sha') != head_sha:
+              fail("PR #%s head %s does not match workflow_run head_sha %s" % (
+                  pr_number, ph.get('sha'), head_sha))
+          if (ph.get('repo') or {}).get('full_name') != head_repo:
+              fail("PR #%s head repo %s does not match workflow_run head repo %s" % (
+                  pr_number, (ph.get('repo') or {}).get('full_name'), head_repo))
+          if pr.get('state') != 'open':
+              fail("PR #%s is %s, refusing to review" % (pr_number, pr.get('state')))
+
+          # 3) artifact 指纹必须等于上下文（artifact 只当 diff，绝不用其 PR 号发 API）
+          m = json.load(open('collected/meta.json'))
+          checks = [
+              ('run_id', str(m.get('run_id')), run_id),
+              ('head_sha', m.get('head_sha'), head_sha),
+              ('head_repo_full_name', m.get('head_repo_full_name'), head_repo),
+              ('number', str(m.get('number')), str(pr_number)),
+          ]
+          bad = [(k, got, want) for k, got, want in checks if got != want]
+          if bad:
+              for k, got, want in bad:
+                  print("  fingerprint mismatch %s: meta=%r context=%r" % (k, got, want))
+              fail("artifact meta.json does not match workflow_run context (%s)" % ', '.join(k for k, _, _ in bad))
+
+          print("resolved PR #%s head=%s head_repo=%s run_id=%s" % (pr_number, head_sha[:12], head_repo, run_id))
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('REVIEW_PR=%s\n' % pr_number)
+              f.write('REVIEW_HEAD_SHA=%s\n' % head_sha)
+              f.write('REVIEW_RUN_ID=%s\n' % run_id)
+          PY
+
+      # ── 网关方案：与 robin.yml 的 review job 完全同构，逐字复制（1:1 复用源）──────────
+      # zengate 通过拉起真实 opencode serve 子进程与 Zen 通信，绕开 CI 上的来源闸门；
+      # 网关自身鉴权用 ALLOW_NO_AUTH 关闭（只监听 127.0.0.1），全链路无 API key。
+      # ⚠️ 改动本段时须与 robin.yml 对应步骤同步（单一实现，避免两处漂移）。
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install zengate
+        run: |
+          # 精确钉版本（不是 ^1 这种范围）——原因与 robin.yml 同注释：zengate 首日连发
+          # 5 个版本后停更，范围写法会让上游哪天发新版本静默换行为、review 结论漂移。
+          ZENGATE_VERSION=1.0.4
+          npm install -g "zengate@${ZENGATE_VERSION}"
+          # 刻意不设 OPENCODE_PATH（binary.js 解析顺序 OPENCODE_PATH → bundled 包 → PATH，
+          # 设了反而屏蔽 zengate 自己锁定的那份 opencode-ai 依赖）。
+          got=$(npm ls -g zengate --depth=0 2>/dev/null | tr -d '\r' | sed -n 's/.*zengate@\([^ ]*\).*/\1/p' | head -1)
+          echo "zengate requested=${ZENGATE_VERSION} installed=${got:-unknown}"
+          [ "$got" = "$ZENGATE_VERSION" ] || { echo "::error::zengate version mismatch: wanted ${ZENGATE_VERSION}, got ${got:-unknown}"; exit 1; }
+          echo "opencode bundled with zengate: $(node -p "require('$(npm root -g)/zengate/node_modules/opencode-ai/package.json').version" 2>/dev/null || echo unknown)"
+
+      - name: Start zengate gateway
+        env:
+          ALLOW_NO_AUTH: 'true'
+          HOST: 127.0.0.1
+          PORT: ${{ env.GATEWAY_PORT }}
+        run: |
+          nohup zengate > /tmp/zengate.log 2>&1 &
+          start=$SECONDS
+          for i in $(seq 1 60); do
+            if curl -sf -m 5 "http://127.0.0.1:${GATEWAY_PORT}/v1/models" > /tmp/models.json 2>/dev/null; then
+              echo "Gateway ready after $((SECONDS - start))s"
+              if ! grep -q "\"id\":\"$MODEL\"" /tmp/models.json; then
+                echo "::error::Model '$MODEL' is not in the gateway's current catalog."
+                echo "Available: $(tr ',' '\n' < /tmp/models.json | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | tr '\n' ' ')"
+                echo "Zen rotates its free catalog; update 'MODEL:' in this workflow to a currently listed id."
+                exit 1
+              fi
+              head -c 400 /tmp/models.json
+              echo
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Gateway did not become ready in 600s"
+          cat /tmp/zengate.log
+          exit 1
+
+      - name: Smoke test gateway
+        env:
+          MODEL: ${{ env.MODEL }}
+        run: |
+          # 必须先落盘再判 HTTP 码（curl | head 在 bash -e 下退出码取自末端，恒 0）。
+          body=$(printf '{"model":"%s","messages":[{"role":"user","content":"Reply with exactly: OK"}]}' "$MODEL")
+          code=$(curl -s -m 240 -o /tmp/smoke.json -w '%{http_code}' \
+            -X POST "$GATEWAY_URL/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+          echo "smoke HTTP=$code (model=$MODEL)"
+          head -c 300 /tmp/smoke.json; echo
+          [ "$code" = 200 ] || { echo "::error::Gateway smoke test failed (HTTP $code)"; exit 1; }
+          grep -q '"content":"OK"' /tmp/smoke.json \
+            || { echo "::error::$MODEL did not answer OK through the gateway"; exit 1; }
+
+      - name: Install review driver dependencies
+        run: |
+          set -euo pipefail
+          # 驱动只依赖 PyYAML（解析 .github/robin.yml 阈值，单一来源）。runner 自带
+          # python3 但未必有 PyYAML，这里显式装并验版本。
+          pip install --quiet "PyYAML>=6.0"
+          python3 -c "import yaml; print('PyYAML', yaml.__version__)"
+
+      - name: Review from diff
+        env:
+          MODEL: ${{ env.MODEL }}
+          GATEWAY_URL: ${{ env.GATEWAY_URL }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/review_from_diff.py \
+            --artifact-dir collected \
+            --pr "$REVIEW_PR" \
+            --head-sha "$REVIEW_HEAD_SHA" \
+            --run-id "$REVIEW_RUN_ID" \
+            --repo "${{ github.repository }}"
+
+      - name: Gateway log
+        if: always()
+        run: tail -40 /tmp/zengate.log 2>&1 || true
