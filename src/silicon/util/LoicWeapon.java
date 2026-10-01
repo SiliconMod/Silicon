@@ -81,16 +81,25 @@ public class LoicWeapon extends Weapon {
     }
 
     /**
-     * 索敌：在引擎的候选集层面就排除掉不该打的目标。
+     * 索敌：在引擎的候选集层面就把不该打的东西排除掉。
      * <p>
-     * `air` 为真时卫星才可能入选（卫星 `isFlying()`）；"攻击卫星"关闭时把低轨卫星从
-     * 单位谓词里剔除——注意不能靠 `super.findTarget` 之后再判，那样会连更远的建筑一起漏掉。
+     * 三类目标分开判：
+     * <ul>
+     *   <li><b>低轨卫星</b>（LEO/SSO）：受"对星"开关控制；</li>
+     *   <li><b>其他空中单位</b>：一律不打——离子炮是轨道对地武器，"对星"开关打开并不等于兼职防空；</li>
+     *   <li><b>地面目标</b>（建筑与地面单位）：照常。</li>
+     * </ul>
+     * 另外不能在 `super.findTarget` 之后过滤：后者只返回最近的那一个目标，若最近的恰好是
+     * 被排除的卫星，会连更远的地面目标一起漏掉。
      */
     @Override
     protected Teamc findTarget(Unit unit, float x, float y, float range, boolean air, boolean ground) {
         boolean sats = state(unit.id).attackSats;
         return Units.closestTarget(unit.team, x, y, range + Math.abs(shootY),
-                u -> u.checkTarget(air, ground) && (sats || !isLowOrbitSatellite(u)),
+                u -> {
+                    if (isLowOrbitSatellite(u)) return sats && u.checkTarget(air, ground);
+                    return !u.isFlying() && u.checkTarget(air, ground);
+                },
                 t -> ground && (unit.type.targetUnderBlocks || !t.block.underBullets));
     }
 
