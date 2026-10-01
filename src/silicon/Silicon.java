@@ -371,6 +371,8 @@ public class Silicon extends Mod {
                 // —— 物流中枢 ——
                 addSection(st, "setting.silicon.group.hub");
                 st.checkPref("hubDebugLog", false, v -> silicon.world.blocks.distribution.ItemTransferHub.debugFlows = v);
+                // LOIC 开火链路诊断：打开后每颗卫星每 60 tick 输出一行状态（武器更新/索敌/校验/开火四个阶段）
+                st.checkPref("loicDebugLog", false, v -> silicon.util.LoicWeapon.debug = v);
                 st.sliderPref("hubLinkOpacity", 100, 0, 100, 5, i -> i + "%");
 
                 // —— 界面 ——
@@ -400,6 +402,7 @@ public class Silicon extends Mod {
             // 启动时从持久化设置恢复调试开关（checkPref 的变更回调只在用户手动切换时触发，
             // 不初始化的话每次启动都要重新关闭再打开才生效）
             silicon.world.blocks.distribution.ItemTransferHub.debugFlows = Core.settings.getBool("hubDebugLog", false);
+            silicon.util.LoicWeapon.debug = Core.settings.getBool("loicDebugLog", false);
 
             // 卫星状态广播（服务器 → 客机）：应用主机权威状态（在轨数/归属信号/待发射数镜像）。
             // 包处理器在网络线程回调——一切状态/UI 操作必须 post 回主线程

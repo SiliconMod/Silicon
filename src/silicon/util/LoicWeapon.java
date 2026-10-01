@@ -81,6 +81,13 @@ public class LoicWeapon extends Weapon {
         if (s.ammo < maxAmmo) {
             s.ammo = Math.min(maxAmmo, s.ammo + Time.delta * unit.reloadMultiplier / rechargeTicks);
         }
+        // 诊断：确认武器更新确实被引擎调用（若此日志不出现，问题在 canShoot/武器挂载，而非索敌）
+        if (debug && debugDue(unit.id)) {
+            dbg(unit.id, "update", "ammo=" + f2(s.ammo) + " auto=" + s.autoFire + " sats=" + s.attackSats
+                    + " canShoot=" + unit.canShoot() + " mountTarget=" + desc(mount.target)
+                    + " reload=" + f2(mount.reload) + " mountShoot=" + mount.shoot
+                    + " hadTarget=" + debugHadTarget.get(unit.id, Boolean.FALSE));
+        }
     }
 
     /**
@@ -126,6 +133,27 @@ public class LoicWeapon extends Weapon {
                 best = u;
             }
         }
+        // 诊断：索敌结果（target=null 说明候选集为空，需要看上面两个分支各自的过滤原因）
+        if (debug) {
+            int buildings = 0, satellites = 0;
+            for (Building b : Groups.build) {
+                if (b.team == Team.derelict) continue;
+                if (selfOk == false && b.team == unit.team) continue;
+                if (Mathf.dst(x, y, b.x, b.y) <= limit) buildings++;
+            }
+            for (Unit u : Groups.unit) {
+                if (u == unit || !isLowOrbitSatellite(u)) continue;
+                if (Mathf.dst(x, y, u.x, u.y) <= limit) satellites++;
+            }
+            boolean had = best != null;
+            debugHadTarget.put(unit.id, had);
+            dbg(unit.id, "findTarget", "picked=" + desc(best)
+                    + " limit=" + f2(limit) + " range=" + f2(range)
+                    + " air=" + air + " ground=" + ground
+                    + " collidesAir=" + bullet.collidesAir + " collidesGround=" + bullet.collidesGround
+                    + " inRangeBuildings=" + buildings + " inRangeSats=" + satellites
+                    + " siblingsBuild=" + Groups.build.size() + " siblingsUnit=" + Groups.unit.size());
+        }
         return best;
     }
 
@@ -146,6 +174,16 @@ public class LoicWeapon extends Weapon {
      */
     @Override
     protected boolean checkTarget(Unit unit, Teamc target, float x, float y, float range) {
+        boolean invalid = checkTargetRaw(unit, target, x, y, range);
+        // 诊断：这一步返回 true 会导致 Weapon.update 立刻清空目标（此前语义写反就是在这里静默失败）
+        if (debug && invalid) {
+            dbg(unit.id, "checkTarget", "REJECTED " + desc(target) + " range=" + f2(range));
+        }
+        return invalid;
+    }
+
+    /** 失效判定的实际逻辑（与诊断分离，便于阅读） */
+    private boolean checkTargetRaw(Unit unit, Teamc target, float x, float y, float range) {
         float limit = range + Math.abs(shootY);
         if (target instanceof Building b) {
             if (!b.isValid() || b.team == Team.derelict) return true;
@@ -167,9 +205,27 @@ public class LoicWeapon extends Weapon {
     @Override
     protected void shoot(Unit unit, WeaponMount mount, float shootX, float shootY, float rotation) {
         State s = state(unit.id);
-        if (!s.autoFire || s.ammo < 1f) return;
+        boolean blocked = !s.autoFire || s.ammo < 1f;
+        // 诊断：进入 shoot 说明前面的门都过了；若这里被阻止，就是弹药/开关的问题
+        dbg(unit.id, "shoot", "entered aim=(" + f0(shootX) + "," + f0(shootY) + ") rot=" + f0(rotation)
+                + " ammo=" + f2(s.ammo) + " auto=" + s.autoFire
+                + " blocked=" + blocked + " target=" + desc(mount.target));
+        if (blocked) return;
         s.ammo -= 1f;
         super.shoot(unit, mount, shootX, shootY, rotation);
+    }
+
+    // ————— 诊断辅助 —————
+
+    private static String f0(float v) { return String.valueOf((int) v); }
+    private static String f2(float v) { return String.valueOf(Math.round(v * 100f) / 100f); }
+
+    /** 目标的可读描述（诊断日志用） */
+    private static String desc(Object t) {
+        if (t == null) return "null";
+        if (t instanceof Building b) return "Building(" + b.block.name + ",team=" + b.team + ",hp=" + (int) b.health + ")";
+        if (t instanceof Unit u) return "Unit(" + u.type.name + ",id=" + u.id + ",team=" + u.team + ")";
+        return t.getClass().getSimpleName();
     }
 
     /** 是否已就绪（弹药 ≥ 1 且开启自动发射）——UI 与调试用 */
@@ -177,4 +233,39 @@ public class LoicWeapon extends Weapon {
         State s = state(unit.id);
         return s.autoFire && s.ammo >= 1f;
     }
+
+    // ————————————————— 诊断插桩 —————————————————
+    //
+    // 开火链路连续多次判断失误（hasAmmo 门控、沙盒放宽、checkTarget 语义），
+    // 所以这里留下可开关的运行时日志：打开后能一次性区分
+    //   「武器根本没被更新」/「更新了但索敌为空」/「有目标但被校验清掉」/「校验通过却没进 shoot」
+    // 这四种完全不同的故障。默认关闭，避免刷屏。
+
+    /** 诊断开关（默认关）。开启方式：设置里勾选，或控制台执行 `silicon.loic.debug = true` */
+    public static boolean debug = false;
+
+    /** 诊断输出节流（每颗卫星每 N tick 最多一条） */
+    private static final int DEBUG_INTERVAL = 60;
+    private static final ObjectMap<Integer, Integer> debugTick = new ObjectMap<>();
+
+    /** 该卫星本轮是否应当输出诊断（按 tick 节流；返回 true 时已累计计数） */
+    private static boolean debugDue(int unitId) {
+        int t = debugTick.get(unitId, 0) + 1;
+        if (t >= DEBUG_INTERVAL) {
+            t = 0;
+            debugTick.put(unitId, t);
+            return true;
+        }
+        debugTick.put(unitId, t);
+        return false;
+    }
+
+    /** 统一诊断输出（只在 debug 打开时写日志） */
+    private static void dbg(int unitId, String stage, String detail) {
+        if (!debug) return;
+        silicon.util.SiliconLog.info("[LOIC:" + stage + "] unit=" + unitId + " " + detail);
+    }
+
+    /** 上一次诊断时看到的目标（用于区分"从未找到过目标"与"目标被中途清掉"） */
+    private static final ObjectMap<Integer, Boolean> debugHadTarget = new ObjectMap<>();
 }
