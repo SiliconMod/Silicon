@@ -107,8 +107,6 @@ public class LoicWeapon extends Weapon {
     @Override
     protected Teamc findTarget(Unit unit, float x, float y, float range, boolean air, boolean ground) {
         boolean sats = state(unit.id).attackSats;
-        // 沙盒自测放宽：与 AsatInterceptor / SatelliteLocator 同一判据
-        boolean selfOk = SatelliteManager.testSatelliteAvailable();
         float limit = range + Math.abs(shootY);
         float bestDst = Float.MAX_VALUE;
         Teamc best = null;
@@ -128,10 +126,11 @@ public class LoicWeapon extends Weapon {
             }
         }
 
-        // 单位：只有低轨卫星可能入选（且"对星"开关必须打开）
+        // 单位：只有低轨卫星可能入选（且"对星"开关必须打开），也永远只打敌方。
+        // 沙盒自测可以把靶标卫星刷成敌方队伍，不需要允许同队 LOIC 互相锁定。
         if (sats) {
             for (Unit u : Groups.unit) {
-                if (u == unit || u.team == Team.derelict || (u.team == unit.team && !selfOk)) continue;
+                if (u == unit || u.team == Team.derelict || u.team == unit.team) continue;
                 if (!isLowOrbitSatellite(u) || !u.checkTarget(air, ground)) continue;
                 float d = Mathf.dst(x, y, u.x, u.y);
                 if (d > limit || d >= bestDst) continue;
@@ -144,7 +143,7 @@ public class LoicWeapon extends Weapon {
             int buildings = 0, satellites = 0;
             for (Building b : Groups.build) {
                 if (b.team == Team.derelict) continue;
-                if (selfOk == false && b.team == unit.team) continue;
+                if (b.team == unit.team) continue;
                 if (Mathf.dst(x, y, b.x, b.y) <= limit) buildings++;
             }
             for (Unit u : Groups.unit) {
@@ -202,7 +201,8 @@ public class LoicWeapon extends Weapon {
             if (!u.isValid() || u.team == Team.derelict) return true;
             if (!isLowOrbitSatellite(u)) return true;
             if (!state(unit.id).attackSats) return true;
-            if (u.team == unit.team && !SatelliteManager.testSatelliteAvailable()) return true;
+            // 与 findTarget 对称：同队卫星永远不是 LOIC 的目标，避免沙盒中卫星互相乱锁。
+            if (u.team == unit.team) return true;
             return !u.within(x, y, limit + u.hitSize() / 2f);
         }
         return true;
