@@ -192,6 +192,14 @@ public class SatelliteLauncher extends Block {
     public class SatelliteLauncherBuild extends Building {
         /** 当前选择的卫星种类（0=信号卫星） */
         public int selectedType = TYPE_SIGNAL;
+        /**
+         * 本次生产锁定的类型：在**生产开始**（首次扣材料）时确定，之后切换选择器不影响这一颗。
+         * <p>
+         * 没有它的时候，类型的唯一来源是 {@link #selectedType}（当前选择），于是"用 A 的配方生产、
+         * 切成 B 再发射"会发射出 B —— 材料与成品不符，离子炮那套贵配方（硅 8000 · 钍 3000 …）
+         * 尤其明显。生产面板、发射与存档都改用本字段。
+         */
+        public int lockedType = TYPE_SIGNAL;
         /** 生产进度（tick） */
         public float progress = 0f;
         /** 发射缓冲电量（0~10000，电网供电时充电积累，发射时一次性消耗） */
@@ -268,14 +276,17 @@ public class SatelliteLauncher extends Block {
             if (power == null || power.status <= 0.001f) return;
             // 测试卫星沙盒专属：非沙盒模式不生产（配置被存档/原理图带入时兜底；不消耗任何材料）
             if (selectedType == TYPE_TEST && !SatelliteManager.testSatelliteAvailable()) return;
-            // 生产开始：检查并一次性扣除材料（进度 > 0 表示已扣）
+            // 生产开始：检查并一次性扣除材料（进度 > 0 表示已扣）。
+            // **同时锁定这一颗的类型**：否则会出现"用离子炮的材料生产完、切到信号卫星再发射"
+            // （或者反过来），材料与成品不符。锁定后，切换类型选择器只影响下一颗。
             if (progress <= 0f) {
                 if (!hasProductionMaterials()) return;
                 consumeProductionMaterials();
+                lockedType = selectedType;
             }
             progress += delta();
-            if (progress >= produceTime(selectedType)) {
-                progress = produceTime(selectedType);
+            if (progress >= produceTime(lockedType)) {
+                progress = produceTime(lockedType);
                 produced = true;
                 register();
             }
@@ -482,7 +493,8 @@ public class SatelliteLauncher extends Block {
                 info.add(materialTable);
                 info.row();
                 // 卫星制造进度条（上方留白与原版一致，避免与材料行/相邻 bar 挤在一起）
-                float total = produceTime(selectedType);
+                // 已开始生产（或已生产完）的那一颗按**锁定类型**算时长；尚未开始时按当前选择预览
+                float total = produceTime(progress > 0f || produced ? lockedType : selectedType);
                 info.add(new Bar(
                         () -> produced ? Core.bundle.get("block.silicon-satellite-launcher.ready")
                                 : Core.bundle.format("block.silicon-satellite-launcher.progress", (int) (Math.min(1f, progress / total) * 100f)),
@@ -576,20 +588,22 @@ public class SatelliteLauncher extends Block {
         public void write(Writes write) {
             super.write(write);
             write.i(selectedType);
+            write.i(lockedType);
             write.f(progress);
             write.bool(produced);
             write.f(battery);
         }
 
         /**
-         * 存档版本：v0 = 历史（当初未覆写本方法，revision 恒为 0）；v1 = 显式声明。
-         * 与 {@code SatelliteConsole} 的 v2 机制对齐——**将来增删字段必须新增 revision 分支**，
+         * 存档版本：v0 = 历史（当初未覆写本方法，revision 恒为 0）；v1 = 显式声明；
+         * v2 = 新增 {@code lockedType}（生产锁定的类型）。
+         * 与 {@code SatelliteConsole} 的 v3 机制对齐——**将来增删字段必须新增 revision 分支**，
          * 否则多读/少读的字节会让后续 tile 的 chunk 前缀被当数据读（引擎的 readChunk 不做按长度对齐，
          * 与 SatelliteConsole 名册那条是同一类问题）。
          */
         @Override
         public byte version() {
-            return 1;
+            return 2;
         }
 
         @Override
@@ -597,7 +611,17 @@ public class SatelliteLauncher extends Block {
             super.read(read, revision);
             if (revision <= 1) {
                 // v0 与 v1 的字段集相同：selectedType → progress → produced → battery
-                selectedType = Mathf.clamp(read.i(), TYPE_SIGNAL, TYPE_TEST); // 越界档位夹回，避免畸形档污染 UI
+                selectedType = Mathf.clamp(read.i(), TYPE_SIGNAL, TYPE_COUNT - 1); // 越界档位夹回，避免畸形档污染 UI
+                progress = read.f();
+                produced = read.bool();
+                battery = read.f();
+                // 旧档没有锁定类型：退化为"当前选择"。旧档生产出的那一颗本就按 selectedType 发射，
+                // 所以这与旧行为一致；只有"存档前刚切换过选择器"这种边缘情况会退化。
+                lockedType = selectedType;
+            } else {
+                // v2：selectedType → lockedType → progress → produced → battery（与 write 严格同序）
+                selectedType = Mathf.clamp(read.i(), TYPE_SIGNAL, TYPE_COUNT - 1);
+                lockedType = Mathf.clamp(read.i(), TYPE_SIGNAL, TYPE_COUNT - 1);
                 progress = read.f();
                 produced = read.bool();
                 battery = read.f();

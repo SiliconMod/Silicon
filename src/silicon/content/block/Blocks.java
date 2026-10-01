@@ -180,7 +180,7 @@ public class Blocks {
         // 插队会移动其后所有方块的内容 ID，虽然存档按内容名映射、但仍会打乱与上游的注册序
         asatInterceptor = new AsatInterceptor("asat-interceptor") {{
             // 与卫星发射中枢同级别的材料门槛：拦截卫星本身就该是重投入（平衡见 AsatInterceptor 类注释）
-            requirements(Category.defense, BuildVisibility.shown,
+            requirements(Category.turret, BuildVisibility.shown,
                     ItemStack.with(Items.copper, 500, Items.lead, 350, Items.silicon, 450,
                             Items.titanium, 250, Items.thorium, 150, Items.plastanium, 120, Items.surgeAlloy, 80));
             alwaysUnlocked = true;

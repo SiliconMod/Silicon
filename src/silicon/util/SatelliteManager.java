@@ -730,7 +730,9 @@ public class SatelliteManager {
         if (hubs.size > 1) return LAUNCH_MULTI_HUB;
         if (consolesInSignal(team, signalName) > 1) return LAUNCH_MULTI_CONSOLE;
         SatelliteLauncher.SatelliteLauncherBuild launcher = hubs.first();
-        int type = launcher.selectedType;
+        // 用**生产时锁定的类型**，而不是当前选择：否则玩家能用 A 的配方生产完、切到 B 再发射。
+        // 锁定发生在首次扣材料那一刻（见 SatelliteLauncherBuild.updateTile），切换选择器只影响下一颗。
+        int type = launcher.lockedType;
         // 测试卫星沙盒专属：非沙盒模式拒发（中枢配置可被跨存档/原理图带入，UI 隐藏不够，权威端兜底）
         if (type == SatelliteLauncher.TYPE_TEST && !testSatelliteAvailable()) return LAUNCH_TEST_SANDBOX;
         if (!SatelliteConsole.orbitAllowed(type, orbit)) return LAUNCH_ORBIT_FORBIDDEN;

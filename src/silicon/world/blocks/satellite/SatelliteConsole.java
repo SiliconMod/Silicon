@@ -415,8 +415,8 @@ public class SatelliteConsole extends Block {
                 String r = Core.bundle.get("block.silicon-satellite-console.name.none");
                 String m = Core.bundle.get("block.silicon-satellite-console.name.none");
                 if (boundHub != null) {
-                    if (boundHub.produced) r = typeShortName(boundHub.selectedType);
-                    if (!boundHub.produced && boundHub.progress > 0f) m = typeShortName(boundHub.selectedType);
+                    if (boundHub.produced) r = typeShortName(boundHub.lockedType);
+                    if (!boundHub.produced && boundHub.progress > 0f) m = typeShortName(boundHub.lockedType);
                 }
                 return Core.bundle.format("block.silicon-satellite-console.name.line", r, m);
             }).color(Color.lightGray).pad(2f);
@@ -452,7 +452,11 @@ public class SatelliteConsole extends Block {
 
         /** 绑定中枢当前选择的种类（未绑定时按信号卫星处理） */
         int boundType() {
-            return boundHub != null ? boundHub.selectedType : TYPE_SIGNAL;
+            // 已锁定（生产中或已生产完）的那一颗用 lockedType：轨道灰化必须与发射判定（launch 里
+            // 同样读 lockedType）保持一致，否则会出现"按钮允许这个轨道、点发射却被拒"的错位。
+            // 尚未开始生产时用 selectedType，此时它就是在预览"下一颗"。
+            if (boundHub.produced || boundHub.progress > 0f) return boundHub.lockedType;
+            return boundHub.selectedType;
         }
 
         /**
