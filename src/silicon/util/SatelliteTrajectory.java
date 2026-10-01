@@ -12,6 +12,7 @@ import mindustry.game.EventType;
 import mindustry.gen.Groups;
 import mindustry.gen.Unit;
 import mindustry.graphics.Layer;
+import silicon.content.SatelliteUnits;
 import silicon.world.blocks.satellite.SatelliteConsole;
 
 /**
@@ -81,6 +82,9 @@ public class SatelliteTrajectory {
         return best;
     }
 
+    /** 攻击范围色（LOIC 的武器射程；与信号覆盖的冷色区分开） */
+    public static final Color ATTACK_COLOR = Color.valueOf("ff5a4a");
+
     static void drawTrajectory(SatelliteManager.SatelliteRecord r) {
         int orbit = r.orbit;
         if (Vars.world == null || Vars.world.unitWidth() <= 0 || Vars.world.unitHeight() <= 0) return;
@@ -101,6 +105,17 @@ public class SatelliteTrajectory {
             // GEO 的覆盖是全图（对角线），画出来会糊满屏幕，因此跳过。
             Lines.stroke(1.4f, RANGE_COLOR.a(0.5f));
             Lines.circle(x0, y0, SatelliteManager.coverageRadius(orbit));
+        }
+
+        // 攻击范围：只对挂武器的机型（LOIC）画。这是**武器索敌射程**，与上面的信号覆盖
+        // 是两回事 —— 射程大于覆盖，所以两个圆会明显分开，便于判断"这颗能不能够到目标"。
+        if (hoveredUnit != null && hoveredUnit.type == SatelliteUnits.ionLeo) {
+            float attackRange = SatelliteUnits.ION_RANGE_TILES * 8f;
+            Lines.stroke(2f, ATTACK_COLOR.a(0.85f));
+            Lines.circle(x0, y0, attackRange);
+            // 内侧一圈淡描，让边界在亮色地形上也看得清
+            Lines.stroke(1f, ATTACK_COLOR.a(0.35f));
+            Lines.circle(x0, y0, attackRange - 3f);
         }
 
         // 当前位置标记（定点轨道也画，它至少告诉玩家"这颗在这儿"）

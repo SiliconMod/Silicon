@@ -120,12 +120,15 @@ public class SatelliteUnits {
     /** 溅射半径（格） */
     public static final float ION_RADIUS_TILES = 10f;
     /**
-     * 武器索敌射程（格）——<b>必须显式设置</b>：`Weapon` 用 `bullet.range` 索敌，而它未设置时由
-     * `speed × lifetime` 推算（12 × 90 = 1080px ≈ 135 格），会让卫星在半个地图外就开火。
-     * 这里取 250×250 图上 LEO 的星下点覆盖半径 40 格，使"打击范围 = 覆盖范围"成立。
-     * （覆盖半径随图幅缩放而武器射程是常量：大图上覆盖更大、打击却仍限 40 格，属于可接受的近似。）
+     * 武器索敌射程（格）。
+     * <p>
+     * 必须走 {@code rangeOverride}（见 {@link #ionWeapon()} 里的说明），直接赋 {@code range}
+     * 会被引擎的 {@code calculateRange()} 覆盖成 {@code speed × lifetime}（135 格）。
+     * <p>
+     * 取 80 格：与反卫星拦截塔射程一致，形成"地面能打多远、天上就能打多远"的对称；
+     * 悬停卫星时会画出这个范围（见 {@code SatelliteTrajectory}），便于判断能不能够到目标。
      */
-    public static final float ION_RANGE_TILES = 40f;
+    public static final float ION_RANGE_TILES = 80f;
     /** 开火间隔（tick）：1 秒 */
     public static final float ION_COOLDOWN_TICKS = 60f;
     /** 弹夹容量 */
