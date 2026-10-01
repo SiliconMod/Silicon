@@ -144,9 +144,13 @@ public class SatelliteUnits {
             speed = 12f;             // 从轨道砸下：够快，但保留可见的坠落过程
             lifetime = 90f;
             range = ION_RANGE_TILES * 8f;   // 索敌射程：不显式设置会被 speed×lifetime 推成 135 格
+            // 四段表现：发射闪光、飞行尾迹、命中爆炸、未命中/寿命结束的爆裂。
+            shootEffect = mindustry.content.Fx.shootBig2;
+            smokeEffect = mindustry.content.Fx.shootBigSmoke2;
+            trailEffect = mindustry.content.Fx.artilleryTrail;
+            trailInterval = 2f;
             hitEffect = mindustry.content.Fx.massiveExplosion;
-            despawnEffect = mindustry.content.Fx.none;
-            shootEffect = mindustry.content.Fx.sparkShoot;
+            despawnEffect = mindustry.content.Fx.blastExplosion;
         }};
         return new silicon.util.LoicWeapon("silicon-ion-cannon") {{
             reload = ION_COOLDOWN_TICKS;

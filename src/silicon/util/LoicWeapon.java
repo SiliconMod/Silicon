@@ -237,9 +237,15 @@ public class LoicWeapon extends Weapon {
         // 对低轨卫星目标走 scripted 伤害，和 ASAT 拦截塔使用同一条可靠路径。
         if (mount.target instanceof Unit target && isLowOrbitSatellite(target)) {
             float hitX = target.x, hitY = target.y;
+            float midX = (shootX + hitX) * 0.5f, midY = (shootY + hitY) * 0.5f;
+            // 卫星目标不生成可碰撞子弹：补齐同一条视觉链，避免 scripted 伤害看起来像"无动画瞬移"。
+            bullet.shootEffect.at(shootX, shootY, rotation);
+            Fx.artilleryTrail.at(midX, midY, rotation);
+            Fx.massiveExplosion.at(hitX, hitY);
+            Fx.shockwave.at(hitX, hitY);
             target.damage(bullet.damage);
             if (!target.isValid()) {
-                Fx.explosion.at(hitX, hitY);
+                Fx.blastExplosion.at(hitX, hitY);
                 Call.sendMessage(Core.bundle.format("block.silicon-loic.kill", target.type.localizedName));
             }
             return;
