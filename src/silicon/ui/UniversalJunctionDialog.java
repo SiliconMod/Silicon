@@ -257,6 +257,31 @@ public class UniversalJunctionDialog extends BaseDialog {
             slotLayer.invalidateHierarchy();
         }
 
+        /** 按 slotBoxes 顺序「就地」重排 slotLayer 的 cells/children（不 detach 任何元素）：
+         * 整框拖拽中用 rebuildSlots 的 clearChildren 会把持有触摸焦点的被拖框 detach，
+         * 触发合成 touchUp 让尚未松手的拖拽被提前放置；故改用纯顺序交换 + invalidate。 */
+        void applySlotOrder() {
+            Seq<Cell> cs = slotLayer.getCells();
+            Seq<Cell> orderedCells = new Seq<>();
+            for (int i = 0; i < slotBoxes.size; i++) {
+                SlotBox b = slotBoxes.get(i);
+                for (int k = 0; k < cs.size; k++) {
+                    if (cs.get(k).get() == b) { orderedCells.add(cs.get(k)); break; }
+                }
+            }
+            cs.clear();
+            cs.addAll(orderedCells);
+            Seq<Element> ch = slotLayer.getChildren();
+            Seq<Element> orderedChildren = new Seq<>();
+            for (int i = 0; i < slotBoxes.size; i++) {
+                SlotBox b = slotBoxes.get(i);
+                if (ch.contains(b, true)) orderedChildren.add(b);
+            }
+            ch.clear();
+            ch.addAll(orderedChildren);
+            slotLayer.invalidateHierarchy();
+        }
+
         /** 移除全部空白槽位（无按钮即消失） */
         void pruneEmptySlots() {
             for (int i = slotBoxes.size - 1; i >= 0; i--) {
@@ -636,7 +661,8 @@ public class UniversalJunctionDialog extends BaseDialog {
                             Seq<Direction> c = rs.slotContents.remove(src);
                             rs.slotBoxes.insert(ti, moved);
                             rs.slotContents.insert(ti, c);
-                            rs.rebuildSlots();
+                            // 就地重排（不 detach，避免触发合成 touchUp 把未松手的拖拽提前放置）
+                            rs.applySlotOrder();
                             Log.info("[UJDBG] whole move src=@ -> @", src, ti);
                         }
                     }
