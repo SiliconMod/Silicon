@@ -59,6 +59,20 @@ MEO/GEO 不在内：对着中高轨开炮不符合"近地"的设定。
 地面目标（建筑与地面单位）照常。这三条写在 `LoicWeapon.findTarget` 的谓词里（而不是在
 `super.findTarget` 之后过滤，理由见上一节）。
 
+**弹药恢复依赖引擎的武器更新**（改代码前必须知道的一条链路）：
+
+```
+WeaponsComp.update()（每单位每帧）        → mount.weapon.update(self(), mount)
+Weapon.update() 第二行                   → boolean can = unit.canShoot();
+UnitComp.canShoot()                      → !disarmed && !(type.canBoost && isFlying())
+```
+
+`can == false` 时 `Weapon.update()` 是**整体返回**的——不只是不开火，连 `mount.reload` 的推进
+和我们覆写的弹药恢复都被跳过。卫星是 `flying = true` 的单位，`orbitSatellite` 没设 `canBoost`
+（默认 false），所以 `can` 恒为真、一切正常。**因此：不要让卫星类型变成 `canBoost`，也不要用
+"施加状态效果"的方式给卫星停火**——两者都会让 `can=false`，表现为"弹药永不恢复、也不再开火"。
+要停火请用控制台的「自动」开关（它只影响 `LoicWeapon.shoot`，不碰引擎这一层）。
+
 ## 4. 两个开关（在卫星控制台里）
 
 在轨列表的 LOIC 行会多出三样东西：**弹药**（`弹 3/5`）与两个 toggle——**自动**（自动发射）与**对星**

@@ -66,6 +66,15 @@ public class SatelliteUnits {
         testSso = orbitSatellite("satellite-sso", SatelliteConsole.ORBIT_SSO);
         // 离子炮走**单位武器**：冷却、索敌、瞄准、开火与联机同步全部由引擎的 Weapon 处理，
         // 不需要另维护冷却表或自定义网络包（引擎的单位武器会自带建筑谓词，见 Weapon.findTarget）
+        //
+        // 但武器更新本身有个前提（核过源码，改这里之前先看）：
+        //   WeaponsComp.update()（每单位每帧）→ mount.weapon.update(self(), mount)
+        //   → Weapon.update() 里 `boolean can = unit.canShoot();`，而 can=false 时它是**整体 return**的
+        //   → UnitComp.canShoot() = !disarmed && !(type.canBoost && isFlying())
+        // 卫星是 flying=true 的单位，本行机型全都没设 canBoost（默认 false），所以 can 恒为 true、武器会更新，
+        // LoicWeapon 的弹药恢复也在其中。**不要让卫星类型变成 canBoost**，也不要依赖「用状态效果停火」——
+        // 那两件事都会让 can=false，武器更新被整个跳过（表现为弹药永不恢复、也不再开火）。
+        // 需要停火请走控制台的「自动」开关（它只影响 LoicWeapon.shoot，不碰引擎这层）。
         ionLeo = orbitSatellite("satellite-loic", SatelliteConsole.ORBIT_LEO);
         ionLeo.weapons.add(ionWeapon());
     }
