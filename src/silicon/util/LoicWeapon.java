@@ -1,6 +1,7 @@
 package silicon.util;
 
 import arc.Core;
+import arc.math.Angles;
 import arc.math.Mathf;
 import arc.struct.ObjectMap;
 import arc.util.Time;
@@ -219,6 +220,26 @@ public class LoicWeapon extends Weapon {
             return !u.within(x, y, limit + u.hitSize() / 2f);
         }
         return true;
+    }
+
+    /**
+     * 子弹出膛方向：直接取「枪口 → 目标」。
+     * <p>
+     * <b>必须覆写</b>：本武器刻意不转向（{@code rotate = false}），而引擎的默认实现
+     * （{@code Weapon.bulletRotation}）在武器偏移为 0 时会退化成「单位朝向」——
+     * 把 {@code bulletX/bulletY == 单位位置} 代入后，
+     * <pre>
+     * Angles.angle(bulletX, bulletY, aimX, aimY) + (unit.rotation - unit.angleTo(aimX, aimY))
+     * </pre>
+     * 两项相消，结果就是 {@code unit.rotation}（卫星的**轨迹切线**）。
+     * 于是同轨道的卫星（切线相同）全部朝同一方向开火，与各自的目标无关 ——
+     * 这正是实测到的「指向同一个方向而非同一个目标」。
+     * <p>
+     * 这里直接返回枪口到目标的绝对角度，不依赖单位朝向，也不需要武器转向时间。
+     */
+    @Override
+    protected float bulletRotation(Unit unit, WeaponMount mount, float bulletX, float bulletY) {
+        return Angles.angle(bulletX, bulletY, mount.aimX, mount.aimY);
     }
 
     /** 开火：先扣弹药，"自动发射"关闭或弹夹为空都不发射 */
