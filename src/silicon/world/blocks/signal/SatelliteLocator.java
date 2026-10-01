@@ -38,6 +38,13 @@ public class SatelliteLocator extends Block {
     public float pingTicks = 45f;
     /** 扫描脉冲与连线的配色（冷色，与拦截塔的暖橙锁定色区分开） */
     public static final Color PING_COLOR = Color.valueOf("6fd8ff");
+    /**
+     * 探测半径（格）：只上报**自己周围这个范围**内的在轨卫星。
+     * <p>
+     * 取 80 格与反卫星拦截塔的射程一致 —— 探测范围与打击范围对齐，
+     * 「探得到就打得到」；原先是不限距离的全图探测，一座定位器即可覆盖整张图。
+     */
+    public static final float DETECT_RANGE_TILES = 80f;
 
     public SatelliteLocator(String name) {
         super(name);
@@ -96,12 +103,15 @@ public class SatelliteLocator extends Block {
             }
             if (++refreshTimer < refreshInterval) return;
             refreshTimer = 0;
-            // 全图探测：不过滤距离，只按队伍过滤（敌方；沙盒模式下连同己方，便于单机自测整条链路）
+            // 范围探测：只上报 DETECT_RANGE_TILES 内的在轨卫星（原先是不限距离的全图探测）。
+            // 仍按队伍过滤（敌方；沙盒模式下连同己方，便于单机自测整条链路）。
             detected.clear();
+            float range = DETECT_RANGE_TILES * 8f;
             for (Unit u : Groups.unit) {
                 if (!(u.controller() instanceof OrbitSatelliteController)) continue;
                 if (u.team == Team.derelict) continue;
                 if (u.team == team && !SatelliteManager.testSatelliteAvailable()) continue;
+                if (!u.within(x, y, range)) continue;
                 detected.add(u);
             }
             // **两端都发布**：客机侧的情报只服务**本地视觉**（塔的转向、锁定环、取得目标的特效），
@@ -165,14 +175,12 @@ public class SatelliteLocator extends Block {
             float prevZ = Draw.z();
             Draw.z(Layer.block + 1f);
 
-            // 发现新目标时的扫描脉冲：从方块扩散到全图尺度后淡出（"雷达扫到东西了"）。
-            // 全图探测没有"探测半径"字段，脉冲半径直接按地图长边取，保证视觉上扫过整张图。
+            // 发现新目标时的扫描脉冲：从方块扩散到**探测半径**后淡出
+            // （脉冲范围 = 实际探测范围，玩家据此判断这座定位器管多大一片）。
             float el = Time.time - pingAt;
             if (el >= 0f && el < pingTicks) {
                 float f = el / pingTicks;               // 0 → 1
-                float pingR = (mindustry.Vars.world == null || mindustry.Vars.world.unitWidth() <= 0)
-                        ? 600f
-                        : Math.max(mindustry.Vars.world.unitWidth(), mindustry.Vars.world.unitHeight());
+                float pingR = DETECT_RANGE_TILES * 8f;
                 Lines.stroke(2.4f * (1f - f), PING_COLOR.a(0.85f * (1f - f)));
                 Lines.circle(x, y, f * pingR);
             }

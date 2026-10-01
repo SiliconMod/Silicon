@@ -26,7 +26,7 @@ import silicon.world.blocks.signal.SignalChannel;
 
 /**
  * 反卫星拦截塔（2×2 炮塔）：打击 80 格内的敌方在轨卫星，目标来自**本队卫星定位器**的情报
- * （{@link SatelliteIntel}，全队共享，自动连接、无需配对）。
+ * （{@link SatelliteIntel}，按信号编码配对，需与定位器绑定同一编码）。
  * <p>
  * <b>它自己看不见卫星</b>：卫星单位 `targetable = false`，引擎索敌看不到它；`hittable = false`，
  * 常规伤害路径也碰不到它。所以目标只能来自外部情报——本队没有一座工作中的定位器时，
@@ -201,7 +201,7 @@ public class AsatInterceptor extends Turret {
         }
 
         /**
-         * 覆写索敌：目标来自本队定位器的情报（自动连接，无需配对），再取射程内最近的一颗。
+         * 覆写索敌：目标来自绑定编码下的定位器情报（需与定位器绑定同一编码），再取射程内最近的一颗。
          * 换目标会清零锁定进度。
          */
         @Override
