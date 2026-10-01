@@ -64,6 +64,9 @@ public class SatelliteUnits {
         signalMeo = orbitSatellite("satellite-meo", SatelliteConsole.ORBIT_MEO);
         signalGeo = orbitSatellite("satellite-geo", SatelliteConsole.ORBIT_GEO);
         testSso = orbitSatellite("satellite-sso", SatelliteConsole.ORBIT_SSO);
+        // 测试卫星是 LOIC 的简化原型：复用同一套单位武器与索敌链路，但保留测试卫星原有的
+        // 1 硅、1 秒生产成本；它仍然只在沙盒中可生产。
+        testSso.weapons.add(ionWeapon());
         // 离子炮走**单位武器**：冷却、索敌、瞄准、开火与联机同步全部由引擎的 Weapon 处理，
         // 不需要另维护冷却表或自定义网络包（引擎的单位武器会自带建筑谓词，见 Weapon.findTarget）
         //

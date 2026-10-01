@@ -39,6 +39,7 @@ import mindustry.Vars;
 import mindustry.world.Block;
 import mindustry.world.meta.Stat;
 import mindustry.world.meta.StatUnit;
+import silicon.util.MessageSystem;
 import silicon.util.SatelliteManager;
 import silicon.world.blocks.signal.SignalChannel;
 
@@ -309,6 +310,15 @@ public class SatelliteLauncher extends Block {
             if (progress >= produceTime(lockedType)) {
                 progress = produceTime(lockedType);
                 produced = true;
+                String typeKey = lockedType == TYPE_ION
+                        ? "block.silicon-satellite-launcher.type.ion"
+                        : lockedType == TYPE_TEST
+                                ? "block.silicon-satellite-launcher.type.test"
+                                : "block.silicon-satellite-launcher.type.signal";
+                MessageSystem.instance.post(MessageSystem.info(
+                        Core.bundle.get("block.silicon-satellite-launcher.complete.title"),
+                        Core.bundle.format("block.silicon-satellite-launcher.complete",
+                                Core.bundle.get(typeKey)), 8f));
                 register();
             }
         }
