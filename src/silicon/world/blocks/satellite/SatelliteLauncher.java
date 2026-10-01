@@ -55,8 +55,6 @@ import static mindustry.type.ItemStack.with;
 public class SatelliteLauncher extends Block {
     /** 信号卫星生产耗时（tick），60 秒 */
     public static final float PRODUCE_TIME_SIGNAL = 60f * 60f;
-    /** 测试卫星生产耗时（tick），1 秒 */
-    public static final float PRODUCE_TIME_TEST = 60f;
     /** 生产阶段耗电（/秒，Mindustry 按 /60 tick 计） */
     public static final float POWER_CONSUMPTION = 5000f / 60f;
     /** 发射所需缓冲电力 */
@@ -96,21 +94,27 @@ public class SatelliteLauncher extends Block {
 
     /** 卫星种类：信号卫星 */
     public static final int TYPE_SIGNAL = 0;
-    /** 卫星种类：测试卫星（材料 1 硅，效果同信号卫星：星下点覆盖；低成本快速生产，仅用于测试；沙盒模式专属） */
-    public static final int TYPE_TEST = 1;
     /**
      * 卫星种类：**近地轨道离子炮（LOIC）**——对地武器卫星。
      * <p>
      * "近地"二字就是它的轨道约束：只能发射到 {@code SatelliteConsole.ORBIT_LEO}（见 {@code orbitAllowed}）。
      * 它是本阶段循环的进攻端：LOIC 威胁地面建筑，地面的反卫星拦截塔反过来威胁它，而它只有 400 血、
      * 两发拦截就掉——武器卫星本身是需要保护的资产。
+     * <p>
+     * 编号保持 2：编号 1 是已删除的"测试卫星"，为不改动存档里的类型编号而留空。
      */
     public static final int TYPE_ION = 2;
-    /** 卫星种类总数：config 的取值上界（`[TYPE_SIGNAL, TYPE_COUNT - 1]`） */
+    /** 类型编号上界（含已废弃编号；读档夹取越界值时用） */
     public static final int TYPE_COUNT = 3;
-
-    /** 测试卫星的生产材料（1 硅，无冷冻液） */
-    public static final ItemStack[] TEST_PRODUCTION_ITEMS = with(Items.silicon, 1);
+    /** 全部**有效**类型（UI 遍历用；不含已废弃的编号 1） */
+    public static final int[] TYPES = {TYPE_SIGNAL, TYPE_ION};
+    /**
+     * 类型是否有效。
+     * <p>编号 1 是已删除的"测试卫星"：旧存档里可能残留，读档时一律按信号卫星处理。
+     */
+    public static boolean isValidType(int type) {
+        return type == TYPE_SIGNAL || type == TYPE_ION;
+    }
 
     /** 离子炮卫星的生产材料：硅与钍打底，再叠塑钢与巨浪——它是武器，门槛要压住 */
     public static final ItemStack[] ION_PRODUCTION_ITEMS = with(
@@ -122,21 +126,18 @@ public class SatelliteLauncher extends Block {
 
     /** 按种类返回生产所需物品材料 */
     public static ItemStack[] productionItems(int type) {
-        if (type == TYPE_TEST) return TEST_PRODUCTION_ITEMS;
         if (type == TYPE_ION) return ION_PRODUCTION_ITEMS;
         return PRODUCTION_ITEMS;
     }
 
     /** 按种类返回生产所需冷冻液 */
     public static int productionCryofluid(int type) {
-        if (type == TYPE_TEST) return 0;
         if (type == TYPE_ION) return COST_CRYOFLUID_ION;
         return COST_CRYOFLUID;
     }
 
-    /** 按种类返回生产耗时（测试卫星 1 秒，信号卫星 60 秒，离子炮 120 秒） */
+    /** 按种类返回生产耗时（信号卫星 60 秒，离子炮 120 秒） */
     public static float produceTime(int type) {
-        if (type == TYPE_TEST) return PRODUCE_TIME_TEST;
         if (type == TYPE_ION) return PRODUCE_TIME_ION;
         return PRODUCE_TIME_SIGNAL;
     }
@@ -296,8 +297,6 @@ public class SatelliteLauncher extends Block {
             }
             // 断电不生产（进度保留）
             if (power == null || power.status <= 0.001f) return;
-            // 测试卫星沙盒专属：非沙盒模式不生产（配置被存档/原理图带入时兜底；不消耗任何材料）
-            if (selectedType == TYPE_TEST && !SatelliteManager.testSatelliteAvailable()) return;
             // 生产开始：检查并一次性扣除材料（进度 > 0 表示已扣）。
             // **同时锁定这一颗的类型**：否则会出现"用离子炮的材料生产完、切到信号卫星再发射"
             // （或者反过来），材料与成品不符。锁定后，切换类型选择器只影响下一颗。
@@ -312,9 +311,7 @@ public class SatelliteLauncher extends Block {
                 produced = true;
                 String typeKey = lockedType == TYPE_ION
                         ? "block.silicon-satellite-launcher.type.ion"
-                        : lockedType == TYPE_TEST
-                                ? "block.silicon-satellite-launcher.type.test"
-                                : "block.silicon-satellite-launcher.type.signal";
+                        : "block.silicon-satellite-launcher.type.signal";
                 MessageSystem.instance.post(MessageSystem.info(
                         Core.bundle.get("block.silicon-satellite-launcher.complete.title"),
                         Core.bundle.format("block.silicon-satellite-launcher.complete",
@@ -497,17 +494,6 @@ public class SatelliteLauncher extends Block {
             group.add(ionBtn);
             table.add(ionBtn).size(200f, 44f).pad(3f);
             table.row();
-            // 测试卫星沙盒专属：非沙盒模式不出现该选项（配置被带入时由生产/发射权威端兜底拦截）
-            if (SatelliteManager.testSatelliteAvailable()) {
-                TextButton testBtn = new TextButton(Core.bundle.get("block.silicon-satellite-launcher.type.test"), Styles.flatTogglet);
-                testBtn.setChecked(selectedType == TYPE_TEST);
-                testBtn.clicked(() -> { selectedType = TYPE_TEST; configure(TYPE_TEST); });
-                group.add(testBtn);
-                table.add(testBtn).size(200f, 44f).pad(3f);
-            } else if (selectedType == TYPE_TEST) {
-                // 非沙盒模式下面板只显示信号卫星选项，选中态归位
-                signalBtn.setChecked(true);
-            }
         }
 
         /** 选中面板（按原版空军工厂样式）：需求材料+石油（图标+数量角标下边缘居中）、进度条、石油条、电力条（长度与原版 bar 一致） */

@@ -199,7 +199,6 @@ public class SatelliteConsole extends Block {
                 case SatelliteManager.LAUNCH_NO_HUB: key = "block.silicon-satellite-console.nohub"; break;
                 case SatelliteManager.LAUNCH_MULTI_HUB: key = "block.silicon-satellite-console.multihub"; break;
                 case SatelliteManager.LAUNCH_MULTI_CONSOLE: key = "block.silicon-satellite-console.multiconsole"; break;
-                case SatelliteManager.LAUNCH_TEST_SANDBOX: key = "block.silicon-satellite-console.sandboxOnly"; break;
                 default: key = "block.silicon-satellite-console.fail"; break;
             }
             if (result == SatelliteManager.LAUNCH_OK) {
@@ -373,9 +372,9 @@ public class SatelliteConsole extends Block {
             }).color(Color.lightGray).width(150f).pad(4f);
             table.add(row).left().pad(2f).row();
 
-            // 测试卫星与正式 LOIC 都使用简化/完整 LOIC 武器；操作栏单独成行，
+            // 离子炮卫星的 LOIC 操作栏单独成行，
             // 不再把两个长按钮叠加到五列主表后面，避免小窗口重叠和横向越界。
-            if (r.type == SatelliteLauncher.TYPE_ION || r.type == SatelliteLauncher.TYPE_TEST) {
+            if (r.type == SatelliteLauncher.TYPE_ION) {
                 Table controls = new Table();
                 controls.left();
                 controls.label(() -> {
@@ -401,13 +400,11 @@ public class SatelliteConsole extends Block {
             }
         }
 
-        /** 卫星种类短名（信号卫星 / 测试卫星 / 离子炮卫星，bundle） */
+        /** 卫星种类短名（信号卫星 / 离子炮卫星，bundle） */
         String typeShortName(int type) {
             switch (type) {
                 case SatelliteLauncher.TYPE_ION:
                     return Core.bundle.get("block.silicon-satellite-console.type.short.ion");
-                case SatelliteLauncher.TYPE_TEST:
-                    return Core.bundle.get("block.silicon-satellite-console.type.short.test");
                 default:
                     return Core.bundle.get("block.silicon-satellite-console.type.short.signal");
             }
@@ -481,9 +478,7 @@ public class SatelliteConsole extends Block {
             group.setMinCheckCount(0);
             arc.struct.Seq<TextButton> btns = new arc.struct.Seq<>();
             arc.struct.IntSeq types = new arc.struct.IntSeq();
-            for (int t = TYPE_SIGNAL; t < SatelliteLauncher.TYPE_COUNT; t++) {
-                // 测试卫星沙盒专属：与中枢面板同一判据
-                if (t == SatelliteLauncher.TYPE_TEST && !SatelliteManager.testSatelliteAvailable()) continue;
+            for (int t : SatelliteLauncher.TYPES) {
                 final int type = t;
                 TextButton btn = new TextButton(typeShortName(type), Styles.flatTogglet);
                 btn.setChecked(boundType() == type);
@@ -677,7 +672,7 @@ public class SatelliteConsole extends Block {
             // v2:追加本队卫星名册快照。卫星实体的编码/信道/相位无处随单位持久化（无自定义实体组件），
             // 由控制台代存——所有控制台写同一份全局快照，读侧按 unitId 去重并集，任一存活控制台即可恢复。
             // 相位在保存时推进到当前时刻（扫描进度 u，GEO 为定点方位角）：读档后 Time.time 归零，轨迹位置以存档进度续接，卫星不跳位
-            // v3:每条追加 type（信号卫星/测试卫星）——类型与轨道正交，光靠 orbit 推不出来
+            // v3:每条追加 type（信号卫星/离子炮）——类型与轨道正交，光靠 orbit 推不出来
             arc.struct.Seq<SatelliteManager.SatelliteRecord> list = SatelliteManager.satellites(team);
             // 条目数上限：与读侧的 ROSTER_MAX 必须是同一个常量（读侧还额外保证消费全部条目，见 read()）。
             int n = Math.min(list.size, ROSTER_MAX);

@@ -63,10 +63,9 @@ public class SatelliteUnits {
         signalLeo = orbitSatellite("satellite-leo", SatelliteConsole.ORBIT_LEO);
         signalMeo = orbitSatellite("satellite-meo", SatelliteConsole.ORBIT_MEO);
         signalGeo = orbitSatellite("satellite-geo", SatelliteConsole.ORBIT_GEO);
+        // SSO（太阳同步/极轨）机型：轨道保留不动，机型也不改名。
+        // 测试卫星**类型**已删除（不再可生产/发射），但 SSO 轨道与它的载体机型按原样保留。
         testSso = orbitSatellite("satellite-sso", SatelliteConsole.ORBIT_SSO);
-        // 测试卫星是 LOIC 的简化原型：复用同一套单位武器与索敌链路，但保留测试卫星原有的
-        // 1 硅、1 秒生产成本；它仍然只在沙盒中可生产。
-        testSso.weapons.add(ionWeapon());
         // 离子炮走**单位武器**：冷却、索敌、瞄准、开火与联机同步全部由引擎的 Weapon 处理，
         // 不需要另维护冷却表或自定义网络包（引擎的单位武器会自带建筑谓词，见 Weapon.findTarget）
         //
@@ -148,7 +147,7 @@ public class SatelliteUnits {
     /**
      * 按轨道与种类取机型。
      * <p>
-     * 离子炮卫星必须有独立机型：机型是**按轨道共享**的（信号卫星与测试卫星共用同一批），
+     * 离子炮卫星必须有独立机型：机型是**按轨道共享**的（信号卫星共用同一批），
      * 把武器加在通用机型上会让所有 LEO 卫星都变成炮。
      */
     public static UnitType typeFor(int orbit, int type) {

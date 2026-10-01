@@ -63,8 +63,6 @@ public class SatelliteManager {
     public static final int LAUNCH_MULTI_HUB = 6;
     /** 所选信号范围内存在多个卫星控制台 */
     public static final int LAUNCH_MULTI_CONSOLE = 7;
-    /** 测试卫星仅在沙盒模式可用（非沙盒模式发射测试卫星被拒） */
-    public static final int LAUNCH_TEST_SANDBOX = 8;
 
     /**
      * 在轨卫星名册（按队伍）——权威端维护真值，客机经 sat-state 广播镜像。
@@ -105,9 +103,8 @@ public class SatelliteManager {
         public int channel = -1;
         /** 发射轨道（SatelliteConsole.ORBIT_*），决定覆盖半径与轨道周期 */
         public int orbit;
-        /** 卫星类型（SatelliteLauncher.TYPE_SIGNAL / TYPE_TEST）：发射时由中枢的所选种类固化。
-         *  与轨道**正交**（测试卫星同样能发任意轨道），所以必须单独存——此前只能用"轨道==SSO"近似判断种类，
-         *  对"测试卫星发 LEO/MEO/GEO"和"信号卫星以外的种类发 SSO"都会算错。 */
+        /** 卫星类型（SatelliteLauncher.TYPE_SIGNAL / TYPE_ION）：发射时由中枢的所选种类固化。
+         *  与轨道**正交**，所以必须单独存——此前只能用"轨道==SSO"近似判断种类，会算错。 */
         public int type = SatelliteLauncher.TYPE_SIGNAL;
         /** 轨道相位（rad，世界时间 0 时刻的轨道角）——保存时推进到当前时刻，读档续接不跳位 */
         public float phase;
@@ -118,7 +115,12 @@ public class SatelliteManager {
         return Vars.net.server() || !Vars.net.active();
     }
 
-    /** 测试卫星是否可用：仅沙盒模式（Gamemode.sandbox）——其他模式不出现（UI 隐藏 + 生产/发射权威拦截） */
+    /**
+     * 沙盒自测放宽判据（仅沙盒模式）——反卫星拦截塔、卫星定位器与 LOIC 用它放行"己方"目标，
+     * 以便单机沙盒里验证整条攻击/探测链路（沙盒没有第二个队，只打敌方则无法自测）。
+     * <p>
+     * 原名与"测试卫星"绑定；测试卫星类型已删除，本方法保留（改名会牵动多处调用，且语义仍是沙盒放宽）。
+     */
     public static boolean testSatelliteAvailable() {
         return Vars.state != null && Vars.state.rules != null && Vars.state.rules.mode() == Gamemode.sandbox;
     }
@@ -258,11 +260,11 @@ public class SatelliteManager {
         return satellites(team).size;
     }
 
-    /** 某队伍指定种类在轨卫星数（协议兼容近似字段：按轨道近似判定，测试卫星可发任意轨道故非精确；
+    /** 某队伍指定种类在轨卫星数（协议兼容字段；
      *  客机 applyState 不消费此字段，仅用于广播串格式占位） */
     public static int launchedCount(Team team, int type) {
         int n = 0;
-        // 按名册里固化的真实类型计数（此前用"轨道==SSO"近似，测试卫星可发任意轨道故不准）
+        // 按名册里固化的真实类型计数（此前用"轨道==SSO"近似，故不准）
         for (SatelliteRecord r : satellites(team)) {
             if (r.type == type) n++;
         }
@@ -289,9 +291,7 @@ public class SatelliteManager {
         if (unit != null && unit.type == silicon.content.SatelliteUnits.ionLeo) {
             return SatelliteLauncher.TYPE_ION;
         }
-        if (unit != null && unit.type == silicon.content.SatelliteUnits.testSso) {
-            return SatelliteLauncher.TYPE_TEST;
-        }
+        // testSso 机型（SSO 轨道载体）不再对应任何可生产类型：按信号卫星归属
         return SatelliteLauncher.TYPE_SIGNAL;
     }
 
@@ -312,10 +312,9 @@ public class SatelliteManager {
         r.code = c;
         r.channel = (channel == -1) ? -1 : Mathf.clamp(channel, 1, SignalJammer.CHANNEL_MAX);
         r.orbit = (orbit >= 0 && orbit < SatelliteConsole.ORBIT_COUNT) ? orbit : SatelliteConsole.ORBIT_LEO;
-        // 类型**夹取到合法范围**，而不是二值化：第一阶段只有两种类型时这里写的是
-        // `(type == TYPE_TEST) ? TYPE_TEST : TYPE_SIGNAL`，于是离子炮（TYPE_ION=2）读档后被归成
-        // 信号卫星——表现为"退出重进存档后卫星类型异常"（在轨列表显示、武器判定、轨道允许性全跟着错）。
-        r.type = (type >= 0 && type < SatelliteLauncher.TYPE_COUNT) ? type : SatelliteLauncher.TYPE_SIGNAL;
+        // 类型**按有效性夹取**：只有信号卫星与离子炮是合法类型。旧存档里可能残留编号 1
+        //（已删除的测试卫星）或越界值，一律归为信号卫星，避免在轨列表/武器判定/轨道允许性跟着错。
+        r.type = SatelliteLauncher.isValidType(type) ? type : SatelliteLauncher.TYPE_SIGNAL;
         r.phase = (Float.isFinite(phase)) ? phase - (float) Math.floor(phase) : 0f;
         satRecords.get(team, Seq::new).add(r);
     }
@@ -633,7 +632,6 @@ public class SatelliteManager {
                     .append(Float.floatToIntBits(r.phase));
         }
         return team.id + SEP + launchedCount(team, SatelliteLauncher.TYPE_SIGNAL) + SEP
-                + launchedCount(team, SatelliteLauncher.TYPE_TEST) + SEP
                 + roster + SEP
                 + readyCount(team) + SEP + readyType(team) + SEP + producingType(team);
     }
@@ -665,13 +663,13 @@ public class SatelliteManager {
     /** 客户端应用主机广播的某队卫星状态（镜像；不修改权威端数据） */
     public static void applyState(String data) {
         String[] parts = data.split("\\" + SEP, -1);
-        if (parts.length != 7) return;
+        if (parts.length != 6) return;
         try {
             Team team = Team.get(Integer.parseInt(parts[0]));
             Seq<SatelliteRecord> list = satRecords.get(team, Seq::new);
             list.clear();
-            if (!parts[3].isEmpty()) {
-                for (String entry : parts[3].split(";")) {
+            if (!parts[2].isEmpty()) {
+                for (String entry : parts[2].split(";")) {
                     String[] f = entry.split(":", -1);
                     if (f.length != 6) continue; // unitId:code:channel:orbit:type:phase
                     SatelliteRecord r = new SatelliteRecord();
@@ -684,9 +682,9 @@ public class SatelliteManager {
                     list.add(r);
                 }
             }
-            readyMirror.put(team, Integer.parseInt(parts[4]));
-            readyTypeMirror.put(team, Integer.parseInt(parts[5]));
-            producingTypeMirror.put(team, Integer.parseInt(parts[6]));
+            readyMirror.put(team, Integer.parseInt(parts[3]));
+            readyTypeMirror.put(team, Integer.parseInt(parts[4]));
+            producingTypeMirror.put(team, Integer.parseInt(parts[5]));
         } catch (NumberFormatException ignored) {
         }
     }
@@ -749,8 +747,6 @@ public class SatelliteManager {
         // 用**生产时锁定的类型**，而不是当前选择：否则玩家能用 A 的配方生产完、切到 B 再发射。
         // 锁定发生在首次扣材料那一刻（见 SatelliteLauncherBuild.updateTile），切换选择器只影响下一颗。
         int type = launcher.lockedType;
-        // 测试卫星沙盒专属：非沙盒模式拒发（中枢配置可被跨存档/原理图带入，UI 隐藏不够，权威端兜底）
-        if (type == SatelliteLauncher.TYPE_TEST && !testSatelliteAvailable()) return LAUNCH_TEST_SANDBOX;
         if (!SatelliteConsole.orbitAllowed(type, orbit)) return LAUNCH_ORBIT_FORBIDDEN;
         if (!launcher.produced) return LAUNCH_NO_READY;
         int fuel = SatelliteConsole.fuelFor(orbit);
@@ -811,7 +807,7 @@ public class SatelliteManager {
         String teamName = Core.bundle.get("team." + team.name + ".name", team.name);
         String typeKey;
         switch (type) {
-            case SatelliteLauncher.TYPE_TEST: typeKey = "block.silicon-satellite-console.type.short.test"; break;
+            case SatelliteLauncher.TYPE_ION: typeKey = "block.silicon-satellite-console.type.short.ion"; break;
             default: typeKey = "block.silicon-satellite-console.type.short.signal"; break;
         }
         Call.sendMessage(Core.bundle.format("satellite.launch.message", teamName,
