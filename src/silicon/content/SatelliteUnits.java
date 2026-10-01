@@ -257,11 +257,25 @@ public class SatelliteUnits {
                     Draw.color(1f, 1f, 1f, p);
                     Draw.rect(region, unit.x, unit.y, unit.rotation - 90f);
                     Draw.color();
-                    // 贴图本身不含队伍信息：中心补一个队色点，多队同图时仍能分辨归属
-                    Draw.color(unit.team.color, p);
-                    Fill.circle(unit.x, unit.y, 1.6f);
-                    Draw.reset();
                 }
+                // 贴图不含队伍信息：叠加可远距离识别的队伍色环、四向标记和中心徽记，
+                // 比单个队色点更接近原版单位的 teamRegion 视觉语义。
+                drawTeamMarker(unit, p);
+            }
+
+            void drawTeamMarker(Unit unit, float alpha) {
+                Color tc = unit.team.color;
+                float r = 5.2f;
+                Draw.color(tc, alpha);
+                Lines.stroke(1.5f);
+                Lines.circle(unit.x, unit.y, r);
+                Lines.line(unit.x - r - 2f, unit.y, unit.x - r + 0.5f, unit.y);
+                Lines.line(unit.x + r - 0.5f, unit.y, unit.x + r + 2f, unit.y);
+                Lines.line(unit.x, unit.y - r - 2f, unit.x, unit.y - r + 0.5f);
+                Lines.line(unit.x, unit.y + r - 0.5f, unit.x, unit.y + r + 2f);
+                Fill.circle(unit.x, unit.y, 2.3f);
+                Lines.stroke(1f);
+                Draw.reset();
             }
 
             void drawFallback(Unit unit, float alpha) {
@@ -274,10 +288,7 @@ public class SatelliteUnits {
                 // 本体环：tc 是 Team.color 的**共享实例**，直接 a(alpha) 会把全队队色改淡且不恢复——必须 cpy
                 Lines.stroke(1.5f, tc.cpy().a(alpha));
                 Lines.circle(unit.x, unit.y, r);
-                // 核心 + 遥测闪烁
-                Draw.color(tc, alpha);
-                Fill.circle(unit.x, unit.y, r * 0.45f);
-                Fill.circle(unit.x, unit.y, r * 0.2f + (float) Math.abs(Mathf.sin(unit.id + Time.time / 40f)) * r * 0.15f);
+                // 中心徽记由 drawTeamMarker() 统一绘制，避免正式贴图与回退绘制的队伍标识不一致。
                 // 复位笔画宽度（Draw.reset 只复位颜色,Lines.stroke 是独立静态值,残留会影响后续 Lines 绘制）
                 Lines.stroke(1f);
                 Draw.reset();
