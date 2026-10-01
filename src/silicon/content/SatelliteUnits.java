@@ -143,7 +143,14 @@ public class SatelliteUnits {
             collidesTiles = true;
             speed = 12f;             // 从轨道砸下：够快，但保留可见的坠落过程
             lifetime = 90f;
-            range = ION_RANGE_TILES * 8f;   // 索敌射程：不显式设置会被 speed×lifetime 推成 135 格
+            // ★ 索敌射程必须用 rangeOverride，**不能**直接赋给 range：
+            //   BulletType.init()（引擎 BulletType.java:854）与 afterPatch()（:402）都会
+            //   无条件执行 `range = calculateRange()`，把直接赋给 range 的值覆盖掉；
+            //   而 calculateRange() 的第一行就是 `if(rangeOverride > 0) return rangeOverride`。
+            //   实测踩过：设 range = 320 之后，诊断日志里索敌射程仍是 speed×lifetime = 1080
+            //   （135 格），于是 LOIC 会在半个地图外锁定目标 —— 表现为"异常锁定"。
+            //   原版单位同样走这个入口（UnitTypes.java 里的 rangeOverride = 385f 等）。
+            rangeOverride = ION_RANGE_TILES * 8f;
             // 四段表现：发射闪光、飞行尾迹、命中爆炸、未命中/寿命结束的爆裂。
             shootEffect = mindustry.content.Fx.shootBig2;
             smokeEffect = mindustry.content.Fx.shootBigSmoke2;
