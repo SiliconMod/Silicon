@@ -1,15 +1,19 @@
 package silicon.util;
 
+import arc.Core;
 import arc.math.Mathf;
 import arc.struct.ObjectMap;
 import arc.util.Time;
+import mindustry.content.Fx;
 import mindustry.entities.units.WeaponMount;
 import mindustry.game.Team;
 import mindustry.gen.Building;
+import mindustry.gen.Call;
 import mindustry.gen.Groups;
 import mindustry.gen.Teamc;
 import mindustry.gen.Unit;
 import mindustry.type.Weapon;
+import silicon.content.SatelliteUnits;
 
 /**
  * 离子炮武器（LOIC 专用）：弹夹 5 发、每 30 秒回 1 发、开火间隔 1 秒；可对地（建筑）与对**低轨卫星**开火。
@@ -130,8 +134,10 @@ public class LoicWeapon extends Weapon {
         // 沙盒自测可以把靶标卫星刷成敌方队伍，不需要允许同队 LOIC 互相锁定。
         if (sats) {
             for (Unit u : Groups.unit) {
-                if (u == unit || u.team == Team.derelict || u.team == unit.team) continue;
+                if (u == unit || u.team == Team.derelict) continue;
                 if (!isLowOrbitSatellite(u) || !u.checkTarget(air, ground)) continue;
+                // 沙盒唯一例外：允许 LOIC 攻击己方靶标卫星；己方 LOIC/普通卫星仍排除。
+                if (u.team == unit.team && !isSandboxTarget(u)) continue;
                 float d = Mathf.dst(x, y, u.x, u.y);
                 if (d > limit || d >= bestDst) continue;
                 bestDst = d;
@@ -160,6 +166,13 @@ public class LoicWeapon extends Weapon {
                     + " siblingsBuild=" + Groups.build.size() + " siblingsUnit=" + Groups.unit.size());
         }
         return best;
+    }
+
+    /** 沙盒中的己方靶标卫星是唯一允许的同队 LOIC 目标。 */
+    private static boolean isSandboxTarget(Unit u) {
+        return SatelliteManager.testSatelliteAvailable()
+                && SatelliteUnits.targetSatellite != null
+                && u.type == SatelliteUnits.targetSatellite;
     }
 
     /**
@@ -201,8 +214,8 @@ public class LoicWeapon extends Weapon {
             if (!u.isValid() || u.team == Team.derelict) return true;
             if (!isLowOrbitSatellite(u)) return true;
             if (!state(unit.id).attackSats) return true;
-            // 与 findTarget 对称：同队卫星永远不是 LOIC 的目标，避免沙盒中卫星互相乱锁。
-            if (u.team == unit.team) return true;
+            // 与 findTarget 对称：同队只有靶标卫星在沙盒中放行，LOIC/普通卫星永远拒绝。
+            if (u.team == unit.team && !isSandboxTarget(u)) return true;
             return !u.within(x, y, limit + u.hitSize() / 2f);
         }
         return true;
@@ -219,6 +232,18 @@ public class LoicWeapon extends Weapon {
                 + " blocked=" + blocked + " target=" + desc(mount.target));
         if (blocked) return;
         s.ammo -= 1f;
+
+        // 卫星继承 targetable=false/hittable=false，普通子弹会穿透它；
+        // 对低轨卫星目标走 scripted 伤害，和 ASAT 拦截塔使用同一条可靠路径。
+        if (mount.target instanceof Unit target && isLowOrbitSatellite(target)) {
+            float hitX = target.x, hitY = target.y;
+            target.damage(bullet.damage);
+            if (!target.isValid()) {
+                Fx.explosion.at(hitX, hitY);
+                Call.sendMessage(Core.bundle.format("block.silicon-loic.kill", target.type.localizedName));
+            }
+            return;
+        }
         super.shoot(unit, mount, shootX, shootY, rotation);
     }
 
