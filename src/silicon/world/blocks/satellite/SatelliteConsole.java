@@ -351,7 +351,7 @@ public class SatelliteConsole extends Block {
             });
         }
 
-        /** 在轨列表的一行：列宽与空隙必须与表头逐列一致；列内居中（不加 .left()） */
+        /** 在轨列表的一行：主数据列与表头同宽；武器操作独占下一行，避免窄窗口横向溢出。 */
         void addRosterRow(Table table, SatelliteManager.SatelliteRecord r) {
             table.row();
             Table row = new Table();
@@ -371,30 +371,34 @@ public class SatelliteConsole extends Block {
                         ? hp + " " + Core.bundle.get("block.silicon-satellite-console.roster.state.muted")
                         : hp;
             }).color(Color.lightGray).width(150f).pad(4f);
-            // 离子炮卫星：弹药 + 两个开关（自动发射 / 是否对低轨卫星开火）。
-            // 开关的权威语义在主机，纯客机点击时由 toggleLoic 发包给主机执行。
-            if (r.type == SatelliteLauncher.TYPE_ION) {
-                row.label(() -> {
+            table.add(row).left().pad(2f).row();
+
+            // 测试卫星与正式 LOIC 都使用简化/完整 LOIC 武器；操作栏单独成行，
+            // 不再把两个长按钮叠加到五列主表后面，避免小窗口重叠和横向越界。
+            if (r.type == SatelliteLauncher.TYPE_ION || r.type == SatelliteLauncher.TYPE_TEST) {
+                Table controls = new Table();
+                controls.left();
+                controls.label(() -> {
                     LoicWeapon.State s = LoicWeapon.peekState(r.unitId);
                     return Core.bundle.format("block.silicon-satellite-console.loic.ammo",
                             s == null ? 0 : (int) s.ammo, (int) SatelliteUnits.ION_MAGAZINE);
-                }).color(Color.lightGray).width(58f).pad(4f);
+                }).color(Color.lightGray).width(100f).pad(2f);
                 TextButton autoBtn = new TextButton(
                         Core.bundle.get("block.silicon-satellite-console.loic.auto"), Styles.flatTogglet);
                 autoBtn.clicked(() -> toggleLoic(r.unitId, true));
-                row.add(autoBtn).size(62f, 32f).pad(2f);
+                controls.add(autoBtn).size(100f, 32f).pad(2f);
                 TextButton satsBtn = new TextButton(
                         Core.bundle.get("block.silicon-satellite-console.loic.sats"), Styles.flatTogglet);
                 satsBtn.clicked(() -> toggleLoic(r.unitId, false));
-                row.add(satsBtn).size(62f, 32f).pad(2f);
-                // 状态每帧回读（主机上的改动、或另一台客机改完经回执同步的结果都能反映出来）
-                row.update(() -> {
+                controls.add(satsBtn).size(100f, 32f).pad(2f);
+                // 状态每帧回读：主机或其他客机改动经回执同步后，按钮状态仍保持一致。
+                controls.update(() -> {
                     LoicWeapon.State st = LoicWeapon.state(r.unitId);
                     if (autoBtn.isChecked() != st.autoFire) autoBtn.setChecked(st.autoFire);
                     if (satsBtn.isChecked() != st.attackSats) satsBtn.setChecked(st.attackSats);
                 });
+                table.add(controls).left().padLeft(8f).padBottom(3f).row();
             }
-            table.add(row).left().pad(2f).row();
         }
 
         /** 卫星种类短名（信号卫星 / 测试卫星 / 离子炮卫星，bundle） */
