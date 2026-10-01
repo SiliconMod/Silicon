@@ -141,6 +141,46 @@ public class AsatInterceptor extends Turret {
         /** 情报里落在射程内的目标数（面板显示用） */
         public int inRange = 0;
 
+        /**
+         * 占位弹药类型：基类多处会 {@code peekAmmo()} 后直接取成员（`ammoReloadMultiplier()` 取
+         * `reloadMultiplier`、战争迷雾下取 `rangeChange`），返回 null 会 NPE。本塔不发射子弹
+         * （{@link #shoot} 已覆写、不调 super），所以这个占位弹只用于满足基类的取值路径。
+         */
+        static final BulletType PLACEHOLDER_AMMO = new BulletType() {{
+            damage = 0f;
+            speed = 0f;
+            lifetime = 1f;
+            collides = false;
+            collidesAir = false;
+            collidesGround = false;
+            collidesTiles = false;
+        }};
+
+        /**
+         * 本塔不消耗弹药——伤害是脚本结算的（卫星 {@code hittable = false}，子弹打不到它）。
+         * <p>
+         * <b>必须覆写</b>：基类 {@code hasAmmo()} 要求 {@code ammo} 序列非空，而该序列由
+         * {@code ammoTypes} 填充——拦截塔一个弹药类型都没有，于是它**恒为 false**。而
+         * {@code TurretBuild.updateTile()} 里是：
+         * <pre>
+         * if(hasAmmo()){
+         *     if(timer(timerTarget, …)) findTarget();      // ← 覆写的索敌在这里
+         *     if(validateTarget()){ … updateShooting() … } // ← 装填与开火也在这里
+         * }
+         * </pre>
+         * 也就是说 {@code hasAmmo() == false} 会让**整块**被跳过：`target` 永远是 null，
+         * 塔连转都不转——表现为"完全不能攻击"，且与电力、射程、情报都无关。
+         */
+        @Override
+        public boolean hasAmmo() {
+            return true;
+        }
+
+        @Override
+        public BulletType peekAmmo() {
+            return PLACEHOLDER_AMMO;
+        }
+
         /** 锁定进度（0~1），绘制与面板共用 */
         public float lockProgress() {
             // 注意用 java.lang.Math.max：arc 的 Mathf.max 只有 int 重载

@@ -232,13 +232,13 @@ public class SatelliteConsole extends Block {
         public void buildConfiguration(Table table) {
             table.clearChildren();
             table.top();
-            table.button(Core.bundle.get("block.silicon-satellite-console.open"), Styles.defaultt, () -> {
-                // 隐藏原版小面板（此时 showConfig 已完成，hide 动画正常生效），再打开可拖动窗口
-                if (Vars.control != null && Vars.control.input != null) {
-                    Vars.control.input.config.hideConfig();
-                }
-                openDialog();
-            }).size(160f, 48f).pad(4f);
+            // 直接进入操作界面：点击方块即可，不必再点一次按钮（原版核心/工厂也是"点开就是操作"）。
+            // buildConfiguration 只在"打开配置"时调用一次（不是每帧），所以这里 hideConfig + openDialog 是安全的；
+            // 此时 showConfig 已完成，hide 动画正常生效（与原按钮回调里的做法一致）。
+            if (Vars.control != null && Vars.control.input != null) {
+                Vars.control.input.config.hideConfig();
+            }
+            openDialog();
         }
 
         // —— 界面页签（发射 / 在轨管理，两个页面分开）——
