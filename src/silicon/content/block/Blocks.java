@@ -19,7 +19,6 @@ import silicon.world.blocks.sandbox.MessageTest;
 import silicon.world.blocks.sandbox.PowerSource;
 import silicon.world.blocks.satellite.SatelliteConsole;
 import silicon.world.blocks.satellite.SatelliteLauncher;
-import silicon.world.blocks.signal.DimensionAnchor;
 import silicon.world.blocks.signal.SignalDetector;
 import silicon.world.blocks.signal.SignalJammer;
 import silicon.world.blocks.signal.SignalRelay;
@@ -30,7 +29,7 @@ import static mindustry.type.ItemStack.with;
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
+            signalSource, universalJunction, signalRelay, signalJammer,
             satelliteLauncher, satelliteConsole, messageTest, signalDetector;
 
     public static void load() {
@@ -111,11 +110,6 @@ public class Blocks {
                             Items.graphite, 30, Items.silicon, 25, Items.titanium, 15));
             alwaysUnlocked = true;
             size = 3;
-        }};
-        // 已废弃的维度锚点存根：不能删——存档头按内容名解析，名字找不到时引擎会把该位置的
-        // 方块回退成 contentMap[0]（一个原版方块），比留着存根更糟。隐藏于建造菜单，无功能。
-        dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
-            health = 600;
         }};
         signalSource = new SignalSource("signal-source") {{
             requirements(Category.effect, BuildVisibility.shown,

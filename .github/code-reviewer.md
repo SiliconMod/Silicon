@@ -90,7 +90,6 @@
 - **ItemTransferHub**：`read()` 后必须重新计算 `powerConsumed`；需要网络重建
 - **MineConverter**：`costs` TreeMap 在世界加载后必须重建；使用 `static` 标志
 - **PowerProtector**：`protectionTime` 计数器必须在存档中保持
-- **DimensionAnchor**：`signalUser` 在 `read()` 后必须重新注册
 - **UniversalJunction**：`directTransfer()` 必须在传输前检查 `acceptItem()`
 - **FrameBlock**：必须调用 `super.updateTile()` 以进行电力路由
 
@@ -192,5 +191,5 @@
 - 入口：`silicon.Silicon`（mod 加载器）、`silicon.Vars`（共享状态）
 - 游戏版本：Mindustry v159.7
 - 构建：`./gradlew deploy`（JDK 17、Android SDK）
-- 关键类：`ItemTransferHub`、`MineConverter`、`PowerProtector`、`DimensionAnchor`、`UniversalJunction`
+- 关键类：`ItemTransferHub`、`MineConverter`、`PowerProtector`、`UniversalJunction`
 - 共享状态：`Vars.costs`、`Vars.signals`、`Vars.signalUsers`
