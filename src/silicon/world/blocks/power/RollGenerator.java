@@ -20,7 +20,6 @@ import mindustry.world.blocks.sandbox.PowerVoid;
 import mindustry.world.meta.Env;
 import mindustry.world.meta.Stat;
 
-import static mindustry.content.Blocks.powerVoid;
 import static silicon.Vars.powerChanged;
 import static silicon.Vars.powerStored;
 
@@ -42,8 +41,6 @@ public class RollGenerator extends PowerGenerator {
      * Speed of warmup animation transition
      */
     public float warmupSpeed = 0.1f;
-
-    private static final Seq<Building> emptySeq = new Seq<>(0);
 
 
     /**
@@ -116,13 +113,27 @@ public class RollGenerator extends PowerGenerator {
          */
         @Override
         public void updateTile() {
-            if (!enabled) return;
-            int i = 0;
-            for (Building b : team.data().buildingTypes.get(block, emptySeq)) {
-                if (b.block instanceof RollGenerator && power.graph.all.contains(b)) i++;
+            // 提前 return 前必须归零:currentPowerProduction 是上一帧缓存,
+            // getPowerProduction() 无门控直接返回它——禁用/PowerVoid 后若不归零,幽灵供电会持续进入电网;
+            // 该值还会随存档读写（见本类 write/read），读档后直接成为电网看到的初值。
+            // 注:断电不等于停止 updateTile（引擎只在 !enabled && block.noUpdateDisabled 时才跳过），
+            // 所以只需覆盖 enabled 与 PowerVoid 这两个显式出口。
+            if (!enabled) {
+                currentPowerProduction = 0f;
+                return;
             }
-            for (Building b : team.data().buildingTypes.get(powerVoid, emptySeq)) {
-                if (b.block instanceof PowerVoid && power.graph.all.contains(b)) return;
+            // 单遍 graph.all 扫描:此前两轮"按类型取全队列表 × Seq.contains(逐个线性查图)"
+            // 是 O(R²G)/O(V²G)——图越大、同类越多每帧开销越差;图成员直接遍历一次即得,
+            // 语义不变(仍只统计本队、本图内的同类建筑)
+            int i = 0;
+            for (Building b : power.graph.all) {
+                if (b.team != team) continue;
+                if (b.block instanceof RollGenerator) {
+                    i++;
+                } else if (b.block instanceof PowerVoid) {
+                    currentPowerProduction = 0f;
+                    return;
+                }
             }
             if (Float.isNaN(currentPowerProduction)) {
                 lastCurrentPowerProduction = 0f;

@@ -15,10 +15,13 @@ import silicon.world.blocks.power.GeneratorPump;
 import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
-import silicon.world.blocks.production.PetroleumRefinery;
-import silicon.world.blocks.sandbox.PowerSource;
 import silicon.world.blocks.sandbox.MessageTest;
+import silicon.world.blocks.sandbox.PowerSource;
+import silicon.world.blocks.satellite.SatelliteConsole;
+import silicon.world.blocks.satellite.SatelliteLauncher;
 import silicon.world.blocks.signal.DimensionAnchor;
+import silicon.world.blocks.signal.SignalDetector;
+import silicon.world.blocks.signal.SignalJammer;
 import silicon.world.blocks.signal.SignalRelay;
 import silicon.world.blocks.signal.SignalSource;
 
@@ -27,7 +30,8 @@ import static mindustry.type.ItemStack.with;
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            dimensionAnchor, signalSource, universalJunction, signalRelay, messageTest, petroleumRefinery;
+            dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
+            satelliteLauncher, satelliteConsole, messageTest, signalDetector;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -108,7 +112,8 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 3;
         }};
-        // 已废弃的维度锚点存根：保持原注册位置以保留旧存档方块 ID（隐藏于建造菜单，无功能）
+        // 已废弃的维度锚点存根：不能删——存档头按内容名解析，名字找不到时引擎会把该位置的
+        // 方块回退成 contentMap[0]（一个原版方块），比留着存根更糟。隐藏于建造菜单，无功能。
         dimensionAnchor = new DimensionAnchor("dimension-anchor") {{
             health = 600;
         }};
@@ -133,21 +138,45 @@ public class Blocks {
             size = 1;
             health = 100;
         }};
-        // “消息测试”调试方块：置于建造菜单最后，不占旧存档 ID；功能上用于手动投递消息面板测试消息
+        signalJammer = new SignalJammer("signal-jammer") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 30, Items.lead, 20, Items.silicon, 25, Items.thorium, 10));
+            alwaysUnlocked = true;
+            size = 1;
+            health = 120;
+        }};
+        satelliteLauncher = new SatelliteLauncher("satellite-launcher") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 300, Items.lead, 200, Items.silicon, 250, Items.thorium, 100, Items.titanium, 150));
+            alwaysUnlocked = true;
+            size = 3;
+            health = 1200;
+        }};
+        satelliteConsole = new SatelliteConsole("satellite-console") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 120, Items.lead, 80, Items.silicon, 100, Items.thorium, 40));
+            alwaysUnlocked = true;
+            size = 3;
+            health = 400;
+        }};
+        // “消息测试”调试方块：位置与上游 test（PR #58）保持一致（satelliteConsole 之后），
+        // 便于后续同步上游时减少改动。注意 Mindustry 存档按**内容名**映射（ContentLoader 头表），
+        // 注册顺序本身不决定旧存档兼容；顺序真正影响的是各内容的 content id。
         messageTest = new MessageTest("message-test") {{
             requirements(Category.effect, BuildVisibility.sandboxOnly, with());
             alwaysUnlocked = true;
             size = 1;
             health = 60;
         }};
-        // 石油炼化厂已暂时禁用注册（润滑油同步禁用）。取消注释即可恢复：
-        // 配方：25 石油 + 50 氢气 -> 25 润滑油 + 1 火石（5s/次，240 功率）
-        //petroleumRefinery = new PetroleumRefinery("petroleum-refinery") {{
-        //    requirements(Category.crafting, BuildVisibility.shown,
-        //            ItemStack.with(Items.copper, 100, Items.lead, 80, Items.graphite, 60, Items.silicon, 60));
-        //    alwaysUnlocked = true;
-        //    size = 2;
-        //    health = 320;
-        //}};
+        // 信号检测器：新方块一律追加在末尾，与上游注册序保持一致（纯测量设备，无游戏逻辑）。
+        // 顺序不决定存档兼容（存档按内容名映射），但插队会移动其后所有方块的 content id。
+        signalDetector = new SignalDetector("signal-detector") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 5, Items.silicon, 4));
+            alwaysUnlocked = true;
+            size = 1;
+            health = 60;
+        }};
+
     }
 }
