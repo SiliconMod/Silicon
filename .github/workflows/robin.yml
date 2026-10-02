@@ -152,7 +152,12 @@ jobs:
             || { echo "::error::$MODEL did not answer OK through the gateway"; exit 1; }
 
       - name: Robin review
-        uses: antongulin/robin@v2.8.0
+        # ⚠️ 供应链说明：这里钉的是本仓维护者自己的 robin 分发镜像，不是上游官方
+        # `antongulin/robin`。原因是两项修复目前只存在于镜像里：重试次数可配
+        # （`llm-max-attempts`）与状态评论接管并继承上次评价。镜像只含
+        # `action.yml` + `dist/index.js`，`dist` 由上游源码 `npm run build` 生成。
+        # 上游合入后即可改回 `antongulin/robin@<tag>`；本行单独成笔，便于回滚。
+        uses: Xiaobei09/robin@main
         with:
           # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，**不是 secret**，
           # 所以「拿得到」这一点对 fork PR 同样成立（pull_request 不注入 secrets.* 这条限制
