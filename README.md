@@ -101,7 +101,12 @@ powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1
 
 ## 更新日志
 
-### a0.13.0.0「信号与卫星 · 第一阶段」（最新）
+### a0.13.0.1「卫星接管」（最新）
+- **卫星可被玩家接管**：按 Ctrl 点击卫星即可进入（原版 possess 流程）。判定链需要 `isAI()`，而它是 `controller instanceof AIController`——为此 `OrbitSatelliteController` 改为继承 `AIController`；同时 `controller` 字段必须显式指定，不能只设 `aiController`：`UnitType.java:281` 的默认工厂在 `playerControllable=true` 时直接返回 `CommandAI`，`aiController` 分支根本不会被走到（卫星会失去唯一的运动驱动源而静止）
+- **接管期间轨迹照常推进**：possess 会把 controller 换成 `Player` 对象本身（`UnitComp.java:950` 的 `isPlayer()`），`OrbitSatelliteController.updateUnit()` 随之停跑；改由覆写的 `UnitType.update(Unit)` 在被接管时补位驱动（`UnitComp.java:654` 无条件每帧调用，与 controller 无关）。两条路径由 `unit.getPlayer() != null` 互斥，不会双倍累加相位
+- **玩家改不动轨迹**：`applyMotion` 每帧覆写位置并清零 `vel`，WASD 等输入被立刻抹掉——能进去看、沿轨道飞，但轨迹不可手改
+
+### a0.13.0.0「信号与卫星 · 第一阶段」
 - **卫星实体化**：卫星从抽象计数改为真实实体单位——机型按轨道划分（LEO/MEO/GEO/SSO），沿星下点扫描轨迹飞行（不是圆轨道，见下方卫星表）；位置=相位+时间的纯函数，读档续接不跳位；玩家/逻辑不可操控，不可被索敌、伤害或碰撞，小地图不显示过境
 - **信号语义重构**：卫星覆盖从"发射即全图"改为星下点覆盖圆（半径随图幅短半轴等比缩放，250×250 基准 40/60/25 格按轨道（GEO 为定点整图），轨道越高覆盖越大、强度越低 9.9/8.58/7.26），干扰按 SINR 折算、多星按非相干功率合成 √(Σeᵢ²) 叠加（N 颗 = √N 倍，单星语义不变）——单星即可激活中继器转发，约 10 颗覆盖全图；同信道干扰器可局部打断卫星绑定；**地面侧（中继转发、控制台绑定/配对）同样按 SINR 判定，中继器每 tick 实时重算**；信号强度标度 0~15 → **0~99**，距离衰减改为**对数衰减**（`raw = 99·(1 − ln(1+d/3)/ln(1+15/3))`，`R` 处精确归零）
 - **发射流程**：控制台绑定信号 → 地面 1:1 配对中枢/控制台（卫星覆盖解锁"远方指派"但不参与配对）→ 按轨道扣燃油与缓冲电力 → 实体入轨
