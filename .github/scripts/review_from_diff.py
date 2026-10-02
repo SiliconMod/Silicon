@@ -60,7 +60,7 @@ def log(msg):
     print(msg, flush=True)
 
 
-def run_gh(args, timeout=60):
+def run_gh(args, timeout=60, stdin_data=None):
     """Run `gh api ...`; return (exit_code, stdout). Never raises on HTTP errors."""
     env = dict(os.environ)
     if "GH_TOKEN" not in env:
@@ -69,9 +69,22 @@ def run_gh(args, timeout=60):
     try:
         p = subprocess.run(
             ["gh", "api", *args],
+            input=stdin_data,
             capture_output=True, text=True, timeout=timeout, env=env,
         )
-        return p.returncode, p.stdout.strip()
+        rc = p.returncode
+        out = p.stdout.strip()
+        # 【修 2026-10-01】此前无论成败都只交回 p.stdout，而 gh 的错误文本（HTTP 状态码、
+        # GitHub 返回的 message）整条写在 stderr 上、随 capture_output 一起被丢弃 —— 于是
+        # 422 这类失败在日志里只剩「rc!=0 + 输出为空」这一个信号，完全无法区分「限流/权限/
+        # 认证」与「payload 不被接受」。行内评论那段刚修好「payload 从未送进 stdin 导致
+        # 8/8 被 422」；若还存在别的 422 成因（例如 LLM 给出的 path/line 不在 diff 内，
+        # :314 的守卫只挡空值、不校验是否在 diff 内），没有这段日志就只能靠猜。
+        # 返回面刻意保持 (returncode, stdout) 二元组：3 个调用点（:248/:325/:339）都无需改动，
+        # 成功路径的返回值与之前逐字节一致。
+        if rc != 0 and p.stderr.strip():
+            log("error: gh api rc=%d: %s" % (rc, p.stderr.strip()))
+        return rc, out
     except subprocess.TimeoutExpired:
         log("error: gh api timed out after %ss" % timeout)
         return 1, ""
@@ -151,6 +164,17 @@ def build_messages(instructions, diff):
 
 
 def call_llm(gateway_url, model, messages, timeout=600):
+    """调用网关获取 LLM 回复。
+
+    返回值【一律三元组，调用方按 status/payload/kind 三元解包】：
+      ("ok", content_str, None)              —— 拿到可用正文
+      ("err", detail, "transport")          —— 压根没拿到应答（连不上/HTTPError/网络层异常）
+      ("err", preview,   "bad_json")        —— HTTP 200 但响应体非 JSON
+      ("err", detail,    "bad_shape")       —— HTTP 200 且 JSON 合法但结构异常
+    成功分支第三位固定为 None，使所有 return 的元组长度一致——只要有一个 return 漏改，
+    调用方的三元解包就会抛 ValueError 让整轮审查崩溃（这类契约错误 py_compile 查不出，
+    已由 K8 的 AST 断言守住）。
+    """
     body = json.dumps({
         "model": model,
         "messages": messages,
@@ -165,19 +189,30 @@ def call_llm(gateway_url, model, messages, timeout=600):
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            raw = resp.read()
     except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")[:500]
-        log("error: gateway HTTP %s: %s" % (exc.code, raw))
-        return None
+        raw_err = exc.read().decode("utf-8", errors="replace")[:500]
+        log("error: gateway HTTP %s: %s" % (exc.code, raw_err))
+        return ("err", "http_%s" % exc.code, "transport")
     except Exception as exc:  # noqa: BLE001
         log("error: gateway call failed: %s" % exc)
-        return None
+        return ("err", str(exc), "transport")
+
     try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
+        data = json.loads(raw.decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        preview = raw[:120].decode("utf-8", errors="replace")
+        log("error: gateway returned non-JSON response: %s" % exc)
+        return ("err", preview, "bad_json")
+
+    try:
+        content = data["choices"][0]["message"]["content"]
+        if not isinstance(content, str):
+            raise TypeError("content not str")
+        return ("ok", content, None)
+    except (KeyError, IndexError, TypeError) as exc:
         log("error: unexpected gateway response shape")
-        return None
+        return ("err", str(exc), "bad_shape")
 
 
 def extract_json(text):
@@ -271,10 +306,24 @@ def main():
     model = os.environ.get("MODEL", "big-pickle")
 
     result = None
+    reached_llm = False          # 本轮是否至少一次真的从网关拿到了应答
     for attempt in (1, 2):
         log("llm attempt %d (model=%s)" % (attempt, model))
-        content = call_llm(gateway_url, model, messages)
-        parsed = extract_json(content)
+        status, payload, kind = call_llm(gateway_url, model, messages)
+        if status == "err" and kind == "transport":
+            # 压根没拿到应答（连不上 / HTTP 错误 / 网络层失败）。
+            # 这不是「模型没发现问题」，是审查闸门跑不起来。
+            log("attempt %d: gateway unreachable/errored (%s: %s)" % (attempt, kind, payload))
+            continue
+        # 「拿到应答」的判据是【HTTP 请求成功、拿到了响应体】——bad_json / bad_shape
+        # 同样是 HTTP 200，网关确实应答了，只是内容畸形。它们不能算「从未拿到应答」，
+        # 否则会把「模型给了坏 JSON」误判成「闸门没跑起来」而 fail-closed（错判方向）。
+        reached_llm = True
+        if status == "err":
+            log("attempt %d: gateway replied but response unusable (%s: %s)"
+                % (attempt, kind, payload))
+            continue
+        parsed = extract_json(payload)
         if parsed is None:
             log("attempt %d: failed to parse JSON from LLM" % attempt)
             continue
@@ -286,9 +335,18 @@ def main():
             result = parsed
             break
         log("attempt %d: empty findings with short summary -> retrying" % attempt)
+    if result is None and not reached_llm:
+        # 两次 attempt 都【压根没拿到任何应答】——网关不可达 / HTTP 错误 / 网络层失败。
+        # 这时若继续走下面的 fallback，就会发一条「未发现值得指出的问题」的假通过
+        # review，退出码 0，CI 全绿 —— 而实际是审查闸门压根没跑起来。
+        # AGENTS.md 铁律：审查/校验类闸门里「零发现」和「全部通过」必须区分，
+        # 宁可判失败也不要静默放过。此处 fail-closed。
+        log("error: 两次 attempt 均未拿到 LLM 应答（网关不可达或持续报错），"
+            "未产生任何审查结论；拒绝发布「未发现问题」的 review")
+        return 1
     if result is None:
-        # both attempts empty/short: treat as "nothing worth flagging" (advisor mode),
-        # but keep the review visible so the pipeline output is observable.
+        # 拿到了应答但两次都没解析出可用的 findings：按「未发现值得指出的问题」
+        # 处理（顾问模式），并保留 review 让流水线输出可观测。
         result = {"summary": "未发现值得指出的问题", "findings": []}
         log("review from diff: 0 findings (fallback after retries)")
 
@@ -307,21 +365,42 @@ def main():
     max_comments = cfg["max-comments"]
     post_inline = 0
     for fd in findings[:max_comments]:
+        # 【修 2026-10-02】此处此前假定「每条 finding 都是 dict 且 line 一定是可转整数的值」：
+        #   · fd 是字符串时 fd.get(...) 直接抛 AttributeError（I28 刻画）；
+        #   · line 为 "N/A" / "1.5" / "" 时 int(line) 抛 ValueError（I26/I27 刻画）。
+        # 两类异常都未捕获，于是**一条坏 finding 就能让整次审查带 traceback 死掉**，
+        # 连结尾的汇总 review 都发不出去 —— 审查结果彻底消失、CI 变红，
+        # 而这正是「CI 出口问题」里最常见且最不该发生的一类：模型给了条坏数据，
+        # 闸门就该丢掉那一条，而不是连自己的结论一起销毁。
+        # 改法：坏条目只跳过 + 记 warning（可观测），末尾汇总 review 照发、退出码仍 0。
+        if not isinstance(fd, dict):
+            log("warning: finding entry is not an object (%s) -> skipped: %r"
+                % (type(fd).__name__, str(fd)[:80]))
+            continue
         path = sanitize_text(fd.get("path") or "")
-        line = fd.get("line")
+        raw_line = fd.get("line")
         body = sanitize_text(fd.get("body") or "")
+        try:
+            line = int(raw_line)
+        except (TypeError, ValueError):
+            log("warning: finding on %s has non-integer line %r -> skipped"
+                % (path[:60], str(raw_line)[:40]))
+            continue
         if not path or not line or not body:
             continue
         payload = {
             "commit_id": args.head_sha,
             "path": path,
-            "line": int(line),
+            "line": line,
             "body": body,
         }
+        # 【修 2026-09-30】此前只构建了 payload 却从未把它送进 stdin ——
+        # `gh api --input -` 收到空 body，行内评论 8/8、5/5 全部被 422 拒收，
+        # 每条审查只剩摘要 body。现在把 JSON 以 stdin 传入，行内评论真正落地。
         rc, out = run_gh([
             "-X", "POST", "repos/%s/pulls/%s/comments" % (args.repo, args.pr),
             "--input", "-",
-        ])
+        ], stdin_data=json.dumps(payload))
         if rc == 0:
             post_inline += 1
             log("posted line comment on %s:%s" % (path, line))

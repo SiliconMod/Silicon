@@ -1,23 +1,173 @@
 name: 'Voting'
+
+# 触发器与 action 内部 src/main.ts:213 的 switch 严格对应。
+# action 只认 payloadAction ∈ {opened, reopened, synchronize, closed}，没有 default 分支；
+# 任何落不进这四个值的事件都会「什么都不做 → 空跑成功」，产出一条并非真实评估的绿色 check，
+# 污染 required check 的 rollup。下列每个触发器都已确认能落到真值分支。
 on:
   pull_request_target:
+    # ⚠️ 这里【不要】加 ready_for_review。
+    # 上方的注释说「触发器与 action 的 switch 严格对应」，而
+    #   payloadAction: ${{ github.event_name == 'pull_request_review' && 'synchronize' || '' }}
+    # 对 pull_request_target 事件求值为【空串】；action 侧
+    #   payloadAction: core.getInput('payloadAction') ? ... : context.payload.action
+    # 中空串是 falsy ⇒ 回落到 payload.action，即 'ready_for_review'，
+    # 而 switch 只认 opened/reopened/synchronize/closed 且【没有 default 分支】
+    # ⇒ 什么也不做、job 成功 ⇒ 产出一条并非真实评估的绿色 check。
+    # 正是本 PR 要消灭的那类「空跑假绿」。rt334 评审指出，已确认成立。
+    # 若将来要支持 ready_for_review，必须同时把上面那个表达式扩成
+    #   ${{ github.event.action == 'ready_for_review' && 'synchronize' || '' }}
+    # 两处一起改，只改一处就会造出新的假绿路径。
     types: [opened, synchronize, reopened, closed]
+  # 投票载体就是 PR review（Approve / Request changes，action 遍历 pulls.listReviews）。
+  # action 的 switch 不认 payloadAction='submitted'，所以此前「投完票票数不刷新」，
+  # 必须等下一次 push —— 这正是投票无法自动更新的根因。这里用 payloadAction 强制改写。
+  # dismissed 也要触发重评（E2E 审查发现）：dismiss 掉某张票的处置建议，在只有
+  # submitted 的触发器下永远不会重跑；dismiss 后同样以 payloadAction=synchronize
+  # 走「当 synchronize 处理」分支，重评即发生。
   pull_request_review:
-    types: [submitted]
-  issue_comment:
-    types: [created]
+    types: [submitted, dismissed]
 
-permissions:
-  pull-requests: write
-  issues: write
-  contents: read
-
+# ⚠️ 这里【不】设顶层 permissions。
+# 顶层 permissions 会被每个 job 继承：一旦为了 automerge 需要 contents: write 而写在顶层，
+# 跑第三方 action 的 democracy job 也会拿到 contents: write。
+# 而该 action 来自个人 fork（Xiaobei09/git-democracy）——任何能往那个 fork 推东西的
+# 人，都会在每个 PR 上拿到本仓的 contents: write。故双重收紧：
+#   · 权限一律下沉到 job 级，且只有真正需要合并的 automerge 才给 contents: write；
+#   · `uses` 钉死到具体 commit（见 democracy job），不跟随 fork 的 main 分支。
+#     —— 权限面靠「谁能推那个 fork」来限制，钉 commit 才能把这条限制落到具体代码上；
+#     只靠分支名限制不住已发生的推送。
+#
+# ⚠️ 本文件用 pull_request_target：它以【本仓】权限运行，且能被任意 fork 的 PR 触发，
+# 是权限面最大的触发器。因此下面两处安全属性必须显式写出，不能依赖默认值：
+#   ① 每一个 checkout 都显式钉 ref: github.event.pull_request.base.sha（见各 job）
+#      ——检 base 代码而不是 PR 代码。默认行为确实如此（实测 checkout 日志为
+#      `git checkout --force -B test refs/remotes/origin/test`），但那是隐式的；
+#      哪天有人顺手加了 ref: github.event.pull_request.head.sha，就变成
+#      「外部贡献者用自己 PR 里的代码 + contents: write 跑在本仓」= 远程代码执行。
+#      写成显式的，日后 review 时一眼能看见这条边界。
+#   ② 票数与门槛只从 base 检出（.voting.yml / .voters.yml 同理），
+#      外部贡献者无法通过改 PR 里的配置文件来放宽门槛或给自己加权。
+#   ③ 本文件内【禁止】install / uses 未钉 commit 的第三方 action、引用 PR 侧 ref 或
+#      执行 PR 侧脚本（E2E 审查建议）：本 workflow 以本仓权限跑 pull_request_target，
+#      任何「从 PR 注入内容后执行」的步骤 = 把本仓写权限交给外部贡献者。
+#      范围限定为第三方 action：GitHub 官方 action（actions/*）本文件用浮动 tag
+#      （actions/checkout@v4），因为官方 action 以 tag 发布、tag 即受维护的版本
+#      契约，且其代码由 GitHub 与 runner 同源维护，供应链面与个人 fork 不同级；
+#      真正的高风险面是「本仓权限 + 个人账号持有的 action」，钉 commit 是对那
+#      一类的要求。robin 二轮 L1 指出原文写成「禁止未钉 commit 的 action」与
+#      本文件两处 `uses: actions/checkout@v4` 自相矛盾，已按此收敛措辞。
+#      复核判据（不写行号：行号会随任何改动漂移）：
+#      `grep -nE '^[[:space:]]*(- )?uses:' .github/workflows/voting.yml`
+#      应恰好列出 3 行——两处 `actions/checkout@v4`（官方，浮动 tag 合法）
+#      与一处 `Xiaobei09/git-democracy@<commit>`（第三方，已钉 commit）。
+#      注意该正则必须能同时匹配裸 `uses:` 与列表式 `- uses:`；只写 `^\s+uses:`
+#      会漏掉两处 checkout，得出「第三方已全部钉死」的错误结论。
+#      判据一句话：【第三方 action 必钉 commit；官方 action 可用 tag】。
+#      另：所有 checkout 一律 persist-credentials: false，把高权限暴露面压到最小——
+#      AUTOMERGE_TOKEN 只出现在需要它的那个 job 的 env 里，不进 git 凭据。
 jobs:
+  # 真实票数评估 + 投票评论。context 名必须保持 democracy：
+  # 上游 ruleset 22253791 登记的 required context 就是这个名字，改名会直接让规则失配。
   democracy:
     runs-on: ubuntu-latest
+    # 只读内容 + 写 PR/issue 评论。刻意【不给】contents: write：本 job 跑的是第三方
+    # action，没有理由让它拿到内容写权限。注意：一旦在 job 级写 permissions，
+    # 未列出的权限一律变成 none，所以 checkout 需要的 contents: read 必须显式列出。
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 见文件头 ①：显式钉在 base 提交上，不检 PR 代码
+          ref: ${{ github.event.pull_request.base.sha }}
+          # 见文件头 ③：不把凭据留给后续步骤，收窄 pull_request_target 权限面
+          persist-credentials: false
       - name: Evaluate vote
-        uses: Xiaobei09/git-democracy@main
+        # 钉死到 commit，而不是 @main。原因同文件头：@main 是浮动 ref，任何能往
+        # Xiaobei09/git-democracy 推东西的人，都能在不改本 PR 的情况下改变本仓
+        # CI 的行为（这个 action 在 automerge 链路上还握着 contents: write）。
+        # 升级方式：去该仓看新 commit，改这一行后重跑本 workflow。
+        #
+        # 这个 commit 里有两处对本仓库至关重要的修复，都在计票路径上：
+        #
+        # ①【写评论失败不再中止计票】GitHub 会把 fork 来源 pull_request /
+        #   pull_request_review 事件上的 GITHUB_TOKEN 降级为只读，而 action
+        #   原本在 evaluateVote **之前**就 deleteComment/createComment，必然 403，
+        #   于是计票根本没发生，required context democracy 变红的原因写着
+        #   「授权错误」而不是票数。本仓库近 12 个 PR 全是跨仓，也就是说
+        #   「投完票票数自动刷新」这条链路在修复前从未工作过。
+        #
+        # ②【未提交的 review 草稿不再抹掉真票】计票用「遍历到就覆盖」实现
+        #   后写覆盖，而 PENDING（有人开了 review 草稿但没提交）submitted_at
+        #   为 null、state 映射成 0、id 又比已提交的 review 大排在末尾 ——
+        #   于是同一个人 approve 之后再开个草稿就走，那张赞成票会被静默抹成
+        #   0，numVoters 跌破门槛，闸门报「票不够」而原因与票无关，且不会
+        #   自行恢复。反向同理：提出反对的人开个草稿就等于撤销了反对。
+        #   该缺陷在上游 45 个 PR / 71 条 review 中尚未发作（0 条 PENDING），
+        #   属潜在缺陷，但一旦有人留草稿就会静默锁死投票。
+        uses: Xiaobei09/git-democracy@a0c7f646b1ffd614a73175e63f9c66fdb806a153
         with:
           configPath: .
+          # 其它事件留空，由 action 回落到 github.event.action。
+          payloadAction: ${{ github.event_name == 'pull_request_review' && 'synchronize' || '' }}
+
+  # 自动合并：投票通过则 squash 合入。
+  # 独立成 job 而非并入 democracy —— 若合并失败把 required check democracy 弄红，
+  # PR 反而永远合不掉（自死锁）。本 job 不是 required context，失败不阻塞。
+  automerge:
+    needs: democracy
+    if: always() && needs.democracy.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      # 唯一的 contents: write 持有者。合并需要它；读 PR 需要 pull-requests: read。
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 见文件头 ①：复核脚本必须来自 base，不能是 PR 作者提供的版本
+          ref: ${{ github.event.pull_request.base.sha }}
+          # 见文件头 ③：拷贝凭据不进 git，AUTOMERGE_TOKEN 只活在下一步 env 里
+          persist-credentials: false
+      - name: Re-verify vote independently, then squash-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          # 【跨仓 fork PR 的合并凭据】—— job 级 permissions 救不了这一段。
+          # GitHub 会把 fork 来源 pull_request / pull_request_review 事件注入的
+          # GITHUB_TOKEN 降级为只读，且这条规则【盖不住】：上面已经写了
+          # `permissions: contents: write` 也没用。所以本仓近 12 个 PR
+          # （全部 isCrossRepository=true）在这一步会结构性 403。
+          # 维护者配置方式：Settings → Secrets and variables → Actions →
+          # Secrets → New repository secret，AUTOMERGE_TOKEN = 一把对本仓有
+          # `contents: write` 的令牌（classic PAT 勾 Contents:read&write 即可，
+          # 仓库归属本仓即可，不必属于 PR 作者）。
+          # 更窄的替代：fine-grained PAT，仅授本仓 Contents: read&write ——
+          # 若维护者不想给 classic PAT 的全部仓库权限，用 fine-grained 更稳
+          # （E2E 审查建议）。
+          #
+          # 为什么必须是 secret 而不是仓库变量：`vars` 只能读到 Configuration
+          # variables，【读不到 Actions secrets】。写成 ${{ vars.X }} 会恒为空串。
+          #
+          # 为什么不能继续用 GITHUB_TOKEN：它发出的 push 不会触发 on: push
+          # 工作流，而 commitTest.yml 靠 push 到 test 建 jar 与预发布 ——
+          # 换 token 合并后该链路静默消失（症状：PR 合上了但没有新预发布，零报错）。
+          #
+          # 未配置时 ${{ secrets.X }} 求值为空串，脚本按「跨仓缺凭据」明确报出
+          # 处置办法并拒绝合并（fail-closed），不会静默用一个注定 403 的令牌。
+          #
+          # 只注入 automerge：democracy job 不需要合并凭据，也不该拿到它。
+          AUTOMERGE_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+          # 默认关：跨仓 PR 的 head 仓就是作者自己的 fork，而只要作者勾了
+          # "Allow edits by maintainers"，base 仓的 token 就能删掉对面 fork 上的
+          # 分支。合并一个 PR 不等于授权清理别人的工作分支（作者可能还要 rebase，
+          # 或同一分支还挂着别的 PR）。维护者确需清理时，在
+          # Settings → Secrets and variables → Actions → Variables 建
+          # VOTE_MERGE_DELETE_FORK_BRANCH=1 即可；未建时此处为空串 = 不删。
+          # 用仓库变量而不是 workflow_dispatch input：push/PR 事件无法传 input。
+          VOTE_MERGE_DELETE_FORK_BRANCH: ${{ vars.VOTE_MERGE_DELETE_FORK_BRANCH }}
+        run: python3 ./.github/scripts/vote_merge.py

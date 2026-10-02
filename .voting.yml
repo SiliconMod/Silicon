@@ -1,4 +1,9 @@
 ---
 percentageToApprove: 100
 minVotersRequired: 3
-minVotingWindowMinutes: 10
+# 投票窗口已归零（维护者决定 2026-09-29）：代码仍会走窗口检查，但窗口长度=0，
+# 判据 `voteStartedAt + 0 > now` 恒不成立，票即时生效。
+# ⚠️ 不是「代码里没有窗口检查」——voting.ts 的 `if (votes.voteStartedAt)` 照样执行；
+# 之所以恒不成立，是因为 voteStartedAt 取的是 head 仓 pushed_at（恒 ≤ now），
+# 而非「投票开始时间」。改窗口逻辑前先读 vote_merge.py 的同名诊断输出。
+minVotingWindowMinutes: 0
