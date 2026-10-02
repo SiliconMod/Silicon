@@ -103,12 +103,12 @@ powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1
 
 ### a0.13.0.1（最新）
 - 纯 CI 批次，无游戏内容改动；按版本号规范只递增次位（Sub）：`a0.13.0.0 → a0.13.0.1`
-- **新增投票合并闸门** `.github/scripts/vote_merge.py`：票数、赞成率、投票窗口三项配置全部达标才放行，独立复核票数、不信任 democracy job 的退出码
+- **新增投票合并闸门** `.github/scripts/vote_merge.py`：票数、赞成率、投票窗口三项配置全部达标才放行，独立复核票数、不信任 democracy job 的退出码；⚠️ **该闸门在本 PR 合入前不生效** —— `voting.yml` 的 `automerge` job 按文件头 ①把 checkout 钉死在 `base.sha`（注释原文「复核脚本必须来自 base，不能是 PR 作者提供的版本」），而 base 上还没有 `vote_merge.py` ⇒ 闸门无法用来合入它自己。首次合入需人工操作，或先合一个只带脚本、不带闸门的 PR
 - 合并以 `squash` 执行，且**头提交被钉死**（请求体带 `sha`）后才发出，避免复核通过到合并生效之间被推新提交
 - 计票口径与 `git-democracy` action 对齐：同一投票人多张票时改用 review 的单调递增 `id` 破平（原按 `submitted_at` 字符串比较，GitHub 只有秒级精度，同秒提交会取错票）
 - `.voters.yml` / `.voting.yml` 加载收口为 fail-closed：拒绝嵌套缩进写法、拒绝 UTF-8 BOM、解析失败带行列定位退出，不再静默拍平
 - 合并接口按 403 / 405 / 409 分流诊断，并修正 405 文案（原只归因于 ruleset，漏了「合并方法不被允许」这一成因）；204 空响应体已显式守卫
-- 投票窗口 `minVotingWindowMinutes` 由 10 归零（维护者决定 2026-09-29），票即时生效
+- 投票窗口 `minVotingWindowMinutes` 由 10 归零（维护者决定 2026-09-29），票即时生效；⚠️ **同样受 base 钉死影响** —— `voting.yml` 里 `democracy` job 的 `configPath: .` 读的也是 base 上的 `.voting.yml`（值仍为 `10`），所以本 PR 的 CI 运行中投票**仍要等 10 分钟**，`Voting` 会以 `Vote requires a minimum voting window of 10 minutes` 失败；归零要等本 PR 合入 base 之后才生效
 - `robin.yml`：`/robin` 触发权限由 `triage` 放宽到 `read`，使 read 级协作员也能触发审查；放宽的安全边界写在该行注释里
 - `review_from_diff.py`：`gh` 失败时把 stderr 记进日志，不再整条丢弃
 - `robin.yml`：审查 action 由 `antongulin/robin@v2.7.2` 升到 `v2.8.0`（该 tag 与 `v2.7.2` 仅相差一次发版提交、**无功能改动**，重试参数一字未变；原钉版本只是落后一个次版本号）
