@@ -1,0 +1,88 @@
+name: Robin Collect
+
+# 两段式审查的「采集段」（workflow_run 两段式第 ① 段，配套 robin-review.yml 第 ② 段）。
+# 设计定案（2026-09-28，用户 TG 指令）：
+#   - #67 的跨仓静默审查回归，用 workflow_run 把「采集」和「审查」分开：
+#     采集段跑在 pull_request 事件（fork PR 的 token 被降级为只读，恰好只做只读操作），
+#     审查段跑在 workflow_run 事件（发生在 base 仓默认分支、token 不降级 → 能发评论）。
+#   - 不代发 /review、不依赖 GH_PAT、自动触发、能发评论 —— 详见 robin-review.yml 头注。
+#   - 为什么不能用 robin action 直接当第二段引擎（ROUND 174 实测证据）：
+#     antongulin/robin@v2.7.2 的 action.yml 全输入面无 PR 号/diff/artifact 输入；
+#     src/main.ts 事件开关只处理 pull_request / issue_comment，pull_request_target 硬 return，
+#     其余事件（含 workflow_run）落在 `if (!shouldRun || !prNumber)` →
+#     "No matching trigger found. Skipping." → 零产出。故第二段审查引擎是仓内自研
+#     .github/scripts/review_from_diff.py（复用本仓 zengate 网关 + code-reviewer.md +
+#     robin.yml 阈值配置），不是仓库外 action。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: robin-collect-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    # 草稿 PR 不采集（robin.yml 生产路径也是 draft == false 才审；ready_for_review
+    # 事件到来时 draft 已为 false，该类型不会误伤）。
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch PR diff and metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # P1 指纹：run_id 让第二段能验证「这份 artifact 确实是当前这次采集 run 产的」，
+          # 与 workflow_run 上下文对不上的 artifact 一律拒绝（见 robin-review.yml 校验步）。
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          PR="${{ github.event.pull_request.number }}"
+          echo "collecting PR #${PR} head=${{ github.event.pull_request.head.sha }}"
+          # 统一 diff 原始字节（与 .github/robin.yml 注释的口径一致：不经过 $(...) 中转，
+          # 直接落盘，保留尾部换行；第二段截断按字符数处理时不会多减）。
+          gh api -H "Accept: application/vnd.github.v3.diff" \
+            "repos/${{ github.repository }}/pulls/${PR}" > pr.diff
+          wc -c pr.diff
+          # meta.json：驱动脚本解析用。字段全部取事件 payload / API，不依赖 workflow_run
+          # 的 pull_requests 数组（该数组对 fork PR 可能为空 —— 见 robin-review.yml 头注）。
+          gh api "repos/${{ github.repository }}/pulls/${PR}" > pr.json
+          python3 - <<'PY'
+          import json
+          import os
+          p = json.load(open('pr.json'))
+          head = p.get('head', {})
+          base = p.get('base', {})
+          meta = {
+              'number': p['number'],
+              'title': p.get('title', ''),
+              'draft': p.get('draft', False),
+              'head_sha': head.get('sha', ''),
+              'head_ref': head.get('ref', ''),
+              'head_repo_full_name': (head.get('repo') or {}).get('full_name', ''),
+              'base_sha': base.get('sha', ''),
+              'base_ref': base.get('ref', ''),
+              'base_repo_full_name': (base.get('repo') or {}).get('full_name', ''),
+              'author': (p.get('user') or {}).get('login', ''),
+              'updated_at': p.get('updated_at', ''),
+              'run_id': int(os.environ['RUN_ID']),
+          }
+          json.dump(meta, open('meta.json', 'w'), ensure_ascii=False, indent=2)
+          print('meta.json:', json.dumps(meta, ensure_ascii=False))
+          PY
+          echo "PR=$PR" >> "$GITHUB_ENV"
+
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: robin-diff
+          path: |
+            pr.diff
+            meta.json
+          # 采集段只读 + 短保留：审查段下载后即处理，1 天足够且不积攒历史产物。
+          retention-days: 1
+          if-no-files-found: error

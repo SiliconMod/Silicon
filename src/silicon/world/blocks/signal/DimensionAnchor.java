@@ -8,10 +8,14 @@ import mindustry.world.meta.BuildVisibility;
 
 /**
  * 已废弃的维度锚点（兼容存根）。
- * 旧版信号系统（信号源 + 维度锚点）已移除，但直接删除该方块会破坏包含它的旧存档
- * （Mindustry 存档按方块 ID 存储，删除会使其后所有方块 ID 前移、内容错位）。
- * 因此保留本存根以维持原注册位置与方块 ID：
- * 无任何功能、不出现在建造菜单（BuildVisibility.hidden），仅可拆除以清理旧存档残留。
+ * <p>
+ * 旧版信号系统（信号源 + 维度锚点）已移除，但**不能直接删除该方块**。
+ * 真实机制：Mindustry 存档头按**内容名**记录内容，读档时
+ * {@code SaveVersion.readContentHeader} 把每个旧 ID 逐个按名解析进 temporaryMapper
+ * （{@code SaveFileReader.fallback} 只兜底原版方块名，不含 mod 方块）；名字解析不到时，
+ * {@code ContentLoader.getByID} 会返回 {@code contentMap[0]} —— 于是旧存档里这个位置的方块
+ * 会**变成一个原版方块**，比留着存根更糟。（不是"ID 前移"：每个旧 ID 都是独立按名解析的。）
+ * 因此保留本存根：无任何功能、不出现在建造菜单（BuildVisibility.hidden），仅可拆除以清理旧存档残留。
  *
  * 旧版 DimensionAnchorBuild.write() 会在 base 数据后写入一个 String（"send:xxx" / "receive:xxx"）。
  * 如果存根不读取该 String，残留字节会导致同一 chunk 中后续建筑的反序列化错位（建筑消失/错乱）。
@@ -32,21 +36,24 @@ public class DimensionAnchor extends Block {
     }
 
     /**
-     * 存根建筑：仅用于读取旧版写入的 String 配置数据并丢弃，
-     * 防止未消费的字节导致同一存档块中后续建筑反序列化错位。
+     * 存根建筑:消费旧版写入的 String 配置数据并丢弃。
+     * 读写必须永久对称——write 也写一个占位空 String。
+     * 若只写 read 不写 write,则"旧档→读→再存→再读"的第二轮读取会越过本建筑
+     * chunk 边界吞掉后续建筑的字节(Mindustry 读侧不校验 chunk 长度),
+     * 导致整块建筑反序列化错位甚至读档失败。
      */
     public static class StubBuild extends Building {
-        /** 旧版 write() 格式：super.write + write.str(encodedConfig) */
+        /** 旧版 write() 格式：super.write + write.str(encodedConfig);存根写占位空串保持对称 */
         @Override
         public void write(Writes write) {
             super.write(write);
-            // 不写入任何额外数据——旧版 String 已无意义
+            write.str("");
         }
 
         @Override
         public void read(Reads read, byte revision) {
             super.read(read, revision);
-            // 消费旧版写入的 String（"send:xxx" / "receive:xxx"），防止残留字节污染后续建筑
+            // 消费旧版写入的 String（"send:xxx" / "receive:xxx"）或新版占位空串
             read.str();
         }
     }

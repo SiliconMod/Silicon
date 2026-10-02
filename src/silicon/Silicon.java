@@ -5,6 +5,8 @@ import arc.Events;
 import arc.func.Cons;
 import arc.graphics.Color;
 import arc.graphics.g2d.TextureRegion;
+import arc.input.KeyBind;
+import arc.input.KeyCode;
 import arc.scene.style.TextureRegionDrawable;
 import arc.scene.ui.TextField;
 import arc.util.Time;
@@ -22,12 +24,16 @@ import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog;
 import silicon.audio.MusicNetwork;
 import silicon.audio.MusicPlayer;
+import silicon.content.SatelliteUnits;
 import silicon.content.block.Blocks;
-import silicon.content.item.Items;
+import silicon.util.SatelliteManager;
+import silicon.util.MessageSync;
+import silicon.util.MessageSystem;
 import silicon.util.SiliconLog;
 import silicon.util.SignalOverlay;
 import silicon.util.UpdateChecker;
 import silicon.world.blocks.distribution.ItemTransferHubNetwork;
+import silicon.world.blocks.distribution.ItemTransferHub;
 import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.signal.SignalRelay;
@@ -35,12 +41,19 @@ import silicon.world.blocks.signal.SignalSource;
 import silicon.ui.BlockSearch;
 import silicon.ui.MusicBar;
 import silicon.ui.MusicPlayerDialog;
+import silicon.ui.MessagePanel;
 
 import static mindustry.Vars.*;
 
 
 public class Silicon extends Mod {
     public static Mods.LoadedMod MOD;
+    /** 信号覆盖视角按键绑定（默认 H，官方 KeyBind 通道；覆盖绘制的切换/按住判定经此绑定，可在设置中重绑定） */
+    public static KeyBind keySignalView;
+    /** 常驻屏幕左边缘的消息面板实例（游戏中显示，PR #58 消息系统） */
+    public static MessagePanel messagePanel;
+    /** 消息面板开关按键绑定（默认 I，可在按键设置中重绑定） */
+    public static KeyBind keyToggleMessagePanel;
 
     /**
      * 自定义设置项：在设置表中插入任意内容（分隔线、按钮等）。
@@ -62,6 +75,12 @@ public class Silicon extends Mod {
         }
     }
 
+    /** 卫星状态周期广播计时（约 30 tick / 0.5s） */
+    private static int satelliteBroadcastTick = 0;
+    /** sat-launch 速率限制（tick）：同一控制台两次请求的最小间隔，挡客户端重放刷扫描。
+     *  单位是 tick 而非秒（与 {@code Time.time} 的量纲一致），30 tick ≈ 0.5 秒。 */
+    public static final int LAUNCH_REQUEST_COOLDOWN_TICKS = 30;
+
     public Silicon() {
         Events.on(EventType.ClientLoadEvent.class, e -> {
             MOD = mods.getMod(Silicon.class);
@@ -72,27 +91,204 @@ public class Silicon extends Mod {
 
     @Override
     public void loadContent() {
-        Items.load();
         Blocks.load();
+        SatelliteUnits.load();
         SiliconLog.info("Loading contents.");
     }
 
     @Override
     public void init() {
-        // Reset hub network ID counter on world load to avoid ID collisions with saved hubs.
+        // 信号覆盖视角键（默认 H）+ 消息面板开关键（默认 I，PR #58）：走官方 KeyBind 系统，可在 设置→按键 重绑定；
+        // KeyBind 属客户端 UI 资源——dedicated 服务器没有输入子系统，必须 headless 守卫
+        if (!headless) {
+            keySignalView = KeyBind.add("silicon_signal_view", KeyCode.h, "silicon");
+            keyToggleMessagePanel = KeyBind.add("silicon_toggle_panel", KeyCode.i, "silicon");
+        }
         // 信号源/中继器按队缓存也在世界加载时失效重建（读档后建筑重新加入 Groups.build）。
-        // 电力保护器全局状态也需重置。
+        // 注:hub network id 计数器不再在此 reset——读档顺序是构造(占号)→read 用存档 id
+        // 覆盖→WorldLoadEvent,reset 反而制造撞号;现由 ItemTransferHubBuild.read() 调
+        // ItemTransferHubNetwork.updateCounterAfterLoad 按 max 推进。
+        // 卫星名册的清空挂在 ResetEvent —— 它覆盖"存档读入前 / 返回主菜单 / 新开局"三条路径。
+        //
+        // 读档时序（顺序很重要，注释就近标在对应调用处）：
+        //   1. ResetEvent          → SatelliteManager.reset() 清空名册
+        //   2. map 区域读入        → 各控制台的存档块重建名册（写侧由控制台代存，见 SatelliteConsole.write）
+        //   3. WorldLoadEvent      → SatelliteManager.onWorldLoaded()
+        //                            此时**单位实体尚未读入**（readMap → endMapLoad → readEntities），
+        //                            Groups.unit 里还没有卫星；这次调用只覆盖"实体先于事件"的路径（直接进新图）
+        //   4. entities 区域读入   → 卫星实体进入 Groups.unit
+        //   5. app.post（延迟一拍）→ SatelliteManager.onWorldLoaded(true)
+        //                            entities 已读完，因此这一拍能顺带剪除「名册有记录但实体不存在」的死行
+        Events.on(EventType.ResetEvent.class, e -> SatelliteManager.reset());
         Events.on(EventType.WorldLoadEvent.class, e -> {
-            ItemTransferHubNetwork.resetIdCounter();
             SignalSource.markDirty();
             SignalRelay.markDirty();
             MusicNetwork.reset();
+            SatelliteManager.onWorldLoaded();          // 步骤 3
+            Core.app.post(() -> SatelliteManager.onWorldLoaded(true)); // 步骤 5
+            SignalOverlay.reset(); // 清颜色缓存/色相分配/显示状态，防跨世界累积
+        });
+        // 卫星实体被击落（伤害仅可能来自 scripted unit.damage()）→ 名册除名并广播
+        Events.on(EventType.UnitDestroyEvent.class, e -> SatelliteManager.onUnitDestroyed(e.unit));
+        // 玩家中途加入时：主机向新玩家补发卫星状态 + 中继器激活状态
+        Events.on(EventType.PlayerJoin.class, e -> {
+            if (net.server()) {
+                SatelliteManager.broadcastState(e.player.team());
+                // 补发该队所有中继器当前 active（active 是自定义字段不随实体同步；新玩家加入时已稳定的
+                // 中继器不会再有变化事件，必须全量发一次，否则客机 H 键覆盖缺中继器级联段）
+                for (SignalRelay.SignalRelayBuild rb : SignalRelay.allRelays(e.player.team())) {
+                    Call.tileConfig(e.player, rb, rb.active);
+                }
+            }
             // PowerProtector 无全局静态状态，数据随存档保存，无需重置
         });
 
         BlockSearch.init();
         MineConverter.initNetworking();
+        ItemTransferHub.initNetworking();
         SignalOverlay.init();
+        // 消息系统多人联网同步（nop 当不在服务器上时，仅注册事件处理器）
+        MessageSync.init();
+
+        // 卫星发射请求（客机 → 服务器）：注册在 init 而非 ClientLoadEvent——dedicated 服务器（无客户端，
+        // 不触发 ClientLoadEvent）也必须能处理发射请求。主机权威执行，失败原因定向回发，成功走全图播报+状态广播。
+        //
+        // 这里**无条件注册**，不加 `if (netServer != null)`：Vars.netServer 是静态字段，在本方法执行前
+        // 一定已就位（ClientLauncher:182 与 ServerLauncher:76 都早于各自的 mods.eachClass(Mod::init)），
+        // 且全代码库没有任何地方把它置回 null —— net.closeServer() 只把 net.server/net.active 置 false
+        // 并踢掉连接，netServer 对象本身常驻。所以那样的守卫恒为真、不表达任何判断。
+        // 客户端上多注册一份也无害：handler 的触发路径自带服务器判定 ——
+        // NetServer.serverPacketReliable（@Remote(targets = Loc.client)）只在服务器收到客户端包时被走到。
+        netServer.addPacketHandler("sat-launch", (p, data) -> {
+            // 失败回包统一出口：每条拒绝路径都必须回包，否则请求方 UI 一直等待。
+            // why 为 null 表示该路径无需单独记日志（busy/disabled 之类已由回包值自解释）；
+            // 回包本身再兜一层 try，避免异常路径上"回包失败"把处理器掀翻。
+            java.util.function.BiConsumer<String, String> deny = (result, why) -> {
+                try {
+                    Call.clientPacketReliable(p.con, "sat-result", result);
+                } catch (Throwable ignored) {
+                }
+                if (why != null) SiliconLog.info("sat-launch: " + why + " from " + p.name);
+            };
+            try {
+                String[] parts = data.split("\\|", -1);
+                if (parts.length != 3) {
+                    deny.accept("fail", "malformed packet (fields)");
+                    return;
+                }
+                String[] xy = parts[0].split(",");
+                if (xy.length != 2) {
+                    deny.accept("fail", "malformed packet (coords)");
+                    return;
+                }
+                mindustry.world.Tile tile = world.tile(
+                        Integer.parseInt(xy[0].trim()), Integer.parseInt(xy[1].trim()));
+                if (tile == null || !(tile.build instanceof silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild)) {
+                    // 控制台可能已被拆除/替换:给请求者明确反馈,而非无声死点击
+                    deny.accept("fail", "invalid console tile");
+                    return;
+                }
+                silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild cb =
+                        (silicon.world.blocks.satellite.SatelliteConsole.SatelliteConsoleBuild) tile.build;
+                if (cb.team != p.team()) {
+                    // 只能操作本队控制台;越权请求回笼统 fail(细节只进日志,不向可疑客户端透露原因)
+                    deny.accept("fail", "team mismatch");
+                    return;
+                }
+                if (!cb.enabled) {
+                    deny.accept("disabled", null);
+                    return;
+                }
+                // 速率限制：每个请求都会做一遍"信号范围 + 1:1 配对"扫描（O(建筑×源)），
+                // 改造客户端可高频重放刷 CPU；这里按控制台 0.5s 限流（合法双击本来也会因 produced
+                // 已清空而失败，限流只挡重放，不影响正常操作）
+                if (Time.time - cb.lastLaunchRequest < LAUNCH_REQUEST_COOLDOWN_TICKS) {
+                    // 限流必须与"真实失败"用不同回包：都回 "fail" 会让合法双击的第二次弹「发射失败」，
+                    // 把"点太快"误导成"配置有问题"
+                    deny.accept("busy", null);
+                    return;
+                }
+                cb.lastLaunchRequest = Time.time;
+                int orbit;
+                try {
+                    orbit = Integer.parseInt(parts[2].trim());
+                    if (orbit < silicon.world.blocks.satellite.SatelliteConsole.ORBIT_LEO
+                            || orbit > silicon.world.blocks.satellite.SatelliteConsole.ORBIT_SSO) {
+                        deny.accept("fail", "orbit out of range");
+                        return;
+                    }
+                } catch (NumberFormatException e) {
+                    deny.accept("fail", "malformed packet (orbit)");
+                    return;
+                }
+                // 信号编码校验：4 位字母数字或空（空=沿用控制台默认），防畸形输入进入管理器
+                String sig = parts[1];
+                if (!sig.isEmpty() && !sig.matches("[A-Za-z0-9]{4}")) {
+                    deny.accept("fail", "malformed signal code");
+                    return;
+                }
+                // 空编码 = 沿用控制台当前绑定的编码：客机在 tileConfig 到达前的首帧、或本地
+                // selectedSignal 被 updateTile 清空而主机尚未清时，传空串会让服务端按"未绑定"处理
+                // （launch 首行即返回 LAUNCH_NO_HUB）——把同步时序问题伪装成"没绑中枢/无信号"。
+                // cb 就在手里，直接用它的真值。见 SatelliteConsole.launch 的注释（同一个约定）。
+                String effSig = (sig == null || sig.isEmpty()) ? cb.selectedSignal : sig;
+                int result = SatelliteManager.launch(p.team(),
+                        (effSig == null || effSig.isEmpty()) ? null : effSig, orbit, cb.x, cb.y);
+                if (result != SatelliteManager.LAUNCH_OK) {
+                    deny.accept(String.valueOf(result), null);
+                }
+            } catch (Exception e) {
+                SiliconLog.info("sat-launch: handler error: " + e);
+                // 异常路径也必须回包（deny 内部已再兜一层，防止回包本身抛异常）
+                deny.accept("fail", null);
+            }
+        });
+
+        // 多人暂停的服务端包处理器：必须注册在 init()——dedicated 服务器只触发 ServerLoadEvent、
+        // 不触发 ClientLoadEvent，原先注册在 ClientLoadEvent 里时这四个处理器在专属服务器上
+        // 永远不会生效（与 sat-launch 同因，故移到同一位置）。同样无条件注册，理由见上方 sat-launch 处。
+        netServer.addPacketHandler("pause", (p, time) -> {
+            // 放行判定收敛成一处：原先 admin/author、pauseMode==1、pauseMode==2+白名单
+            // 三段各自重复了「切换暂停 + 回包 + 记日志」，条件不同但动作完全相同。
+            // 语义要点：admin/author 先放行，**不受 pauseMode 限制**（pauseMode==0 也要放行），
+            // 所以这里先算 admin/author，只有它不是才去看 pauseMode。
+            boolean allowed = p.admin || p.name.equals(state.map.author());
+            if (!allowed) {
+                if (Vars.pauseMode == 1) {
+                    allowed = true;
+                } else if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
+                    allowed = true;
+                }
+            }
+            if (!allowed) return;
+
+            state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
+            Call.clientPacketReliable(p.con, "paused", time);
+            SiliconLog.info(p.name + " pause");
+        });
+
+        netServer.addPacketHandler("pause-setmode", (p, data) -> {
+            if (!p.admin && !p.name.equals(state.map.author())) return;
+            try {
+                Vars.pauseMode = Integer.parseInt(data.trim());
+                if (Vars.pauseMode < 0 || Vars.pauseMode > 2) Vars.pauseMode = 0;
+            } catch (NumberFormatException ignored) {}
+        });
+
+        netServer.addPacketHandler("pause-grant", (p, data) -> {
+            if (!p.admin && !p.name.equals(state.map.author())) return;
+            String target = data.trim();
+            if (target.isEmpty()) return;
+            if (!Vars.pauseWhitelist.contains(target)) {
+                Vars.pauseWhitelist.add(target);
+            }
+        });
+
+        netServer.addPacketHandler("pause-revoke", (p, data) -> {
+            if (!p.admin && !p.name.equals(state.map.author())) return;
+            String target = data.trim();
+            Vars.pauseWhitelist.remove(target);
+        });
 
         // —— 音乐播放器：核心/网络/悬浮条初始化 ——
         MusicPlayer.init();
@@ -121,12 +317,27 @@ public class Silicon extends Mod {
         Events.on(EventType.ClientLoadEvent.class, e -> {
             ui.settings.addCategory("@settings.silicon.meta.category.name",
                     new TextureRegionDrawable(new TextureRegion(Silicon.MOD.iconTexture)), st -> {
-                // —— 方块搜索设置 ——
+
+                // —— 方块搜索 ——
+                addSection(st, "setting.silicon.group.blocksearch");
                 st.checkPref("blocksearch.showHistory", true);
                 st.checkPref("blocksearch.clearOnSelect", true);
-                // 灰色细线：搜索设置与暂停设置分隔（注册为设置项，rebuild 时保留）
-                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
-                // —— 暂停设置 ——
+
+                // —— 消息面板 ——
+                addSection(st, "setting.silicon.group.messagepanel");
+                // 宽度（屏幕宽百分比，20%~50%）与最高位置（屏幕高百分比，20%~80%）
+                st.sliderPref(MessagePanel.SET_WIDTH, (int) MessagePanel.DEFAULT_WIDTH_PERCENT,
+                        (int) MessagePanel.MIN_WIDTH_PERCENT, (int) MessagePanel.MAX_WIDTH_PERCENT, 5,
+                        i -> i + "%", i -> MessagePanel.applySettings());
+                st.sliderPref(MessagePanel.SET_TOP, (int) MessagePanel.DEFAULT_TOP_PERCENT,
+                        (int) MessagePanel.MIN_TOP_PERCENT, (int) MessagePanel.MAX_TOP_PERCENT, 5,
+                        i -> i + "%", i -> MessagePanel.applySettings());
+                st.sliderPref(MessageSystem.SET_MAX_MESSAGES, MessageSystem.DEFAULT_MAX_MESSAGES,
+                        MessageSystem.MIN_MAX_MESSAGES, MessageSystem.MAX_MAX_MESSAGES, 5,
+                        i -> i + "", i -> MessagePanel.applySettings());
+
+                // —— 多人暂停 ——
+                addSection(st, "setting.silicon.group.pause");
                 st.sliderPref("pauseMode", 0, 0, 2, 1,
                         i -> Core.bundle.get("setting.pauseMode.value." + i, String.valueOf(i)),
                         i -> {
@@ -135,29 +346,33 @@ public class Silicon extends Mod {
                         });
                 st.checkPref("pauseRequest", true);
                 st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.pauseWhitelist.name"), Styles.defaultt, Silicon::showWhitelistDialog).width(200f).padTop(6f)));
-                // 灰色细线：更新区与上方设置分隔（注册为设置项，rebuild 时保留）
-                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
-                // —— 更新设置 ——
-                st.checkPref("updatecheck.autoCheck", true);
-                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
-                // 灰色细线：更新区与信号/中枢显示设置分隔（注册为设置项，rebuild 时保留）
-                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
-                // —— 信号显示设置 ——
+
+                // —— 信号显示 ——
+                addSection(st, "setting.silicon.group.signal");
                 st.checkPref("signal.hkey.toggle", true);
                 // 数字模式 / 范围模式透明度（0~100%）
                 st.sliderPref("signal.digitAlpha", 80, 0, 100, 5,
                         i -> Core.bundle.format("setting.signal.digitAlpha.value", i));
                 st.sliderPref("signal.rangeAlpha", 45, 0, 100, 5,
                         i -> Core.bundle.format("setting.signal.rangeAlpha.value", i));
-                // —— 中枢物流调试与连线 ——
+
+                // —— 物流中枢 ——
+                addSection(st, "setting.silicon.group.hub");
                 st.checkPref("hubDebugLog", false, v -> silicon.world.blocks.distribution.ItemTransferHub.debugFlows = v);
                 st.sliderPref("hubLinkOpacity", 100, 0, 100, 5, i -> i + "%");
-                // —— 万向交叉器界面 ——
+
+                // —— 界面 ——
+                addSection(st, "setting.silicon.group.ui");
                 st.checkPref("universal-junction.newUI", false);
                 // 灰色细线：与音乐播放器设分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
                 // —— 音乐播放器 ——
                 st.pref(new CustomSetting(t -> t.button(Core.bundle.get("musicplayer.open"), Styles.defaultt, MusicPlayerDialog::open).width(200f).padTop(6f)));
+
+                // —— 更新 ——
+                addSection(st, "setting.silicon.group.update");
+                st.checkPref("updatecheck.autoCheck", true);
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
                 // 灰色细线：与「恢复默认设置」分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
 
@@ -166,65 +381,69 @@ public class Silicon extends Mod {
         });
 
         Events.on(EventType.ClientLoadEvent.class, e -> {
+            // 初始化常驻左边缘的消息面板，加入 HUD 组
+            messagePanel = new MessagePanel();
+            MessagePanel.setInstance(messagePanel);
+            ui.hudGroup.addChild(messagePanel);
+        });
+
+        Events.on(EventType.ClientLoadEvent.class, e -> {
             // 启动时从持久化设置恢复调试开关（checkPref 的变更回调只在用户手动切换时触发，
             // 不初始化的话每次启动都要重新关闭再打开才生效）
             silicon.world.blocks.distribution.ItemTransferHub.debugFlows = Core.settings.getBool("hubDebugLog", false);
-            if (netServer != null) {
-                netServer.addPacketHandler("pause", (p, time) -> {
-                    if (p.admin || p.name.equals(state.map.author())) {
-                        state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                        Call.clientPacketReliable(p.con, "paused", time);
-                        SiliconLog.info(p.name + " pause");
-                        return;
+
+            // 卫星状态广播（服务器 → 客机）：应用主机权威状态（在轨数/归属信号/待发射数镜像）。
+            // 包处理器在网络线程回调——一切状态/UI 操作必须 post 回主线程
+            netClient.addPacketHandler("sat-state", s -> Core.app.post(() -> SatelliteManager.applyState(s)));
+            // 发射失败反馈（服务器 → 请求者）
+            netClient.addPacketHandler("sat-result", s -> Core.app.post(() -> {
+                if (s.equals("disabled")) {
+                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.disabled"), 3f);
+                    return;
+                }
+                if (s.equals("fail")) {
+                    // 服务端通用失败（包格式/越权/控制台失效/处理异常等，细节只留在服务器日志）
+                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.fail"), 3f);
+                    return;
+                }
+                if (s.equals("busy")) {
+                    // 请求过快被限流（与真实失败区分，见服务端 sat-launch 的限流分支）
+                    ui.showInfoToast(Core.bundle.get("block.silicon-satellite-console.busy"), 3f);
+                    return;
+                }
+                try {
+                    int result = Integer.parseInt(s.trim());
+                    if (result == SatelliteManager.LAUNCH_OK) return;
+                    String key;
+                    switch (result) {
+                        case SatelliteManager.LAUNCH_NO_READY: key = "block.silicon-satellite-console.noready"; break;
+                        case SatelliteManager.LAUNCH_NO_FUEL: key = "block.silicon-satellite-console.nofuel"; break;
+                        case SatelliteManager.LAUNCH_NO_POWER: key = "block.silicon-satellite-console.nopower"; break;
+                        case SatelliteManager.LAUNCH_ORBIT_FORBIDDEN: key = "block.silicon-satellite-console.orbitForbidden"; break;
+                        case SatelliteManager.LAUNCH_NO_HUB: key = "block.silicon-satellite-console.nohub"; break;
+                        case SatelliteManager.LAUNCH_MULTI_HUB: key = "block.silicon-satellite-console.multihub"; break;
+                        case SatelliteManager.LAUNCH_MULTI_CONSOLE: key = "block.silicon-satellite-console.multiconsole"; break;
+                        case SatelliteManager.LAUNCH_TEST_SANDBOX: key = "block.silicon-satellite-console.sandboxOnly"; break;
+                        default: key = "block.silicon-satellite-console.fail"; break;
                     }
+                    ui.showInfoToast(Core.bundle.get(key), 3f);
+                } catch (NumberFormatException ignored) {
+                }
+            }));
 
-                    if (Vars.pauseMode == 0) return;
-
-                    if (Vars.pauseMode == 1) {
-                        state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                        Call.clientPacketReliable(p.con, "paused", time);
-                        SiliconLog.info(p.name + " pause");
-                        return;
-                    }
-
-                    if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
-                        state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
-                        Call.clientPacketReliable(p.con, "paused", time);
-                        SiliconLog.info(p.name + " pause");
-                    }
-                });
-
-                netServer.addPacketHandler("pause-setmode", (p, data) -> {
-                    if (!p.admin && !p.name.equals(state.map.author())) return;
-                    try {
-                        Vars.pauseMode = Integer.parseInt(data.trim());
-                        if (Vars.pauseMode < 0 || Vars.pauseMode > 2) Vars.pauseMode = 0;
-                    } catch (NumberFormatException ignored) {}
-                });
-
-                netServer.addPacketHandler("pause-grant", (p, data) -> {
-                    if (!p.admin && !p.name.equals(state.map.author())) return;
-                    String target = data.trim();
-                    if (target.isEmpty()) return;
-                    if (!Vars.pauseWhitelist.contains(target)) {
-                        Vars.pauseWhitelist.add(target);
-                    }
-                });
-
-                netServer.addPacketHandler("pause-revoke", (p, data) -> {
-                    if (!p.admin && !p.name.equals(state.map.author())) return;
-                    String target = data.trim();
-                    Vars.pauseWhitelist.remove(target);
-                });
-            }
-
-            netClient.addPacketHandler("paused", (s) -> {
-                Vars.pause.complete = true;
-            });
+            // 暂停请求的确认回包（服务器 → 请求者）：不置 complete 的话，客户端会每 60 秒
+            // 重发一次 "pause"（见下方 Trigger.update 的重试分支），且 pauseMode=0 时服务器不回包。
+            // 注意：本回调在 PR #50 同步上游时被误删过，勿再删。
+            netClient.addPacketHandler("paused", s -> Vars.pause.complete = true);
         });
 
         Events.run(EventType.Trigger.update, () -> {
             if (!state.isGame()) return;
+            // 卫星状态周期广播（控制台卫星名称/制造中字段保鲜，约 0.5s；服务器端）
+            if (net.server() && ++satelliteBroadcastTick >= 30) {
+                satelliteBroadcastTick = 0;
+                SatelliteManager.periodicBroadcastAll();
+            }
             if (net.client() && Core.settings.getBool("pauseRequest", true)) {
                 if (Core.input.keyTap(Binding.pause)) {
                     String time = String.valueOf((long) Time.time);
@@ -242,6 +461,16 @@ public class Silicon extends Mod {
             String msg = e.message;
             if (msg == null || !msg.startsWith("!pause")) return;
             handlePauseCommand(e.player, msg);
+        });
+
+        // —— 消息面板开关按键 ——
+        // 默认 I 键切换面板展开/收起（可在按键设置中重绑定，仅游戏内生效）
+        Events.run(EventType.Trigger.update, () -> {
+            if (!state.isGame()) return;
+            if (messagePanel != null && keyToggleMessagePanel != null
+                && Core.input.keyTap(keyToggleMessagePanel)) {
+                messagePanel.toggle();
+            }
         });
     }
 
@@ -338,5 +567,17 @@ public class Silicon extends Mod {
                 Call.infoMessage(p.con, "[accent]Whitelist: " + list);
                 break;
         }
+    }
+
+    /**
+     * 在设置表中插入一个「分类标题」：上方灰色分隔横线 + 强调色分类名（左对齐）。
+     * 注册为设置项，rebuild（恢复默认/切换分类）时自动保留。
+     */
+    private static void addSection(SettingsMenuDialog.SettingsTable st, String labelKey) {
+        st.pref(new CustomSetting(t -> {
+            t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(2f);
+            t.row();
+            t.add(Core.bundle.get(labelKey)).color(Pal.accent).fontScale(1.1f).padTop(2f).padBottom(4f).left();
+        }));
     }
 }

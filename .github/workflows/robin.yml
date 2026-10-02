@@ -1,9 +1,8 @@
 name: Robin
 
 on:
-  # 直接激活：PR 打开/同步时自动审查（支持 fork PR，需 pull_request_target 以获取 secrets）
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
     types: [created]
 
@@ -16,30 +15,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ① 秘钥探测：LLM 三件套配置齐全才继续
-  config-check:
-    if: github.event_name == 'pull_request_target' || (github.event_name == 'issue_comment' && github.event.issue.pull_request)
-    runs-on: ubuntu-latest
-    outputs:
-      configured: ${{ steps.check.outputs.configured }}
-    steps:
-      - id: check
-        env:
-          _BASE: ${{ secrets.LLM_BASE_URL }}
-          _KEY: ${{ secrets.LLM_API_KEY }}
-          _MODEL: ${{ secrets.LLM_MODEL }}
-        run: |
-          if [ -n "$_BASE" ] && [ -n "$_KEY" ] && [ -n "$_MODEL" ]; then echo "configured=true" >> "$GITHUB_OUTPUT";
-          else echo "configured=false" >> "$GITHUB_OUTPUT"; echo "::warning::LLM 三件套未齐全（需 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL），跳过审查"; fi
-
-  # ② 真实审查：PR 事件直接触发；评论事件需 /review 或 /robin 且鉴权
   review:
-    needs: config-check
+    # ⚠️ 同仓 PR 与 fork PR 走的是**两条不同的凭据路径**，不要合并成一条：
+    #   - 同仓 PR（本仓维护者的分支）：`pull_request` 事件，github.token 保留 pull-requests: write
+    #     → 自动审查（下面 pull_request 那一支）。
+    #   - fork PR：GitHub 对 fork 来源的 `pull_request`/`pull_request_review` 运行**把 token
+    #     降级为只读**。实测范围 2026-09-27（跨仓 PR 头提交 a56c600 的双事件对照，唯一变量
+    #     是事件类型）：Voting action 的 `pull_request_review` run 36357503139 报
+    #     `Resource not accessible by integration`（job democracy→Evaluate vote 失败）；
+    #     同一提交的 `pull_request_target` run 36337473071 零授权错误、跑到真实计票只因
+    #     票数不足失败。robin 自身全仓仅 3 次 `pull_request` 运行（均 cancelled/skipped、
+    #     无 403 日志留存），降级行为按 GitHub 文档对 fork PR 的机制延伸到 robin。
+    #     而 robin 必须建一条 review 评论，需要 pull-requests: write ⇒ 在 `pull_request`
+    #     下**必然 403**。所以这里显式把 fork PR 从自动路径排除，改由 issue_comment
+    #     的 `/review` 兜底：
+    #     那种运行发生在 base 仓上下文，拿到的是可写 token，且本方案链路不依赖任何 secret。
+    #     去掉下面那个 head.repo.full_name 判断，fork PR 就会红给维护者看。
     if: >-
-      needs.config-check.outputs.configured == 'true' &&
       (
-        github.event_name == 'pull_request_target' ||
-        (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null && (
           startsWith(github.event.comment.body, '/review') ||
           startsWith(github.event.comment.body, '/robin')
         ) && (
@@ -48,14 +47,146 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 超时预算必须覆盖最坏路径，否则失败时连网关日志都来不及打：
+    #   就绪探测上限 600s(10m) + 冒烟 240s(4m) + robin 3 次尝试 × llm-timeout 600s(30m) = 44m
+    # 取 50 分钟留余量。正常路径实测范围（2026-09-27，09 仓测试 PR #28 的 CI；旧链路
+    # 另装 opencode 并设 OPENCODE_PATH，与本配置刻意不设不同）：整个 job 约 2–4 分钟
+    # （run 36319218561≈114s 最快、run 36319493968≈233s）。本工作流在生产尚无完整 run
+    # （fork PR 的 pull_request 运行全为 skipped/cancelled），仅供预算留量参考、不作承诺。
+    timeout-minutes: 50
+    env:
+      # 单一来源：就绪检查与 robin 的 model: 都读这个值，避免两处漂移
+      MODEL: big-pickle
+      GATEWAY_PORT: '8083'
+      GATEWAY_URL: http://127.0.0.1:8083/v1
     steps:
+      # ── 网关方案：让请求经由真实 opencode serve 进程上行 ──────────────────────
+      # big-pickle 免费档有五道准入（stream / ≥2 tools / X-Session-ID / opencode UA / 来源），
+      # GitHub runner 即便满足前四道仍恒 403。zengate 通过拉起真实的 opencode serve 子进程
+      # 与 Zen 通信，不模拟客户端，因此绕开的是「来源」那一道而非任何配额/限流检查。
+      # 网关自身鉴权用 ALLOW_NO_AUTH 关闭（只监听 127.0.0.1），故全链路无任何 API key。
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install zengate
+        run: |
+          # 精确钉版本（不是 ^1 这种范围）。这条改动有实测依据：zengate 于 2026-09-27
+          # 01:47 首发，当天 3 小时内连发 5 个版本（1.0.0→1.0.4），首日之后停更。
+          # 范围写法（^1）意味着上游哪天发个 1.1.0 就会静默换掉本仓的网关行为，
+          # 而 review 结论会随之漂移、事后极难归因。精确钉 = 换行为必须先改本文件、先进 PR。
+          # 升级方式：先查 registry.npmjs.org/zengate 的 dist-tags.latest，改这一行，
+          # 并在本注释里更新上面的实测依据。实际版本打进日志便于排查。
+          ZENGATE_VERSION=1.0.4
+          npm install -g "zengate@${ZENGATE_VERSION}"
+          # zengate 自带 opencode-ai 依赖（package.json: "opencode-ai": "^1.18.32"），
+          # 且 binary.js 的解析顺序是 OPENCODE_PATH → bundled 包 → PATH。
+          # 因此这里**刻意不设 OPENCODE_PATH**——设了反而会屏蔽掉 zengate 自己锁定的那份依赖，
+          # 把版本契约从 npm 的 semver 检查挪到"curl 装的 latest 恰好也是 1.x"这种巧合上。
+          #
+          # 回读确认装到的确实是钉住的那一版（registry 语义变化或静默回退时这道会失败）。
+          # 判定必须走显式 [ ... ] + exit：上面这串管道的退出码取自末端（恒 0），
+          # 只靠 `set -e` 管不到它——与本仓「curl -sf | head 恒 0」是同一个坑。
+          #
+          # ⚠️ 这里**不能加 `tail -1`**。npm 的 `ls` 输出在树之后还会补一个空行，
+          # `tail -1` 取到的是那个空行而不是 `└── pkg@ver`，sed 于是永远匹配不到，
+          # `$got` 恒为空 → 报 unknown → 这道校验**每次必失败**（2026-09-28 实测）。
+          # 正确做法：用 sed -n ... p 打印全部匹配行，再 `head -1` 取第一条。
+          got=$(npm ls -g zengate --depth=0 2>/dev/null | tr -d '\r' | sed -n 's/.*zengate@\([^ ]*\).*/\1/p' | head -1)
+          echo "zengate requested=${ZENGATE_VERSION} installed=${got:-unknown}"
+          [ "$got" = "$ZENGATE_VERSION" ] || { echo "::error::zengate version mismatch: wanted ${ZENGATE_VERSION}, got ${got:-unknown}"; exit 1; }
+          # 这里要读的是 zengate **内部嵌套**的那份 opencode-ai（binary.js 实际会加载它，
+          # 因为上面刻意不设 OPENCODE_PATH）。npm 安装全局包时**不提升**依赖：实测 onchange
+          # 的 24 个依赖全在 $P/<pkg>/node_modules/ 下，全局根下没有 chokidar。因此
+          # `npm ls -g opencode-ai` 查的是全局顶层，读到的必然是空——问错了地方。
+          # 正确做法：直接读那份 package.json 的 version 字段。
+          echo "opencode bundled with zengate: $(node -p "require('$(npm root -g)/zengate/node_modules/opencode-ai/package.json').version" 2>/dev/null || echo unknown)"
+
+      - name: Start zengate gateway
+        env:
+          ALLOW_NO_AUTH: 'true'
+          HOST: 127.0.0.1
+          PORT: ${{ env.GATEWAY_PORT }}
+        run: |
+          nohup zengate > /tmp/zengate.log 2>&1 &
+          start=$SECONDS
+          for i in $(seq 1 60); do
+            if curl -sf -m 5 "http://127.0.0.1:${GATEWAY_PORT}/v1/models" > /tmp/models.json 2>/dev/null; then
+              echo "Gateway ready after $((SECONDS - start))s"
+              # OpenCode Zen 的免费模型目录会随时间变动（实测 2026-09-27 两天内就换过一批）。
+              # 在这里显式校验目标模型仍在售，否则下游只会看到「冒烟没答 OK」这种误导性报错。
+              if ! grep -q "\"id\":\"$MODEL\"" /tmp/models.json; then
+                echo "::error::Model '$MODEL' is not in the gateway's current catalog."
+                echo "Available: $(tr ',' '\n' < /tmp/models.json | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | tr '\n' ' ')"
+                echo "Zen rotates its free catalog; update 'model:' in this workflow to a currently listed id."
+                exit 1
+              fi
+              head -c 400 /tmp/models.json
+              echo
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Gateway did not become ready in 600s"
+          cat /tmp/zengate.log
+          exit 1
+
+      - name: Smoke test gateway
+        env:
+          MODEL: ${{ env.MODEL }}
+        run: |
+          # 必须先落盘再判 HTTP 码：直接 `curl -sf | head -c N` 在 bash -e 下退出码取自
+          # 管道末端的 head（恒 0），网关返 4xx/5xx 时这道冒烟闸门依然会「通过」。
+          # model 取自 $MODEL（与 robin 同一来源），不要在此硬编码，否则改了 MODEL
+          # 之后冒烟会去打另一个模型并报出误导性的「did not answer OK」。
+          body=$(printf '{"model":"%s","messages":[{"role":"user","content":"Reply with exactly: OK"}]}' "$MODEL")
+          code=$(curl -s -m 240 -o /tmp/smoke.json -w '%{http_code}' \
+            -X POST "$GATEWAY_URL/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+          echo "smoke HTTP=$code (model=$MODEL)"
+          head -c 300 /tmp/smoke.json; echo
+          [ "$code" = 200 ] || { echo "::error::Gateway smoke test failed (HTTP $code)"; exit 1; }
+          grep -q '"content":"OK"' /tmp/smoke.json \
+            || { echo "::error::$MODEL did not answer OK through the gateway"; exit 1; }
+
       - name: Robin review
         uses: antongulin/robin@v2.7.2
         with:
+          # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，**不是 secret**，
+          # 所以「拿得到」这一点对 fork PR 同样成立（pull_request 不注入 secrets.* 这条限制
+          # 与它无关）。整条链路无 secret 依赖，故不需要 GH_PAT，也不需要原先那道
+          # 「配置不可见就跳过」的守卫。
+          #
+          # ⚠️ 但「拿得到」≠「有写权限」，这正是本注释此前写错的地方：
+          #   fork 来源的 `pull_request` 运行里，GitHub 会把这个 token **降级为只读**，
+          #   而 robin 要发一条 review 评论（需要 pull-requests: write）⇒ 403。
+          #   实测范围（2026-09-28，勿夸大）：在 fork 内开同仓 PR 验证 fork 判定**没有误伤**
+          #   同仓 PR —— 该 PR 的 Robin/pull_request 结论是 failure 而非 skipped，说明条件正确
+          #   放行、确实进了自动路径（**未**验证它最终 review 成功）。
+          #   未验证：fork PR 走 issue_comment 的 /review 是否真能出 review（需维护者实测，
+          #   本账户自 review 自己的 PR 会被 GitHub 422 拒绝）。下面是设计意图，不是实测结论。
+          #   因此**不要**在这里开「Send write tokens to workflows from pull requests」来
+          #   试图让 fork PR 获得写权限——该开关只影响同仓 PR，而为它放宽的却是对
+          #   pull_request 运行的整体信任面；且公共 fork 无论开关如何都是只读。
+          #   本方案的取舍：自动审查只覆盖同仓 PR，fork PR 走 issue_comment 的 /review。
           github-token: ${{ github.token }}
-          llm-api-key: ${{ secrets.LLM_API_KEY }}
-          llm-base-url: ${{ secrets.LLM_BASE_URL }}
-          model: ${{ secrets.LLM_MODEL }}
+          # 网关关闭了鉴权，此处仅占位；Robin 要求 apiKey 非空（空值会被兜底成 "ollama"）。
+          llm-api-key: public
+          llm-base-url: ${{ env.GATEWAY_URL }}
+          model: ${{ env.MODEL }}
+          # 关键：关闭 JSON 响应模式。原因见 review-retry.ts 的 shouldRetryStructuredReview：
+          # 它的空审查重试保护写着 `if (usedJson) return false`，即 JSON 模式下一次都不会重试。
+          # 经 zengate 网关实测 big-pickle 偶发返回字面量 `{}`（5.2s、reasoning 为空），
+          # 那会被当成「0 条发现」直接发出 "Nothing worth flagging" —— 对审查闸门是最坏的假通过。
+          # 关掉后重试保护重新生效，且实测模型更快、发现更多（43.9s/18 条 vs 241s/6 条）。
+          use-json-response-mode: false
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
+          min-command-permission: triage
+          review-on-synchronize: true
+
+      - name: Gateway log
+        if: always()
+        run: tail -40 /tmp/zengate.log 2>&1 || true

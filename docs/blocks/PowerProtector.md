@@ -1,5 +1,13 @@
 # PowerProtector
 
+> [!WARNING]
+> **本文档描述的是旧版（v14 时代）架构,与当前代码（v19 重构后,对应 #44）严重脱节。**
+> 已失效的内容包括但不限于:per-grid 共享 State、Master/Blocked 模式、interest+surcharge
+> 回复公式、恢复速率 recoveryRatePerSecond、"同队伍多台→error"等概念——现行实现为
+> 独立 per-building State + 全队共享时间池 + netSurplus 偿还 + 任意队伍冲突即停机 +
+> lossMultiplier。准确行为以 `src/silicon/world/blocks/power/PowerProtector.java` 的
+> 类注释与实现为准,本文档待完整重写。
+
 ## 基本信息
 
 | 属性 | 值 |
@@ -52,9 +60,9 @@
 - **冲突检测**：同电网同队伍存在 >1 台保护器 → `error=true`，停止工作（阻塞）。
 - **阻塞**：同电网其他保护器正在 保护/恢复 → 本机 `Blocked`，不工作。
 - **PowerVoid 检测**：电网存在 PowerVoid 时停止工作。
-- **拆除限制**：欠款（`debt > 0`）时不可拆除（防通过拆除抹掉欠款），仅 `lastBreakToast` 节流提示横幅。
+- **拆除限制**：欠款（`debt > 0`）时不可拆除（防通过拆除抹掉欠款），经消息系统发送禁止拆除提示（瞬时消息·淡灰色气泡·×图标·低优先级，`lastBreakToast` 节流防刷屏）。
 - **手动停止**：配置面板可启用/禁用（切换 `stopped`），停止后不供电不恢复。
-- **警报音效**：电力不足提示横幅出现时播放一次 `sounds/warn/power-protector.ogg`。
+- **持续型缺电消息**：进入保护时向本队玩家投递一条持续型消息（红底·电源图标·高优先级），内容实时显示全队剩余可用保护时间（直读全队时间池）；消息弹出时播放警示音效 `sounds/power-protector.ogg`（经 Message 内置音效机制，联网时同步资源名）。全队无任何保护器在保护时自动撤下。多台保护器同时触发时会去重，全队始终保持仅一条。
 
 ### 配置参数
 
