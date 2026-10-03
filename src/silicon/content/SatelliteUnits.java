@@ -33,7 +33,10 @@ import silicon.world.blocks.satellite.SatelliteConsole;
  * - playerControllable = true：可被玩家按 Ctrl 接管（原版 possess 流程；InputHandler.java:783 判定
  *   unit.isAI() && team 相同 && !dead && playerControllable()）。**两者缺一不可**——
  *   OrbitSatelliteController 继承 AIController，isAI() 才为真（UnitComp.java:494 是 instanceof 判定）。
- *   接管前后用的都是同一个 controller（见下方 controller 显式指定的说明），轨迹不中断；
+ *   接管期 controller 被替换为 {@code Player} 本身（PlayerComp.java:328 的 unit.controller(this)），
+ *   轨迹控制器不再被驱动，运动改由下方覆写的 {@code update(Unit)} 兜底（与 updateUnit 路径由
+ *   {@code unit.getPlayer() != null} 互斥）；释放时 PlayerComp.java:319 的 resetController()
+ *   经 UnitType.createController() 取回本控制器，轨迹从存档相位续接。
  *   applyMotion 每帧把 vel 归零，玩家输入改不动轨迹——能进去看，推不动它。
  * - logicControllable = false：逻辑处理器不可操控。
  * - allowedInPayloads = false：不可被 payload 方块装载搬运。
@@ -122,8 +125,8 @@ public class SatelliteUnits {
                                  // 单位间推挤在 layerFlying 物理体间发生，与 hittable 无关——
                                  // 不加此旗标卫星会被编入 flying 物理层，与飞行单位互相推挤
                 killable = true; // 保留 scripted 击落能力
-                playerControllable = true; // 允许玩家按 Ctrl 接管（原版 possess）；接管前后都是
-                                           // controller 里那个轨迹控制器在驱动，运动不中断
+                playerControllable = true; // 允许玩家按 Ctrl 接管（原版 possess）；接管期 controller 被换成
+                                           // Player，由下方 update 覆写兜底；释放后 resetController 取回
                 logicControllable = false;
                 allowedInPayloads = false;
                 drawMinimap = false;

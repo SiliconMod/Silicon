@@ -13,7 +13,7 @@ import silicon.world.blocks.satellite.SatelliteConsole;
  *   LEO/MEO 沿经度东西向匀速回绕、纬度正弦摆动（真实 LEO 地面轨迹形态），
  *   SSO 沿纬度南北向回绕（极轨），GEO 定点悬停于发射方位角（地球静止）；
  *   波形按 (1+漂移比) 失谐推进 → 相邻两圈轨迹错开，轨迹族随时间铺满全图（含四角）。
- * - 相位自累加并存在名册里（存档字段），控制器本身无外部状态：读档后经 UnitType.aiController
+ * - 相位自累加并存在名册里（存档字段），控制器本身无外部状态：读档后经 UnitType.controller
  *   工厂重建（轨道参数来自机型），从存档相位精确续接，不跳位（也不依赖 Time.time 是否被重置）；
  * - 位置覆写 + 零速度 ⇒ 物理推挤被即刻清除（叠加 hittable=false 的零碰撞对，双保险）；
  * - unit.rotation 取轨迹切线方向（解析导数），纯装饰；GEO 定点不更新朝向。
@@ -33,6 +33,9 @@ public class OrbitSatelliteController extends AIController {
     /** 本机型对应的发射轨道（SatelliteConsole.ORBIT_*），决定轨迹形态与覆盖半径 */
     public final int orbit;
 
+    /** 空 unit 告警节流计数器（见 {@link #applyMotion} 内的说明） */
+    private static int nullUnitWarn;
+
     public OrbitSatelliteController(int orbit) {
         this.orbit = orbit;
     }
@@ -49,18 +52,30 @@ public class OrbitSatelliteController extends AIController {
      * 轨迹运动（静态方法，两个调用点共用同一套逻辑）：
      * <p>
      * ① **未被接管**：本控制器每帧走这里。引擎只在服务端/单机调用 controller.updateUnit()
-     *    （UnitComp.java:838-841 的 {@code !net.client()} 守卫），客机靠单位同步 + 插值取位置。
+     *    （UnitComp.java:859-860 的 {@code !net.client()} 守卫），客机靠单位同步 + 插值取位置。
      * <p>
-     * ② **被玩家接管**：本控制器**依然在跑** —— 卫星的 controller 是显式指定的
-     *    （见 SatelliteUnits 里 controller 字段的赋值），不走 UnitType.java:281 那个会在
-     *    playerControllable=true 时返回 CommandAI 的默认工厂，所以 possess 前后是同一个控制器，
-     *    轨迹自然连续。这里的静态形式保留下来是给需要"脱离 controller 也能驱动"的场景备用。
+     * ② **被玩家接管**：controller 已被替换为 {@code Player} 本身
+     *    （PlayerComp.java:328 的 {@code unit.controller(this)}），本控制器**不再被驱动**，
+     *    updateUnit() 不会被调用。接管期的轨迹由 SatelliteUnits 里覆写的
+     *    {@code UnitType.update(Unit)} 调用本方法驱动（UnitComp.java:665 无条件每帧调用，
+     *    早于同方法内 L860 的 controller.updateUnit()）。
+     *    两条路径由 {@code unit.getPlayer() != null} 互斥，相位不会双倍累加。
+     *    <p>
+     *    释放时 PlayerComp.java:319 调 {@code resetController()} → {@code UnitType.createController()}
+     *    → 本控制器的工厂，因此会回到①，从存档相位续接。
      * <p>
      * 位置是存档相位的纯函数；同时每帧清零速度——接管期间玩家输入（InputHandler 会对玩家单位
      * 调 moveAt 改 vel）会被立刻抹掉，所以看得见轨迹在走、但改不动它。
      */
     public static void applyMotion(Unit u, int orbit) {
-        if (u == null) return;
+        if (u == null) {
+            // 不静默返回：controller 若被引擎以非常规路径还原，unit 可能为 null，
+            // 表现为「卫星静止且无任何日志」——最难定位的一类症状。节流打一条便于取证。
+            if ((nullUnitWarn++ % 300) == 0) {
+                SiliconLog.info("sat-motion: controller has no unit assigned (orbit=" + orbit + ")");
+            }
+            return;
+        }
         // 名册未就绪（读档时序/旧档名册丢失）：本帧悬停，节流触发全局对账补建记录后恢复运动
         SatelliteManager.SatelliteRecord rec = SatelliteManager.recordOf(u.id);
         if (rec == null) {
