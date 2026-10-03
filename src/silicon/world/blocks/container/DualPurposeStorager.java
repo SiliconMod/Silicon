@@ -4,6 +4,7 @@ import arc.Core;
 import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
+import mindustry.Vars;
 import mindustry.gen.Building;
 import mindustry.type.Liquid;
 import mindustry.world.blocks.liquid.LiquidBlock;
@@ -14,7 +15,7 @@ import silicon.util.SiliconLog;
  * 两用存储方块：可存储物品与单种液体。
  * 继承 StorageBlock，放置于核心旁可与核心连接并为核心扩容（同原版仓库）。
  * 同时通过 hasLiquids + dumpLiquid 提供液体存储与导管抽取能力。
- * 支持 bottomRegion/liquidRegion/topRegion 三层贴图，呈现与原版流体储罐一致的流动+颜色特效。
+ * 支持 bottomRegion/topRegion 两层静态贴图，中间液面用原版 drawTiledFrames 动态绘制（呈现与原版流体储罐一致的流动+颜色特效）。
  */
 @SuppressWarnings("SpellCheckingInspection")
 public class DualPurposeStorager extends StorageBlock {
@@ -24,8 +25,6 @@ public class DualPurposeStorager extends StorageBlock {
     public float liquidPadding = 0f;
     /** 储存罐底座贴图 */
     public TextureRegion bottomRegion;
-    /** 流动液面贴图 */
-    public TextureRegion liquidRegion;
     /** 储存罐顶盖贴图（中心挖空，露出液体） */
     public TextureRegion topRegion;
 
@@ -49,17 +48,13 @@ public class DualPurposeStorager extends StorageBlock {
     @Override
     public void load() {
         super.load();
-        // 按 mod 约定加载储罐三贴图；缺失时回退到主贴图并打印警告
+        // 按 mod 约定加载储罐两静态层贴图（中间液体层用原版 drawTiledFrames 过程绘制，无需贴图文件）；
+        // 缺失时回退到主贴图并打印警告
         this.bottomRegion = Core.atlas.find(name + "-bottom");
-        this.liquidRegion = Core.atlas.find(name + "-liquid");
         this.topRegion = Core.atlas.find(name + "-top");
         if (!bottomRegion.found()) {
             SiliconLog.warn("DualPurposeStorager '{}' missing -bottom texture, fallback to region", name);
             bottomRegion = region;
-        }
-        if (!liquidRegion.found()) {
-            SiliconLog.warn("DualPurposeStorager '{}' missing -liquid texture, fallback to region", name);
-            liquidRegion = region;
         }
         if (!topRegion.found()) {
             SiliconLog.warn("DualPurposeStorager '{}' missing -top texture, fallback to region", name);
@@ -123,7 +118,9 @@ public class DualPurposeStorager extends StorageBlock {
 
             // 与原版 LiquidRouter 完全一致：drawTiledFrames 用 fluidFrames 动画帧画出条纹流动液面，
             // alpha 直接用填充比例（液体多则浓、少则淡），不额外做保底，保证与原版渐变一致。
-            if (liquids.currentAmount() > LIQUID_THRESHOLD) {
+            // 依赖 Vars.renderer.fluidFrames（仅客户端可用）；正常渲染期 renderer 已就绪，
+            // 此处空判为防御性写法，防极端初始化时序下崩溃。
+            if (liquids.currentAmount() > LIQUID_THRESHOLD && Vars.renderer != null) {
                 Liquid liq = liquids.current();
                 if (liq != null) {
                     LiquidBlock.drawTiledFrames(size, x, y, DualPurposeStorager.this.liquidPadding, liq,

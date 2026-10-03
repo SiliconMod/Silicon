@@ -82,6 +82,7 @@ public class Silicon extends Mod {
             MOD = mods.getMod(Silicon.class);
             if (MOD != null) MOD.meta.subtitle = MOD.meta.version;
         });
+        Events.on(EventType.ClientLoadEvent.class, e -> silicon.util.Changelog.checkAndShow());
     }
 
     @Override
@@ -347,7 +348,6 @@ public class Silicon extends Mod {
                 addSection(st, "setting.silicon.group.update");
                 st.checkPref("updatecheck.autoCheck", true);
                 st.pref(new CustomSetting(t -> t.button(Core.bundle.get("setting.checkUpdate.name"), Styles.defaultt, () -> UpdateChecker.check(true)).width(200f).padTop(6f)));
-
                 // 灰色细线：与「恢复默认设置」分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
 
@@ -496,8 +496,7 @@ public class Silicon extends Mod {
         dialog.show();
     }
 
-    private void handlePauseCommand(Player p, String msg) {
-        String[] parts = msg.split(" ");
+    private void handlePauseCommand(Player p, String msg) {        String[] parts = msg.split(" ");
         if (parts.length < 2) return;
 
         boolean isHost = p.admin || p.name.equals(state.map.author());

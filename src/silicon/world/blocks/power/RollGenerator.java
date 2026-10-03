@@ -5,7 +5,6 @@ import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Lines;
 import arc.math.Mathf;
-import arc.struct.Seq;
 import arc.util.Interval;
 import arc.util.Strings;
 import arc.util.Time;
@@ -41,7 +40,6 @@ public class RollGenerator extends PowerGenerator {
      * Speed of warmup animation transition
      */
     public float warmupSpeed = 0.1f;
-
 
     /**
      * Constructor for RollGenerator block
@@ -113,18 +111,14 @@ public class RollGenerator extends PowerGenerator {
          */
         @Override
         public void updateTile() {
-            // 提前 return 前必须归零:currentPowerProduction 是上一帧缓存,
-            // getPowerProduction() 无门控直接返回它——禁用/PowerVoid 后若不归零,幽灵供电会持续进入电网;
-            // 该值还会随存档读写（见本类 write/read），读档后直接成为电网看到的初值。
-            // 注:断电不等于停止 updateTile（引擎只在 !enabled && block.noUpdateDisabled 时才跳过），
-            // 所以只需覆盖 enabled 与 PowerVoid 这两个显式出口。
+            // 提前 return 前必须归零：currentPowerProduction 是上一帧缓存，getPowerProduction() 无门控直接返回它——
+            // 禁用/PowerVoid 后若不归零，幽灵供电会持续进入电网；该值还会随存档读写。
             if (!enabled) {
                 currentPowerProduction = 0f;
                 return;
             }
-            // 单遍 graph.all 扫描:此前两轮"按类型取全队列表 × Seq.contains(逐个线性查图)"
-            // 是 O(R²G)/O(V²G)——图越大、同类越多每帧开销越差;图成员直接遍历一次即得,
-            // 语义不变(仍只统计本队、本图内的同类建筑)
+            // #39 性能优化：原先每 tick 遍历全队同类建筑、再对每个做 power.graph.all 线性查找
+            // （O(k×m)），改为遍历本建筑所在电网一次统计（O(m)）。
             int i = 0;
             for (Building b : power.graph.all) {
                 if (b.team != team) continue;

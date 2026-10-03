@@ -6,6 +6,7 @@ import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
 import arc.math.geom.Geometry;
+import arc.scene.ui.layout.Table;
 import arc.util.Eachable;
 import arc.util.Nullable;
 import arc.util.io.Reads;
@@ -13,7 +14,6 @@ import arc.util.io.Writes;
 import mindustry.Vars;
 import mindustry.entities.units.BuildPlan;
 import mindustry.gen.Building;
-import mindustry.gen.Sounds;
 import mindustry.gen.Unit;
 import mindustry.graphics.Drawf;
 import mindustry.world.Block;
@@ -30,12 +30,18 @@ public class Switch extends Block {
         super(name);
         update = true;
         solid = true;
-        configurable = true; // 可配置：支持按钮式切换
-        sync = true; // 操纵另一端 enabled 的控制块：writeBase 服务器快照兜底（同原版 SwitchBlock）
+        sync = true; // 操纵另一端 enabled 的控制块：写读档后 fE 同步（同原版 SwitchBlock）
+//        configurable = true; // 可配置：支持按钮式切换
         rotate = true;
         group = BlockGroup.logic;
-        // 配置同步开关自身状态 fE（联网经 Call.tileConfig 全端一致）；front 目标由 updateTile 同帧应用
-        config(Boolean.class, (building, value) -> ((SwitchBuild) building).fE = value);
+        config(Boolean.class, (building, enabled) -> {
+            Building front = building.front();
+            // #28 只允许控制同队建筑
+            if (front == null || front.team != building.team || front instanceof SwitchBuild) return;
+            // #43 单次状态更新（不持续覆盖），并按该次设置刷新 switch 记忆状态
+            front.enabled = enabled;
+            if (building instanceof SwitchBuild sb) sb.fE = enabled;
+        });
         state = new TextureRegion[2];
     }
 
@@ -93,22 +99,35 @@ public class Switch extends Block {
         @Override
         public void updateTile() {
             super.updateTile();
-            // #28 同队校验：不控制其它队伍建筑
-            if (front() != null && front().team == team && front().enabled != fE) front().enabled = fE;
+            // #43 同步：前方建筑被外部（逻辑处理器等）修改时，跟随其实际状态
+            Building f = front();
+            if (f != null && f.team == team) {
+                if (f.enabled != fE) fE = f.enabled;
+            }
         }
 
-/**
-         * 点按切换：对同队且非开关的目标建筑翻转其启用状态（标准 configure 链路，联网全端一致，
-         * 与原版 SwitchBlock 相同）。返回 false 表示不弹配置菜单——点按即切换。
-         */
         @Override
-        public boolean configTapped() {
-            // #28 同队校验
+        public void tapped() {
+            // #28 同队校验：单次切换，不持续覆盖外部逻辑
             if (front() != null && front().team == team && !(front() instanceof SwitchBuild)) {
-                configure(!fE);
-                Sounds.click.at(this);
+                fE = !fE;
+                configure(fE);
             }
-            return false;
+        }
+
+//        /**
+//         * 切换式按钮配置界面：按一次切换 front 建筑启用状态并持续保持。
+//         * 按钮尺寸 80×40（与原版开关按钮一致）。
+//         */
+        @Override
+        public void buildConfiguration(Table table) {
+//            table.button(Core.bundle.get("block.silicon-switch.name"), Styles.flatTogglet, () -> {
+            Building front = front();
+            if (front != null && front.team == team && !(front instanceof SwitchBuild)) {
+                fE = !fE;
+                configure(fE);
+            }
+//            }).checked(fE).size(80f, 40f).pad(4f);
         }
 
         /**
