@@ -47,6 +47,8 @@ import static mindustry.Vars.*;
 public class BlockSearch{
     private static final String resultName = "silicon-search-result";
     private static final String searchRowName = "silicon-block-search";
+    /** 搜索栏控件统一高度（图标/输入框/清除按钮共用，避免数值耦合） */
+    private static final float searchH = 38f;
 
     //reflected private fields of PlacementFragment
     private static Field blockCatTableF, blockTableF, blockPaneF, togglerF, selectedBlocksF, menuHoverBlockF;
@@ -167,11 +169,11 @@ public class BlockSearch{
         searchRow = new Table(Tex.pane2);
         searchRow.name = searchRowName;
         searchRow.top().left().margin(4f);
-        searchRow.image(Icon.zoom).size(38f).padRight(8f);
-        field = searchRow.field("", BlockSearch::onChanged).growX().height(38f)
+        searchRow.image(Icon.zoom).size(searchH).padRight(8f);
+        field = searchRow.field("", BlockSearch::onChanged).growX().height(searchH)
             .name("silicon-search-field").maxTextLength(64).get();
         field.setMessageText(Core.bundle.get("blocksearch.hint"));
-        searchRow.button(Icon.cancel, Styles.clearNoneTogglei, BlockSearch::clearSearch).size(38f).padLeft(6f).name("silicon-search-clear");
+        searchRow.button(Icon.cancel, Styles.clearNoneTogglei, BlockSearch::clearSearch).size(searchH).padLeft(6f).name("silicon-search-clear");
         historyButton = searchRow.button(Icon.downOpen, Styles.clearNonei, BlockSearch::toggleHistory).size(38f).padLeft(4f)
             .name("silicon-search-history").tooltip(Core.bundle.get("blocksearch.history")).get();
         historyButton.visible = showHistoryEnabled(); //hot-applied every frame in update()

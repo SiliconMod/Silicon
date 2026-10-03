@@ -35,8 +35,11 @@ public class PowerSource extends mindustry.world.blocks.sandbox.PowerSource {
         public float getPowerProduction() {
             if (power == null || power.graph == null) return 0f;
             int i = 0;
-            // 遍历图内实际建筑（Seq 迭代，避免原始数组容量槽位）
-            for (Building e : power.graph.all) {
+            // 按有效 size 迭代：Seq 的 items 尾部含空槽（容量>size），for-each 会扫到 null → 有界下标 + null 守卫
+            int n = power.graph.all.size;
+            for (int k = 0; k < n; k++) {
+                Building e = power.graph.all.items[k];
+                if (e == null) continue;
                 if (e.block instanceof PowerVoid) return 0f;
                 if (e.block instanceof PowerSource) {
                     i++;

@@ -43,15 +43,14 @@ import static mindustry.Vars.ui;
  * <p>
  * 整框调序：按住白框左侧的灰色拖动手柄拖动整框换位，拖拽时：
  * - 白色拖拽影（含内部黄按钮）跟随鼠标移动；
- * - 灰色占位框在落点位置（两白框之间的空隙里）实时显示，水平位置跟随鼠标；
- * - 落点位置两旁的白色框自动让位，拉开空隙；
- * - 松手后灰色占位框消失，白框按落点重排。
+ * - 被拖框就地渲染成灰色占位，随指针在 slotBoxes 列表内与其它白框实时交换位置（不重叠、松手才落位）；
+ * - 松手后灰色占位恢复为白框，并按新顺序排布、写回权重。
+ * <p>
+ * 面板为全屏布局（构造函数 setFillParent(true)）。
  */
 public class UniversalJunctionDialog extends BaseDialog {
     /** 单个输入区域最多白色槽位数 */
     private static final int MAX_SLOTS = 4;
-    /** 红框（优先级 0 区域）高度基准值：无论内部有无按钮都保持不变、不消失 */
-    private static final float RED_H = 140f;
     /** 方向按钮尺寸基准值：红框与白框内一致，保证按钮大小不变 */
     private static final float BTN_W = 140f;
     private static final float BTN_H = 100f;
@@ -72,11 +71,6 @@ public class UniversalJunctionDialog extends BaseDialog {
             Fill.crect(x, y, w, h);
         }
     };
-    /** 整框拖拽时灰色落点占位框的高度（基准值） */
-    private static final float PLACE_H = 60f;
-    /** 按钮拖到空白处时「新建槽位」长条灰框的高度：比按钮(y=52)高，避免内嵌按钮框与大框上下边缘重叠 */
-    private static final float BTN_HINT_H = 100f;
-
     UniversalJunction.UniversalJunctionBuild build;
     /** 单个黄色按钮正在被拖动时置 true：抑制整框重排的灰色占位框，避免按钮拖拽与整框拖拽互相干扰 */
     boolean draggingButton = false;
@@ -246,11 +240,8 @@ public class UniversalJunctionDialog extends BaseDialog {
         void rebuildSlots() {
             slotLayer.clearChildren();
             for (int i = 0; i < slotBoxes.size; i++) {
-                int n = slotContents.get(i).size;
-                // 若该框正显示灰色占位（拖拽悬停中），多算一个按钮高度使白框实时扩大
-                if (slotBoxes.get(i).previewInsert >= 0) n++;
-                float h = n * (BTN_H + 8f) + 14f;
-                slotLayer.add(slotBoxes.get(i)).growX().height(h).padBottom(40f).row();
+                // 高度统一走 slotHeightWithPreview（含占位 +1 / 拖出收缩 -1），公式只有一处定义
+                slotLayer.add(slotBoxes.get(i)).growX().height(slotHeightWithPreview(i)).padBottom(40f).row();
             }
             slotLayer.invalidateHierarchy();
         }
@@ -487,7 +478,6 @@ public class UniversalJunctionDialog extends BaseDialog {
 
                 addListener(new InputListener() {
                     private Table ghost; // 整框拖拽影（跟随指针的「白框+内部黄按钮」整体）
-                    private Table placeGhost; // 灰色落点占位框（root 层）
                     private float downX, downY; // 按下时的指针(stage)坐标，用于判定是否开始拖动
                     private float ghostW, ghostH; // 拖拽影的真实尺寸（灰色落点框与它对齐）
                     private boolean dragging; // 是否已进入整框拖动
@@ -565,7 +555,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                         gh.toFront();
                         layoutDragPreview(event.stageX, event.stageY);
                         gh.toFront(); // 白色拖拽影始终在上层
-                        if (placeGhost != null) placeGhost.toFront(); // 但灰色落点框压过拖拽影，确保可见
                     }
 
                     @Override
@@ -578,7 +567,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                             ghost.remove();
                             ghost = null;
                         }
-                        removePlaceGhost();
                         rs.clearDragPreview();
                         // 白框顺序已在拖动过程中实时换好，松手只需恢复外观并同步权重
                         rs.syncWeights();
@@ -657,37 +645,8 @@ public class UniversalJunctionDialog extends BaseDialog {
                         }
                     }
 
-                    /** 绘制灰色落点占位框到最终落点位置（stage 坐标，水平跟随鼠标但限制在大白框列内） */
-                    private void drawPlaceGhost(float bottomStageY, float sx) {
-                        float boxW = ghostW > 0 ? ghostW : SlotBox.this.getWidth();
-                        float ph = selfH > 0 ? selfH : PLACE_H;
-                        Vec2 cb = rs.column.localToStageCoordinates(Tmp.v1.set(0f, 0f));
-                        float colLeft = cb.x;
-                        float colRight = cb.x + rs.column.getWidth();
-                        float marginX = 10f;
-                        float minCx = Math.min(colLeft + marginX + boxW / 2f, colRight - marginX - boxW / 2f);
-                        float maxCx = Math.max(colLeft + marginX + boxW / 2f, colRight - marginX - boxW / 2f);
-                        float centerX = Mathf.clamp(sx, minCx, maxCx);
-
-                        if (placeGhost != null && Math.abs(placeGhost.y - bottomStageY) < 1f
-                                && Math.abs(placeGhost.x - (centerX - boxW / 2f)) < 1f) return;
-
-                        if (placeGhost != null) placeGhost.remove();
-                        placeGhost = new Table();
-                        placeGhost.background(Tex.whitePane);
-                        placeGhost.setColor(Color.gray);
-                        placeGhost.setSize(boxW, ph);
-                        placeGhost.touchable = Touchable.disabled;
-                        placeGhost.setPosition(centerX - boxW / 2f, bottomStageY);
-                        Core.scene.root.addChild(placeGhost);
-                    }
-
-                    private void removePlaceGhost() {
-                        if (placeGhost != null) {
-                            placeGhost.remove();
-                            placeGhost = null;
-                        }
-                    }
+                    /** 整框拖拽预览：被拖框在 slotLayer 列表内实时换位 + applySlotOrder（在 layoutDragPreview 内处理）。
+                     * 被拖框自身渲染成灰色占位(wholeDragging)。白色拖拽影（跟随指针）保留。 */
                 });
 
                 // 布局：整框可拖动，内部按钮区
@@ -783,8 +742,9 @@ public class UniversalJunctionDialog extends BaseDialog {
 
             row();
 
-addListener(new InputListener() {
+            addListener(new InputListener() {
                 private Table hint; // 灰色落点提示框（root 层，按钮大小一致）
+                private float[] topBuf; // 预览用的 top 数组（拖拽期复用，避免每帧分配）
 
                 @Override
                 public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button) {
@@ -1065,7 +1025,8 @@ addListener(new InputListener() {
                     float GAP = 40f;
                     int phantIdx = srcSlotBox != null ? rs.slotBoxes.indexOf(srcSlotBox) : -1;
                     // 各白框（含 phantom）在「实时堆叠」下的 top(stage)：从当前堆叠顶起向下依次排布
-                    float[] top = new float[nAll];
+                    if (topBuf == null || topBuf.length < nAll) topBuf = new float[nAll];
+                    float[] top = topBuf;
                     float baseTop = currentStackTop();
                     float y = baseTop;
                     for (int j = 0; j < nAll; j++) {

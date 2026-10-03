@@ -6,6 +6,7 @@ import arc.graphics.g2d.TextureRegion;
 import arc.math.Mathf;
 import arc.scene.ui.Image;
 import arc.scene.ui.layout.Table;
+import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Align;
 import mindustry.Vars;
@@ -51,7 +52,7 @@ public class Changelog {
 
     private static final String SEEN_KEY = "silicon.changelog.seen";
     /** 方块图标缓存：避免每次弹窗对每个条目重复 Vars.content.blocks() 线性查找 */
-    private static final arc.struct.ObjectMap<String, TextureRegion> iconCache = new arc.struct.ObjectMap<>();
+    private static final ObjectMap<String, TextureRegion> iconCache = new ObjectMap<>();
 
     /**
      * 每次启动必弹：
@@ -63,7 +64,7 @@ public class Changelog {
         if (current.isEmpty()) return;
         String seen = Core.settings.getString(SEEN_KEY, "");
 
-        // 收集所有 ≤ 当前版本 且 版本号不重复的条目（保持 ENTRIES 旧→新顺序）
+        // 收集所有 ≤ 当前版本的条目（用于确定目标版本；保持 ENTRIES 旧→新顺序）
         Seq<Entry> valid = new Seq<>();
         for (Entry e : ENTRIES) {
             if (UpdateChecker.isNewer(e.version, current)) continue;

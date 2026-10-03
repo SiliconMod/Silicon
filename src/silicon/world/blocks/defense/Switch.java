@@ -30,6 +30,7 @@ public class Switch extends Block {
         super(name);
         update = true;
         solid = true;
+        sync = true; // 操纵另一端 enabled 的控制块：写读档后 fE 同步（同原版 SwitchBlock）
 //        configurable = true; // 可配置：支持按钮式切换
         rotate = true;
         group = BlockGroup.logic;

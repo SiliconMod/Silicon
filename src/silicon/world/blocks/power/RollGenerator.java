@@ -41,8 +41,6 @@ public class RollGenerator extends PowerGenerator {
      */
     public float warmupSpeed = 0.1f;
 
-
-
     /**
      * Constructor for RollGenerator block
      * @param name The name identifier for this block
