@@ -22,8 +22,6 @@ import mindustry.mod.Mods;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog;
-import silicon.audio.MusicNetwork;
-import silicon.audio.MusicPlayer;
 import silicon.content.SatelliteUnits;
 import silicon.content.block.Blocks;
 import silicon.util.SatelliteManager;
@@ -39,8 +37,6 @@ import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.signal.SignalRelay;
 import silicon.world.blocks.signal.SignalSource;
 import silicon.ui.BlockSearch;
-import silicon.ui.MusicBar;
-import silicon.ui.MusicPlayerDialog;
 import silicon.ui.MessagePanel;
 
 import static mindustry.Vars.*;
@@ -123,7 +119,6 @@ public class Silicon extends Mod {
         Events.on(EventType.WorldLoadEvent.class, e -> {
             SignalSource.markDirty();
             SignalRelay.markDirty();
-            MusicNetwork.reset();
             SatelliteManager.onWorldLoaded();          // 步骤 3
             Core.app.post(() -> SatelliteManager.onWorldLoaded(true)); // 步骤 5
             SignalOverlay.reset(); // 清颜色缓存/色相分配/显示状态，防跨世界累积
@@ -290,22 +285,6 @@ public class Silicon extends Mod {
             Vars.pauseWhitelist.remove(target);
         });
 
-        // —— 音乐播放器：核心/网络/悬浮条初始化 ——
-        MusicPlayer.init();
-        MusicNetwork.init();
-        MusicBar.init();
-
-        // ClientLoadEvent 时确保内置曲目已载入（Musics.* 此时已 load）
-        Events.on(EventType.ClientLoadEvent.class, e -> MusicPlayer.ensureInternalTracks());
-
-        // 音乐播放器快捷键（默认 F9，可在设置里通过 core settings 调整）
-        Events.run(EventType.Trigger.update, () -> {
-            if (!state.isGame() && !ui.settings.isShown()) return;
-            if (Core.input.keyTap(musicKey())) {
-                MusicPlayerDialog.open();
-            }
-        });
-
         // 主界面自动检查 GitHub 更新（可在设置中关闭；有更新才显示横幅，初始隐藏）
         Events.on(EventType.ClientLoadEvent.class, e -> {
             if (Core.settings.getBool("updatecheck.autoCheck", true)) {
@@ -364,10 +343,6 @@ public class Silicon extends Mod {
                 // —— 界面 ——
                 addSection(st, "setting.silicon.group.ui");
                 st.checkPref("universal-junction.newUI", false);
-                // 灰色细线：与音乐播放器设分隔（注册为设置项，rebuild 时保留）
-                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
-                // —— 音乐播放器 ——
-                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("musicplayer.open"), Styles.defaultt, MusicPlayerDialog::open).width(200f).padTop(6f)));
 
                 // —— 更新 ——
                 addSection(st, "setting.silicon.group.update");
@@ -472,11 +447,6 @@ public class Silicon extends Mod {
                 messagePanel.toggle();
             }
         });
-    }
-
-    /** 音乐播放器快捷键（默认 f9） */
-    private static arc.input.KeyCode musicKey() {
-        return arc.input.KeyCode.f9;
     }
 
     public static void showWhitelistDialog() {
