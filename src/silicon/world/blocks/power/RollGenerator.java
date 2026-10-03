@@ -111,16 +111,24 @@ public class RollGenerator extends PowerGenerator {
          */
         @Override
         public void updateTile() {
-            if (!enabled) return;
+            // 提前 return 前必须归零：currentPowerProduction 是上一帧缓存，getPowerProduction() 无门控直接返回它——
+            // 禁用/PowerVoid 后若不归零，幽灵供电会持续进入电网；该值还会随存档读写。
+            if (!enabled) {
+                currentPowerProduction = 0f;
+                return;
+            }
             // #39 性能优化：原先每 tick 遍历全队同类建筑、再对每个做 power.graph.all 线性查找
             // （O(k×m)），改为遍历本建筑所在电网一次统计（O(m)）。
             int i = 0;
-            boolean hasPowerVoid = false;
             for (Building b : power.graph.all) {
-                if (b.block instanceof RollGenerator) i++;
-                else if (b.block instanceof PowerVoid) hasPowerVoid = true;
+                if (b.team != team) continue;
+                if (b.block instanceof RollGenerator) {
+                    i++;
+                } else if (b.block instanceof PowerVoid) {
+                    currentPowerProduction = 0f;
+                    return;
+                }
             }
-            if (hasPowerVoid) return;
             if (Float.isNaN(currentPowerProduction)) {
                 lastCurrentPowerProduction = 0f;
             } else {
