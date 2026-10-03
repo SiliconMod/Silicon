@@ -7,14 +7,17 @@ import mindustry.type.ItemStack;
 import mindustry.world.Block;
 import mindustry.world.meta.BuildVisibility;
 import silicon.world.blocks.container.DualPurposeStorager;
+import silicon.world.blocks.defense.LubricantInjector;
 import silicon.world.blocks.defense.Switch;
 import silicon.world.blocks.distribution.ItemTransferHub;
+import silicon.world.blocks.effect.EfficiencyControlTower;
 import silicon.world.blocks.distribution.Junction;
 import silicon.world.blocks.distribution.UniversalJunction;
 import silicon.world.blocks.power.GeneratorPump;
 import silicon.world.blocks.power.PowerProtector;
 import silicon.world.blocks.power.RollGenerator;
 import silicon.world.blocks.production.MineConverter;
+import silicon.world.blocks.production.PetroleumRefinery;
 import silicon.world.blocks.sandbox.MessageTest;
 import silicon.world.blocks.sandbox.PowerSource;
 import silicon.world.blocks.satellite.SatelliteConsole;
@@ -30,8 +33,9 @@ import static mindustry.type.ItemStack.with;
 public class Blocks {
     public static Block powerGeneratorPump, dualPurposeJunction, dualPurposeStorager,
             rollGenerator, powerProtector, powerSource, mineConverter, theSwitch, itemTransferHub,
-            dimensionAnchor, signalSource, universalJunction, signalRelay, signalJammer,
-            satelliteLauncher, satelliteConsole, messageTest, signalDetector;
+            dimensionAnchor, signalSource, universalJunction, signalRelay, messageTest, petroleumRefinery,
+            lubricantInjector, efficiencyControlTower,
+            signalJammer, satelliteLauncher, satelliteConsole, signalDetector;
 
     public static void load() {
         powerGeneratorPump = new GeneratorPump("power-generator-pump") {{
@@ -167,6 +171,36 @@ public class Blocks {
             alwaysUnlocked = true;
             size = 1;
             health = 60;
+        }};
+        // 石油炼化厂：2x2 工厂方块。配方（每秒）：25 石油 + 50 氢气 -> 10 润滑油 + 0.2 硫（周期 5s，功耗 240/s）
+        petroleumRefinery = new PetroleumRefinery("petroleum-refinery") {{
+            requirements(Category.crafting, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 100, Items.lead, 80, Items.graphite, 60, Items.silicon, 60));
+            alwaysUnlocked = true;
+            size = 2;
+            health = 320;
+        }};
+        // 润滑油注入器：2x2 支援方块，耗润滑油使紧贴的己方炮塔攻速 +20%（与强化液加法叠加，攻击时按炮塔数消耗 5/s）、
+        // 存油期间转角速率 ×2（+100%，自动索敌与玩家控制同等生效）。强化内容由 BuildingBoostSystem 驱动：
+        // 效果封装为 Boost（silicon.util.boosts），资格/队伍/互斥/撤销由 System 兜底；规则名单
+        // （BuildingBoostSystem.boostableTypes）默认仅放行炮塔，应用前先查队伍+名单，非炮塔方块不会被套用炮塔专用逻辑
+        lubricantInjector = new LubricantInjector("lubricant-injector") {{
+            requirements(Category.turret, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 120, Items.lead, 80, Items.silicon, 40));
+            alwaysUnlocked = true;
+            size = 2;
+            health = 220;
+        }};
+        // 效率控制塔：3x3 支援方块，以塔为中心 15x15 格区域内，耗电的己方工厂附上「节能」强化
+        // （电力 -20%、生产速度 -10%，两者由 MJ 的电力请求/建筑效率两个独立入口实现，互不干扰）。
+        // 配置面板滑块切换「关闭 / 节能」，走标准 config 链路（联网全端一致 + 存盘持久化）。
+        // 区域内可含多台塔：System 按「同一效果至多一份」处理，不会成倍叠加。
+        efficiencyControlTower = new EfficiencyControlTower("efficiency-control-tower") {{
+            requirements(Category.effect, BuildVisibility.shown,
+                    ItemStack.with(Items.copper, 200, Items.lead, 150, Items.silicon, 80));
+            alwaysUnlocked = true;
+            size = 3;
+            health = 300;
         }};
         // 信号检测器：新方块一律追加在末尾，与上游注册序保持一致（纯测量设备，无游戏逻辑）。
         // 顺序不决定存档兼容（存档按内容名映射），但插队会移动其后所有方块的 content id。

@@ -541,6 +541,12 @@ public class MessageSystem {
         public Team team;
         /** 全局可见：true 时所有玩家（含敌方阵营）都可收取；false 时仅 {@link #team} 同队玩家可见。 */
         public boolean global;
+        /**
+         * 仅本地消息：<b>不参与联网广播</b>——只出现在投递者自己的面板上，其他在线玩家（含敌队）收不到。
+         * <p>用于「玩家本地主动查看详情」这类纯表现诉求（例如点强化按钮查看该建筑的强化详情），
+         * 避免把个人操作广播成全服消息。仍在本地面板正常显示、按 {@link #ttl} 到期。
+         */
+        public boolean local;
         /** 跨进程稳定 ID：权威进程（服务器/单机）投递时分配，联网客户端镜像沿用；本地未同步消息为 -1。 */
         public long uid = -1;
         /**
@@ -584,6 +590,10 @@ public class MessageSystem {
         public Message global() { this.global = true; return this; }
         /** 设置全局可见标记。 */
         public Message global(boolean g) { this.global = g; return this; }
+        /** 标记为仅本地消息（不广播给其他玩家，只给投递者自己的面板）。 */
+        public Message local() { this.local = true; return this; }
+        /** 设置仅本地标记。 */
+        public Message local(boolean l) { this.local = l; return this; }
 
         /** 该消息是否对指定的观看者可见：全局消息所有玩家可收；带队伍的消息仅同队可收；未带队伍的消息不限制（通用消息）。 */
         public boolean visibleTo(Team viewer) {

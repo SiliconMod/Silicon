@@ -194,6 +194,8 @@ public class MessageSync implements MessageSystem.Listener {
 
     @Override
     public void messageAdded(Message msg, int index) {
+        // 仅本地消息：只给投递者自己的面板看，不广播（否则房主点一下按钮全服都能看到）
+        if (msg.local) return;
         push(msg, OP_ADD);
     }
 
@@ -231,7 +233,7 @@ public class MessageSync implements MessageSystem.Listener {
         if (!net.server() || !Vars.state.isGame()) return;
         float now = Time.time;
         for (Message m : MessageSystem.instance.all()) {
-            if (m.type != MessageType.PERSISTENT) continue;
+            if (m.type != MessageType.PERSISTENT || m.local) continue;
             String t = m.currentTitle();
             String c = m.currentContent();
             boolean changed = !eq(t, m.lastSyncTitle) || !eq(c, m.lastSyncContent);

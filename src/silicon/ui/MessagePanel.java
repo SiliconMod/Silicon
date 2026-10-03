@@ -147,7 +147,7 @@ public class MessagePanel extends Table implements MessageSystem.Listener {
         if (this.expanded && this.pane != null && Time.globalTime - this.expandTime > 0.35f) {
             this.markVisibleRead();
         }
-        if (this.expanded && this.pane != null && Core.scene != null && !this.hasMouse() && Core.scene.getScrollFocus() == this.pane) {
+        if (this.pane != null && Core.scene != null && Core.scene.getScrollFocus() == this.pane && (!this.expanded || !this.hasMouse())) {
             Core.scene.setScrollFocus(null);
         }
         if (this.scrollToTopPending) {
@@ -1129,7 +1129,8 @@ public class MessagePanel extends Table implements MessageSystem.Listener {
             if (remW <= 0.5f) {
                 return;
             }
-            float tintA = this.msg.bubbleColor.a * 0.5f;
+            // 收起态细条是唯一能看出剩余时长的视觉元素，透明度提到 80%；展开态维持 50% 避免遮挡正文。
+            float tintA = this.msg.bubbleColor.a * (this.collapsed ? 0.8f : 0.5f);
             Draw.color(this.msg.overlayColor.r, this.msg.overlayColor.g, this.msg.overlayColor.b, alpha * tintA);
             float barH = this.collapsed ? 4.0f : this.getHeight();
             float barY = this.collapsed ? barH / 2.0f : this.getHeight() / 2.0f;

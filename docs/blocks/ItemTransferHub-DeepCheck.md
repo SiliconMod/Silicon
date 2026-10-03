@@ -32,8 +32,32 @@
 | S21 | 无兜底动用工厂输入库存 | ItemTransferHub 不含 `isInputStockOfFactory` |
 
 ## 自动化
-`powershell -ExecutionPolicy Bypass -File scripts/hub-deep-check.ps1`
-返回 26/26 PASS 且 BUILD 成功才允许覆盖游戏模组目录并重启。
+
+**全流程**（锚点校验 → 编译 → 部署到两个模组目录）：
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1
+```
+
+返回 **30/30** PASS 且 BUILD 成功才允许覆盖游戏模组目录并重启。脚本内 `$total=30` 是硬门禁，
+任一锚点 FAIL 即 `exit 1` 阻断部署。
+
+**只校验锚点、跳过编译与部署**（CI / 只想确认代码锚点时用，无任何副作用）：
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1 -AnchorsOnly
+```
+
+上表 S1~S21 是**人工可读的要点摘录**（按语义归并），并非与脚本 30 条断言一一对应；
+以脚本实际断言为准。
+
+> 脚本曾被 `807292c 清理` 误删，导致 `.github/robin.yml`、`README.md`（×2）与本文件三处引用悬空，
+> 已由 `04eefae` 原样恢复（与删除前逐字节一致）。恢复时另修两处**环境漂移**：
+> ① 产物 glob 曾硬编码 `Silicon-*-v159.7.jar`，而 `build.gradle` 的 `mindustryVersion` 已升到 `v160.5`
+> ——glob 匹配不到导致 `$jar` 为 `null`、部署半段崩；现改为从 `build.gradle` 现读 `mindustryVersion`，
+> 并在匹配不到产物时显式报错退出。② `JAVA_HOME` 曾硬编码他人机器路径
+> `C:\Users\56308\.jdks\jbr-17.0.7`，换机即 BUILD FAIL；现按「已有 JAVA_HOME → 约定目录探测 JDK17 →
+> 交给 gradlew」三级回退。
 
 ## 人工复核
 - 放置预览：拖中枢幽灵是否见淡蓝灰细线 + 方框；传送带等纯物流方块不出现可连提示

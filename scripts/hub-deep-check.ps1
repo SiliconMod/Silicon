@@ -1,6 +1,12 @@
-﻿param()
+﻿# 允许只跑锚点校验、跳过 build+deploy（CI / 只想验证代码锚点时用）：
+#   powershell -ExecutionPolicy Bypass -File scripts\hub-deep-check.ps1 -AnchorsOnly
+param([switch]$AnchorsOnly)
 $ErrorActionPreference = "Continue"
-# 固化检查：对齐 a0.11.17.x 当前代码锚点（推送核心优先/输入料静态保护/电力硬门控+探测/计费平滑/同窗统计/路径过滤）
+# 固化检查：对齐当前代码锚点（推送核心优先/输入料静态保护/电力硬门控+探测/计费平滑/同窗统计/路径过滤）
+# 锚点总数 $total=30 是硬门禁：任一 FAIL 即 exit 1 阻断部署。
+# 本脚本被 PR #74 复审从误删恢复；恢复时另修了两处**环境漂移**（详见下方对应注释）：
+#   ① jar glob 曾硬编码 v159.7，而 build.gradle 已升到 v160.5 → glob 匹配不到、部署半段静默崩
+#   ② JAVA_HOME 曾硬编码他人机器路径 C:\Users\56308\... → 换机即 BUILD FAIL
 $hub     = "src/silicon/world/blocks/distribution/ItemTransferHub.java"
 $routing = "src/silicon/world/blocks/distribution/HubRouting.java"
 $text    = Get-Content $hub -Raw -Encoding UTF8
@@ -39,18 +45,41 @@ $pass += ok ($text.Contains("cur == b") -and $text.Contains("nb == b")) "同网�
 $pass += ok ([regex]::Matches($text, "Pal\.reactorPurple").Count -ge 2) "网络内紫色标记（单击+放置预览两处）"
 Write-Host "--- $pass/$total ---" -ForegroundColor Cyan
 if($pass -ne $total){ exit 1 }
+if($AnchorsOnly){ Write-Host "AnchorsOnly：跳过 build/deploy" -ForegroundColor Cyan; exit 0 }
 # 编译（JDK17：build-tools 34 d8 需要）
-$env:JAVA_HOME = "C:\Users\56308\.jdks\jbr-17.0.7"
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+# JAVA_HOME 不再硬编码某一台机器的路径（原为 C:\Users\56308\.jdks\jbr-17.0.7，换机必 FAIL）：
+# ① 已有且有效的 JAVA_HOME 优先；② 否则按约定目录自动探测 JDK17；③ 都没有就交给 gradlew 自行选择。
+$jdk = $env:JAVA_HOME
+if(-not $jdk -or -not (Test-Path (Join-Path $jdk "bin\java.exe"))){
+  $cands = @()
+  $cands += Get-ChildItem "D:\_Game\Minecraft" -Directory -Filter "*jdk17*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+  $cands += Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+  $cands += Get-ChildItem (Join-Path $env:USERPROFILE ".jdks") -Directory -Filter "*17*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+  $jdk = $cands | Where-Object { Test-Path (Join-Path $_ "bin\java.exe") } | Select-Object -First 1
+}
+$jdkArg = @()
+if($jdk){
+  $env:JAVA_HOME = $jdk
+  $env:Path = "$jdk\bin;$env:Path"
+  $jdkArg = @("-Dorg.gradle.java.home=$jdk")
+  Write-Host "JDK17: $jdk" -ForegroundColor DarkGray
+} else {
+  Write-Host "未探测到 JDK17，交由 gradlew 自行选择" -ForegroundColor Yellow
+}
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
-& ".\gradlew.bat" deploy --console=plain "-Dorg.gradle.java.home=$env:JAVA_HOME" | Out-Null
+& ".\gradlew.bat" deploy --console=plain @jdkArg | Out-Null
 if($LASTEXITCODE -ne 0){ Write-Host "BUILD FAIL" -ForegroundColor Red; Pop-Location; exit 1 }
 Write-Host "BUILD SUCCESS" -ForegroundColor Green
 # 部署一致性：最新产物同步到两个游戏模组目录
 # ① %APPDATA%\Mindustry\mods（默认数据目录）
 # ② D:\Games\Mindustry-HotReload\data\mods（热重载启动器 MINDUSTRY_DATA_DIR 指向的目录——漏掉它游戏会一直加载旧包）
-$jar = Get-ChildItem "build/libs/Silicon-*-v159.7.jar" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+# jar 名里的 Mindustry 版本从 build.gradle 的 mindustryVersion 现读，不再硬编码
+# （原写死 "Silicon-*-v159.7.jar"，版本一升就匹配不到，$jar 为 null 后 Copy-Item 抛错、部署半段崩）。
+$gameVersion = (Select-String -Path "build.gradle" -Pattern '^\s*mindustryVersion\s*=\s*"([^"]+)"').Matches.Groups[1].Value
+if(-not $gameVersion){ Write-Host "无法从 build.gradle 解析 mindustryVersion" -ForegroundColor Red; Pop-Location; exit 1 }
+$jar = Get-ChildItem "build/libs/Silicon-*-$gameVersion.jar" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if(-not $jar){ Write-Host "未找到产物 build/libs/Silicon-*-$gameVersion.jar（build/libs 实际内容：$((Get-ChildItem build/libs -ErrorAction SilentlyContinue | ForEach-Object Name) -join ', ')）" -ForegroundColor Red; Pop-Location; exit 1 }
 Copy-Item $jar.FullName "Silicon.mod.jar" -Force
 Write-Host "已部署 Silicon.mod.jar ($((Get-Item 'Silicon.mod.jar').Length) bytes)"
 $targets = @(
