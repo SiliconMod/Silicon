@@ -174,7 +174,7 @@ public class BlockSearch{
             .name("silicon-search-field").maxTextLength(64).get();
         field.setMessageText(Core.bundle.get("blocksearch.hint"));
         searchRow.button(Icon.cancel, Styles.clearNoneTogglei, BlockSearch::clearSearch).size(searchH).padLeft(6f).name("silicon-search-clear");
-        historyButton = searchRow.button(Icon.downOpen, Styles.clearNonei, BlockSearch::toggleHistory).size(38f).padLeft(4f)
+        historyButton = searchRow.button(Icon.downOpen, Styles.clearNonei, BlockSearch::toggleHistory).size(searchH).padLeft(4f)
             .name("silicon-search-history").tooltip(Core.bundle.get("blocksearch.history")).get();
         historyButton.visible = showHistoryEnabled(); //hot-applied every frame in update()
         searchRow.row();

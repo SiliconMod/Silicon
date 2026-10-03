@@ -41,7 +41,7 @@ import static mindustry.Vars.ui;
  * 交互：按住黄色按钮拖动，松手放置——拖到空白处生成新白色槽位；拖到已有槽位则并入该槽位；
  * 拖回红色框则移回红框，所在槽位空时槽位自动消失。每次放置都会同步到 weights[输入][输出] 并写入配置。
  * <p>
- * 整框调序：按住白框左侧的灰色拖动手柄拖动整框换位，拖拽时：
+ * 整框调序：白框整体（黄色按钮之外任意位置）按下拖动即可整框换位，原左侧灰手柄已移除。拖拽时：
  * - 白色拖拽影（含内部黄按钮）跟随鼠标移动；
  * - 被拖框就地渲染成灰色占位，随指针在 slotBoxes 列表内与其它白框实时交换位置（不重叠、松手才落位）；
  * - 松手后灰色占位恢复为白框，并按新顺序排布、写回权重。
@@ -328,17 +328,12 @@ public class UniversalJunctionDialog extends BaseDialog {
 
         /** 放入指定槽位 i，在该槽内按钮序列的指定位置插入（竖向排序） */
         void placeIntoSlot(Direction d, int i, int insert) {
-            int tLoc = locate(d);
             removeFrom(d);
             if (slotBoxes.size == 0) {
                 placeInRed(d);
                 return;
             }
-            int cur = slotContents.get(i).size;
-            if (tLoc == i) {
-                // 来源与目标同槽：removeFrom 已移除 d，落点相对「移除后」的列表计算
-                if (insert > cur) insert = cur;
-            }
+            // insert 语义为「移除 d 之后」的目标位置，越界一律 clamp 到当前列表长度
             insert = Mathf.clamp(insert, 0, slotContents.get(i).size);
             slotContents.get(i).insert(insert, d);
             rebuildSlotContents(i);
@@ -482,10 +477,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                     private float ghostW, ghostH; // 拖拽影的真实尺寸（灰色落点框与它对齐）
                     private boolean dragging; // 是否已进入整框拖动
                     private int srcIdx; // 拖动开始时被拖框的索引
-                    private float[] baseBottoms; // 基准布局下各白框底边的 stage y（拖动开始瞬刻快照）
-                    private float baseTop; // 基准布局下最顶白框顶边的 stage y
-                    private Vec2 slotBase; // slotLayer 原点(stage)坐标，用于把 stage 几何转局部坐标置位
-                    private float selfH; // 被拖框的真实配额高度 slotHeight(srcIdx)（灰框占位用，勿用 ghostH：差了 14px）
 
                     @Override
                     public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button) {
@@ -518,15 +509,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                             if (Math.abs(event.stageX - downX) + Math.abs(event.stageY - downY) < 8f) return;
                             srcIdx = rs.slotBoxes.indexOf(SlotBox.this);
                             if (srcIdx < 0) return;
-                            // 快照基准堆叠几何（只记录坐标，不修改布局树：不改 Cell/不增删子元素，
-                            // 避免 arc 对触摸焦点元素的 unfocus 重入 touchUp 杀死拖拽）
-                            baseBottoms = new float[rs.slotBoxes.size];
-                            for (int i = 0; i < rs.slotBoxes.size; i++) {
-                                baseBottoms[i] = rs.slotBoxes.get(i).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
-                            }
-                            baseTop = baseBottoms[0] + rs.slotHeight(0);
-                            slotBase = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).cpy();
-                            selfH = rs.slotHeight(srcIdx);
 
                             Table gh = buildGhost();
                             gh.touchable = Touchable.disabled;
@@ -1183,26 +1165,21 @@ public class UniversalJunctionDialog extends BaseDialog {
             toFront();
             ghost.toFront();
             visible = false;
-            // 拖出唯一按钮时隐藏来源白框（松手时恢复）
+            // 单次扫描定位来源框：拖出唯一按钮时隐藏来源白框；并快照框内按钮底边（框内排序预览用）
             for (int i = 0; i < rs.slotBoxes.size; i++) {
-                if (rs.slotContents.get(i).contains(Direction.this) && rs.slotContents.get(i).size == 1) {
+                Seq<Direction> c = rs.slotContents.get(i);
+                if (!c.contains(Direction.this)) continue;
+                srcBoxIdx = i;
+                srcBtnBaseBottoms = new float[c.size];
+                for (int j = 0; j < c.size; j++) {
+                    srcBtnBaseBottoms[j] = c.get(j).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
+                }
+                if (c.size == 1) {
                     RegionState.SlotBox box = rs.slotBoxes.get(i);
                     box.visible = false;
                     Direction.this.srcSlotBox = box;
-                    break;
                 }
-            }
-            // 快照来源框内按钮底边（框内排序预览用）
-            for (int i = 0; i < rs.slotBoxes.size; i++) {
-                if (rs.slotContents.get(i).contains(Direction.this)) {
-                    srcBoxIdx = i;
-                    Seq<Direction> c = rs.slotContents.get(i);
-                    srcBtnBaseBottoms = new float[c.size];
-                    for (int j = 0; j < c.size; j++) {
-                        srcBtnBaseBottoms[j] = c.get(j).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
-                    }
-                    break;
-                }
+                break;
             }
             return true;
         }

@@ -118,7 +118,8 @@ public class DualPurposeStorager extends StorageBlock {
 
             // 与原版 LiquidRouter 完全一致：drawTiledFrames 用 fluidFrames 动画帧画出条纹流动液面，
             // alpha 直接用填充比例（液体多则浓、少则淡），不额外做保底，保证与原版渐变一致。
-            // 依赖 Vars.renderer.fluidFrames（仅客户端可用），null 时跳过，防服务器端渲染崩溃。
+            // 依赖 Vars.renderer.fluidFrames（仅客户端可用）；正常渲染期 renderer 已就绪，
+            // 此处空判为防御性写法，防极端初始化时序下崩溃。
             if (liquids.currentAmount() > LIQUID_THRESHOLD && Vars.renderer != null) {
                 Liquid liq = liquids.current();
                 if (liq != null) {
