@@ -15,7 +15,7 @@ import silicon.util.SiliconLog;
  * 两用存储方块：可存储物品与单种液体。
  * 继承 StorageBlock，放置于核心旁可与核心连接并为核心扩容（同原版仓库）。
  * 同时通过 hasLiquids + dumpLiquid 提供液体存储与导管抽取能力。
- * 支持 bottomRegion/liquidRegion/topRegion 三层贴图，呈现与原版流体储罐一致的流动+颜色特效。
+ * 支持 bottomRegion/topRegion 两层静态贴图，中间液面用原版 drawTiledFrames 动态绘制（呈现与原版流体储罐一致的流动+颜色特效）。
  */
 @SuppressWarnings("SpellCheckingInspection")
 public class DualPurposeStorager extends StorageBlock {

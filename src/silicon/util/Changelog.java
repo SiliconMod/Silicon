@@ -50,6 +50,8 @@ public class Changelog {
     };
 
     private static final String SEEN_KEY = "silicon.changelog.seen";
+    /** 方块图标缓存：避免每次弹窗对每个条目重复 Vars.content.blocks() 线性查找 */
+    private static final arc.struct.ObjectMap<String, TextureRegion> iconCache = new arc.struct.ObjectMap<>();
 
     /**
      * 每次启动必弹：
@@ -109,11 +111,12 @@ public class Changelog {
             Entry e = entries.get(i);
 
             list.table(row -> {
-                TextureRegion icon = null;
-                // 优先取 mod 方块（silicon-<内部名>），再回退任何其后缀匹配的方块
-                Block block = Vars.content.blocks().find(b -> b.name.equals("silicon-" + e.item));
-                if (block == null) block = Vars.content.blocks().find(b -> b.name.endsWith("-" + e.item));
-                if (block != null) icon = block.uiIcon;
+                // 优先取 mod 方块（silicon-<内部名>），再回退任何其后缀匹配的方块；结果按 item 名缓存
+                TextureRegion icon = iconCache.get(e.item, () -> {
+                    Block block = Vars.content.blocks().find(b -> b.name.equals("silicon-" + e.item));
+                    if (block == null) block = Vars.content.blocks().find(b -> b.name.endsWith("-" + e.item));
+                    return block != null ? block.uiIcon : null;
+                });
                 if (icon != null) {
                     row.image(icon).size(48f * scl).padRight(10f).padTop(2f);
                 }

@@ -36,7 +36,7 @@ public class Switch extends Block {
         config(Boolean.class, (building, enabled) -> {
             Building front = building.front();
             // #28 只允许控制同队建筑
-            if (front == null || front.team != building.team) return;
+            if (front == null || front.team != building.team || front instanceof SwitchBuild) return;
             // #43 单次状态更新（不持续覆盖），并按该次设置刷新 switch 记忆状态
             front.enabled = enabled;
             if (building instanceof SwitchBuild sb) sb.fE = enabled;
@@ -154,7 +154,7 @@ public class Switch extends Block {
 
         @Override
         public Boolean config() {
-            return front() != null && front().enabled;
+            return fE;
         }
     }
 }

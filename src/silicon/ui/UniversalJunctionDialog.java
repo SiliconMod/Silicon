@@ -20,7 +20,6 @@ import arc.scene.ui.layout.Cell;
 import arc.scene.ui.layout.Table;
 import arc.struct.Seq;
 import arc.util.Align;
-import arc.util.Log;
 import arc.util.Tmp;
 import mindustry.gen.Icon;
 import mindustry.gen.Tex;
@@ -101,7 +100,6 @@ public class UniversalJunctionDialog extends BaseDialog {
     }
 
     public void setup() {
-        Log.info("[UJBUILD] rev=20261001B");
         allRegions.clear(); // shown → setup 可能多次调用：先清空，避免 re-show 时累积陈旧区域状态
         cont.table(grid -> {
             grid.margin(10f);
@@ -539,11 +537,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                             baseTop = baseBottoms[0] + rs.slotHeight(0);
                             slotBase = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).cpy();
                             selfH = rs.slotHeight(srcIdx);
-                            StringBuilder sb0 = new StringBuilder();
-                            for (int i = 0; i < rs.slotBoxes.size; i++) {
-                                sb0.append("b").append(i).append('@').append((int) baseBottoms[i]).append('h').append((int) rs.slotHeight(i)).append(' ');
-                            }
-                            Log.info("[UJDBG] start baseTop=@ selfH=@ srcIdx=@ | @", (int) baseTop, (int) selfH, srcIdx, sb0);
 
                             Table gh = buildGhost();
                             gh.touchable = Touchable.disabled;
@@ -578,7 +571,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                     @Override
                     public void touchUp(InputEvent event, float x, float y, int pointer, KeyCode button) {
                         if (!dragging) return; // 单击（未拖动）：不换位、无痕迹
-                        Log.info("[UJ] whole-drag end");
                         dragging = false;
                         float sx = event.stageX;
                         float sy = event.stageY;
@@ -589,7 +581,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                         removePlaceGhost();
                         rs.clearDragPreview();
                         // 白框顺序已在拖动过程中实时换好，松手只需恢复外观并同步权重
-                        Log.info("[UJDBG] drop src=@", rs.slotBoxes.indexOf(SlotBox.this));
                         rs.syncWeights();
                     }
 
@@ -663,7 +654,6 @@ public class UniversalJunctionDialog extends BaseDialog {
                             rs.slotContents.insert(ti, c);
                             // 就地重排（不 detach，避免触发合成 touchUp 把未松手的拖拽提前放置）
                             rs.applySlotOrder();
-                            Log.info("[UJDBG] whole move src=@ -> @", src, ti);
                         }
                     }
 
@@ -769,9 +759,7 @@ public class UniversalJunctionDialog extends BaseDialog {
         RegionState.SlotBox srcSlotBox; // 拖出唯一按钮时被隐藏的来源白框（松手时恢复）
 
         // —— 拖动预览用的基准几何快照（dragStart 时采集，仅 setPosition 手绘，不增删布局树）——
-        float boxBaseTop;        // 基准布局下最顶白框顶边的 stage y
         boolean boxReflowActive; // 是否已手动重排过白框（空白/新建槽位预览）
-        Vec2 slotBase;           // slotLayer 原点(stage)坐标，用于把 stage 几何转局部置位
         int srcBoxIdx = -1;      // 来源白框索引（拖拽开始时按钮所在框），-1=不在框内
         boolean inBoxReflowActive; // 是否正在对来源框内按钮做手动重排
         float[] srcBtnBaseBottoms; // 来源框内各按钮底边 stage y 的快照（拖拽开始时）
@@ -797,8 +785,6 @@ public class UniversalJunctionDialog extends BaseDialog {
 
 addListener(new InputListener() {
                 private Table hint; // 灰色落点提示框（root 层，按钮大小一致）
-                private int lastDbgRow = -1; // [UJDBG] 上次框内预览行（抑制重复日志）
-                private int lastDbgBoxIns = -2; // [UJDBG] 上次新建槽位预览 ins（抑制重复日志）
 
                 @Override
                 public boolean touchDown(InputEvent event, float x, float y, int pointer, KeyCode button) {
@@ -1059,17 +1045,6 @@ addListener(new InputListener() {
                     }
                     // 说明：被拖按钮自身保持 visible=false（占位 row 显示灰色框），stay 原位
                     if (ghost != null) ghost.toFront();
-                    if (lastDbgRow != previewRow) {
-                        lastDbgRow = previewRow;
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = 0; i < contents.size; i++) {
-                            Direction dd = contents.get(i);
-                            float ay = dd.localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
-                            sb.append(dd == Direction.this ? 'X' : (char) ('0' + i)).append('=').append((int) ay).append(' ');
-                        }
-                        Log.info("[UJDBG] inBox n=@ srcBtn=@ idx=@ row=@ slotTop=@ grayBottom=@ | @",
-                                n, srcBtn, idx, previewRow, (int) slotTop, (int) (slotTop - BTN_H - previewRow * pitch), sb);
-                    }
                 }
 
                 /** 白框序列的新建槽位预览：依据「实时/显示几何」手动把各白框重排并绘制灰色占位。
@@ -1132,16 +1107,6 @@ addListener(new InputListener() {
                     }
                     placeVisByTop(top);
                     showHintBox(fixedHintCenterX(), previewBottom, BTN_H, buttonWidth());
-                    if (lastDbgBoxIns != ins) {
-                        lastDbgBoxIns = ins;
-                        StringBuilder sb = new StringBuilder();
-                        for (int j = 0; j < nAll; j++) {
-                            float ay = rs.slotBoxes.get(j).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y;
-                            sb.append('b').append(j).append('=').append((int) ay).append(' ');
-                        }
-                        Log.info("[UJDBG] boxReflow nAll=@ phant=@ ins=@ previewBottom=@ baseTop=@ | @",
-                                nAll, phantIdx, ins, (int) previewBottom, (int) boxBaseTop, sb);
-                    }
                     if (ghost != null) ghost.toFront();
                 }
 
@@ -1265,12 +1230,6 @@ addListener(new InputListener() {
                     Direction.this.srcSlotBox = box;
                     break;
                 }
-            }
-            // 快照白框基准堆叠几何（空白/新建槽位预览用，与整框拖动同口径）
-            if (rs.slotBoxes.size > 0) {
-                boxBaseTop = rs.slotBoxes.get(0).localToStageCoordinates(Tmp.v1.set(0f, 0f)).y
-                        + rs.slotHeight(0);
-                slotBase = rs.slotLayer.localToStageCoordinates(Tmp.v2.set(0f, 0f)).cpy();
             }
             // 快照来源框内按钮底边（框内排序预览用）
             for (int i = 0; i < rs.slotBoxes.size; i++) {
